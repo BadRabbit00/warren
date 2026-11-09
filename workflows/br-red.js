@@ -82,7 +82,7 @@ function shellQuote(s) {
 }
 
 function hashCommand(paths) {
-  return `set -o pipefail; ${listFiles(paths)} | sort -z | xargs -0 -r sha256sum | sha256sum`
+  return `set -o pipefail; ${listFiles(paths)} | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum`
 }
 
 function listFiles(paths) {
@@ -163,10 +163,11 @@ function redCheck(plan) {
       { agentType: 'test-runner', phase: 'Red check', label: `${task.id} test-runner`, schema: RUN_SCHEMA },
     )
     const failing = run ? run.per_test.filter((t) => t.outcome === 'fail' || t.outcome === 'error') : []
-    const red_ok = Boolean(run) && run.errors === 0 && run.failed > 0 &&
+    const red_ok = Boolean(run) && writer.tests.length > 0 && run.errors === 0 && run.failed > 0 &&
       failing.every((t) => t.verdict === 'right_reason') &&
       run.files_hashed > 0 &&
       writer.tests.every((w) => failing.some((t) => nameMatches(t.name, w.name)))
+    if (writer.tests.length === 0) log(`${task.id} red not ok: test-writer listed no tests`)
     if (run && run.files_hashed === 0) log(`${task.id} red not ok: tests hash covers no files`)
     log(`${task.id} red: ${run ? `${run.failed} failed, ${run.errors} errors, ${run.passed} passed` : 'no run'} -> ${red_ok ? 'ok' : 'NOT ok'}`)
     return { id: task.id, writer, run, red_ok }

@@ -76,7 +76,7 @@ function shellQuote(s) {
 }
 
 function hashCommand(paths) {
-  return `set -o pipefail; ${listFiles(paths)} | sort -z | xargs -0 -r sha256sum | sha256sum`
+  return `set -o pipefail; ${listFiles(paths)} | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum`
 }
 
 function listFiles(paths) {

@@ -121,10 +121,15 @@ function pickReviewers(task) {
   return names
 }
 
+// Plan-derived paths are shell-quoted before they go into a command.
+function shellQuote(s) {
+  return "'" + String(s).split("'").join("'\\''") + "'"
+}
+
 function reviewTask(plan) {
   return async (task) => {
     const reviewers = pickReviewers(task)
-    const paths = [...task.writes, ...task.tests].join(' ')
+    const paths = [...task.writes, ...task.tests].map(shellQuote).join(' ')
     const prompt = (name) =>
       `Review task ${task.id} — ${task.name} as ${name}. Read-only: do not edit files, do not commit.\n` +
       `Diff: git diff $(git merge-base ${BASE} HEAD)...HEAD -- ${paths}\n` +
@@ -159,8 +164,9 @@ function verifyTask() {
             )),
         )
         const got = verdicts.filter(Boolean)
-        const upheld = got.filter((v) => !v.refuted).length
-        const verdict = got.length < 2 ? 'unverified' : upheld >= 2 ? 'survives' : 'refuted'
+        const refutedN = got.filter((v) => v.refuted).length
+        const upheld = got.length - refutedN
+        const verdict = got.length < 2 ? 'unverified' : refutedN >= 2 ? 'refuted' : upheld >= 2 ? 'survives' : 'unverified'
         return { ...f, verdict, verdicts: got }
       }),
     )
