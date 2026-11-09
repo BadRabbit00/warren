@@ -24,7 +24,7 @@ style and in the subagent contract.
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
 ├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests
 ├── tools/                       # validate.py (structure checks), measure_tokens.py, tests
-├── agent-models.json            # pinned model + effort per agent; the build writes them into frontmatter
+├── agent-models.json            # pinned model + effort per agent for Claude, Codex and agy; the build writes them into the exports
 ├── settings.fragment.json       # merged into ~/.claude/settings.json (env, outputStyle)
 ├── _templates/                  # how to write an agent / rule / skill — NOT installed
 └── nix/, flake.nix              # packaging
@@ -112,10 +112,37 @@ the build if an agent or rule has no `Bad:`/`Good:` pair; exemptions live in `to
 - Skills: `skills/<name>/SKILL.md`, `name:` equals the directory.
 - Hooks: `guard_*.py` deny before a tool call, `check_*.py` warn after it, `fix_*.py` repair after it.
 
+
+## Codex and Antigravity exports
+
+The same agents, commands and skills are exported for Codex CLI and for Antigravity CLI (`agy`), so a
+consumer can lay them out into `~/.codex` and `~/.gemini/config` next to the Claude tree. The payload
+writes them from the finished Claude tree, after the model pins and the subagent contract are in:
+
+| Path in `$out` | Content |
+|---|---|
+| `codex/agents/<name>.toml` | one Codex role per agent: `name`, `description`, `model`, `model_reasoning_effort`, `sandbox_mode`, `developer_instructions` (the agent body as a TOML literal string) |
+| `codex/agents.toml` | `[agents.<name>]` entries with `-` replaced by `_` in the key (`config_file`, `description`) to merge into `~/.codex/config.toml` |
+| `codex/prompts/<command>.md` | every command except `ask-astra` and `write-astra`, frontmatter stripped, `# /<command>` header |
+| `codex/skills/` | copy of `claude/skills/` |
+| `codex/AGENTS.md`, `agy/AGENTS.md` | `core/CLAUDE.md` plus a generated list of the subagents; identical files, under 24 000 bytes |
+| `agy/agents/<name>.md` | one agy custom agent per agent: `name`, `description`, `model` (tier), `subagent: true`, `mainAgent: true`, `inheritMcp: false`, then the body |
+
+What does not carry over, because the other CLIs have no equivalent: `tools`, `disallowedTools`,
+`maxTurns`, the orchestrator output style and the hooks. Codex agents with no Write, Edit, MultiEdit or NotebookEdit left in
+`tools` after removing `disallowedTools` get `sandbox_mode = "read-only"` (Bash does not count: the read-only sandbox still runs commands,
+only without writes); the rest get `workspace-write`.
+
+Models per CLI live next to the Claude pins in `agent-models.json` (`codex.model`, `codex.effort`,
+`agy.model`). The agy field accepts only the tiers `inherit`, `flash_lite`, `flash`, `pro`; a full model id
+makes agy drop the agent. The build fails when an agent lacks these fields, when its description is empty or a YAML
+block scalar, when a description or body contains a control character or `'''`, or when a generated TOML file does
+not parse back with the expected keys. Agent names must match `[a-z][a-z0-9-]*` and must not collide with a codex
+`[agents]` field after `-` becomes `_`.
 ## Adding something
 
 1. Copy the matching file from `_templates/` and fill it in.
-2. For an agent, add its model and effort to `agent-models.json`.
+2. For an agent, add its Claude model and effort plus the `codex` and `agy` entries to `agent-models.json`.
 3. `nix develop -c python3 tools/validate.py .` (it also runs inside the build).
 4. `nix build .#br-payload` and inspect `result/claude/`.
 
@@ -123,7 +150,7 @@ the build if an agent or rule has no `Bad:`/`Good:` pair; exemptions live in `to
 
 | Output | What |
 |---|---|
-| `packages.br-payload` | `$out/claude/{CLAUDE.md,agents,skills,commands,rules/br,output-styles,br/templates}`, `$out/settings.fragment.json`, `$out/hooks.json`, `$out/LICENSE`. The validator and the Python test suites run in `checkPhase`; `installCheckPhase` runs `br-hook` once the way Claude Code does. |
+| `packages.br-payload` | `$out/claude/{CLAUDE.md,agents,skills,commands,rules/br,output-styles,br/templates}`, `$out/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `$out/agy/{agents,AGENTS.md}`, `$out/settings.fragment.json`, `$out/hooks.json`, `$out/LICENSE`. The validator and the Python test suites run in `checkPhase`; `installCheckPhase` runs `br-hook` once the way Claude Code does. |
 | `packages.br-hook` | `br-hook <entry>` wrapper for `hooks/*.py` with the pinned Python |
 | `lib.mk { pkgs, ... }` | `{ payload, hook, python }` for consumers; extra arguments such as `lib` are accepted and ignored |
 | `checks.payload` | the payload build |
@@ -138,7 +165,9 @@ let warren = inputs.warren.lib.mk { inherit pkgs; };   # also accepts { inherit 
 in {
   # lay out warren.payload/claude/* into ~/.claude, install core/CLAUDE.md as ~/.claude/CLAUDE.md,
   # deep-merge warren.payload/settings.fragment.json and merge warren.payload/hooks.json by id into settings.json,
-  # put warren.hook on PATH for the hooks
+  # put warren.hook on PATH for the hooks;
+  # lay out warren.payload/codex/* into ~/.codex (merge codex/agents.toml into config.toml)
+  # and warren.payload/agy/agents into ~/.gemini/config/agents
 }
 ```
 

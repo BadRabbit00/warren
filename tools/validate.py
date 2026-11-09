@@ -23,6 +23,8 @@ RULE_HEADING = re.compile(r"^###\s+(R-[A-Z0-9]+(?:-[A-Z0-9]+)+)\b", re.M)
 # pair with a Good: of the next.
 PAIR = re.compile(r"^Bad:\s*\n```[^\n]*\n.*?\n```.*?^Good:\s*\n```[^\n]*\n.*?\n```", re.M | re.S)
 HEADING = re.compile(r"#{1,3}\s")
+# A quoted description whose inner text needs YAML unescaping ('' in single quotes, a backslash in double quotes).
+YAML_ESCAPES = re.compile(r"'.*''.*'|\".*\\.*\"")
 BLOCK_KEY = re.compile(r"([A-Za-z_][\w-]*):\s*$")
 
 
@@ -142,12 +144,23 @@ def fence_tags(body: str) -> tuple[list[str], bool]:
 
 # ---------------------------------------------------------------- checks
 
+LIST_KEYS = (
+    "allowedModels", "allowedEffort", "agyModels", "requiredDisallowed", "forbiddenDescriptionWords",
+    "examplesExempt", "hookEvents", "docTemplates", "buildIsolated", "useWhenExempt",
+    "codexReservedAgentKeys",
+)
+
+
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
         cfg = json.loads((root / "tools" / "validate.json").read_text(encoding="utf-8"))
         if not isinstance(cfg, dict):
             raise TypeError("tools/validate.json: top level must be an object")
+        for key in LIST_KEYS:
+            val = cfg.get(key, [])
+            if not isinstance(val, list) or not all(isinstance(v, str) for v in val):
+                raise TypeError(f"tools/validate.json: {key} must be a list of strings")
         self.cfg = cfg
         self.errors: list[str] = []
         self.rule_ids: dict[str, Path] = {}
@@ -243,9 +256,19 @@ class Validator:
             names.append(name)
             if name != p.stem:
                 self.err(p, f"name '{name}' != file name '{p.stem}'")
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+                self.err(p, f"name '{name}' must match [a-z][a-z0-9-]*")
+            elif name.replace("-", "_") in self.cfg.get("codexReservedAgentKeys", []):
+                self.err(p, f"name '{name}' is reserved by codex [agents] ({name.replace('-', '_')})")
             desc = scalar(fm.get("description")).strip()
+            raw_description = next((ln.split(":", 1)[1].strip() for ln in (raw[0] if raw else "").splitlines()
+                                    if ln.startswith("description:")), "")
             if not desc:
                 self.err(p, "description missing")
+            elif desc[0] in ">|":
+                self.err(p, "description must be one plain line (no block scalar)")
+            elif YAML_ESCAPES.fullmatch(raw_description):
+                self.err(p, "description uses YAML escapes; write it plainly or without quotes")
             # buildIsolated agents get isolation fields from nix/payload.py at build time.
             built = name in self.cfg.get("buildIsolated", [])
             checked = desc
@@ -272,6 +295,8 @@ class Validator:
                 self.err(p, f"model must be one of {self.cfg['allowedModels']}")
             if "effort" in fm and scalar(fm["effort"]) not in self.cfg["allowedEffort"]:
                 self.err(p, f"effort must be one of {self.cfg['allowedEffort']}")
+            if "'''" in body:
+                self.err(p, "body contains ''' (terminates the TOML literal string of the codex export)")
             count = self.lines(body)
             if count > self.cfg["limits"]["agent"]:
                 self.err(p, f"body {count} lines > limit {self.cfg['limits']['agent']}")
@@ -387,10 +412,28 @@ class Validator:
         for name, spec in models.items():
             if name not in agent_names:
                 self.err(m, f"'{name}' is not an agent in agents/")
-            if not isinstance(spec, dict) or not str(spec.get("model", "")).startswith("claude-"):
+            if not isinstance(spec, dict):
+                self.err(m, f"'{name}': model must be a full claude-* id")
+                continue
+            if not str(spec.get("model", "")).startswith("claude-"):
                 self.err(m, f"'{name}': model must be a full claude-* id")
             elif spec.get("effort") not in self.cfg["allowedEffort"]:
                 self.err(m, f"'{name}': bad effort")
+            codex = spec.get("codex")
+            if not isinstance(codex, dict):
+                self.err(m, f"'{name}': codex must be an object with model and effort")
+            else:
+                cmodel = codex.get("model")
+                if not isinstance(cmodel, str) or not cmodel.strip():
+                    self.err(m, f"'{name}': codex.model {cmodel!r} must be a non-empty string")
+                ceffort = codex.get("effort")
+                if ceffort not in self.cfg["allowedEffort"]:
+                    self.err(m, f"'{name}': codex.effort {ceffort!r} not in allowedEffort")
+            agy = spec.get("agy")
+            if not isinstance(agy, dict):
+                self.err(m, f"'{name}': agy must be an object with model")
+            elif agy.get("model") not in self.cfg["agyModels"]:
+                self.err(m, f"'{name}': agy.model {agy.get('model')!r} not in agyModels")
 
     def check_hooks(self) -> None:
         """hooks/hooks.json: unique br:* ids, descriptions, `@BR_HOOK@ <entry>` commands with existing entries."""

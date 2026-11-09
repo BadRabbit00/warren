@@ -1,97 +1,258 @@
 {
-  "$comment": "Pinned Claude model + effort per agent installed by the br payload. Every agent in agents/ must be listed, or the build fails. Aliases map: sonnet=claude-sonnet-5-5, opus=claude-opus-5-5, haiku=claude-haiku-5-5, fable=claude-fable-5-1.",
+  "$comment": "Pinned Claude model + effort per agent installed by the br payload. Every agent in agents/ must be listed, or the build fails. Aliases map: sonnet=claude-sonnet-5-5, opus=claude-opus-5-5, haiku=claude-haiku-5-5, fable=claude-fable-5-1. Each agent also carries codex {model, effort} and agy {model}: agy accepts only the tiers inherit|flash_lite|flash|pro; codex model_reasoning_effort (effort) must be in allowedEffort.",
   "agents": {
     "presenter": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "test-writer": {
       "model": "claude-sonnet-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "coder": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "refactorer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "test-runner": {
       "model": "claude-haiku-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-luna",
+        "effort": "medium"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "build-fixer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "db-reviewer": {
       "model": "claude-opus-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "optimizer": {
       "model": "claude-opus-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "code-reviewer": {
       "model": "claude-opus-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "python-reviewer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "go-reviewer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "rust-reviewer": {
       "model": "claude-sonnet-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "ts-react-reviewer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "flutter-dart-reviewer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "security-reviewer": {
       "model": "claude-opus-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "researcher": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "architect-critic": {
       "model": "claude-opus-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "ui-verifier": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "nix-architect": {
       "model": "claude-opus-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "nix-engineer": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "nix-reviewer": {
       "model": "claude-opus-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "nix-build-resolver": {
       "model": "claude-opus-5-5",
-      "effort": "high"
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     },
     "nix-test-runner": {
       "model": "claude-sonnet-5-5",
-      "effort": "medium"
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     }
   }
 }

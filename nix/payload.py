@@ -7,7 +7,9 @@ The shell part of the build has already copied files into $out. This script:
      agents, no "Use PROACTIVELY"); a no-op for fields an agent already has;
   3. injects core/subagent-contract.md after the frontmatter of every agent;
   4. writes hooks.json with the pinned br-hook path;
-  5. runs the output self-checks. Any miss exits non-zero and fails the build.
+  5. runs the output self-checks;
+  6. exports the finished Claude tree to out/codex and out/agy.
+Any miss exits non-zero and fails the build.
 
 Usage: payload.py <out> <repo-root> <br-hook-exe>
 Stdlib only.
@@ -16,7 +18,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 # Skills each Nix agent is told to read in its body. The Skill tool is disabled for
@@ -28,6 +32,10 @@ NIX_AGENT_SKILLS = {
     "nix-test-runner": ["nix-testing"],
 }
 CONTRACT_HEADING = "## Contract (all br subagents)"
+WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
+AGENTS_MD_LIMIT = 24_000  # agy reads at most 24 000 bytes per rules file; codex allows more
 
 errors: list[str] = []
 
@@ -101,6 +109,127 @@ def hooks_shape_ok(hooks: object) -> bool:
                 fail(f"hooks/hooks.json: {event}: every entry needs a 'hooks' list of objects with a string 'command'")
                 ok = False
     return ok
+
+
+ROLE_KEYS = {"name", "description", "model", "model_reasoning_effort", "sandbox_mode", "developer_instructions"}
+
+
+def codex_toml_check(codex: Path, expected: int) -> None:
+    """Parse every generated codex TOML file and check its exact key set."""
+    before = len(errors)
+    files = sorted((codex / "agents").glob("*.toml"))
+    if len(files) != expected:
+        fail(f"codex toml: {len(files)} role files, expected {expected}")
+    for f in files:
+        try:
+            keys = set(tomllib.loads(f.read_text(encoding="utf-8")))
+        except tomllib.TOMLDecodeError as exc:
+            fail(f"codex/agents/{f.name}: invalid TOML: {exc}")
+            continue
+        if keys != ROLE_KEYS:
+            fail(f"codex/agents/{f.name}: keys {sorted(keys)} != {sorted(ROLE_KEYS)}")
+    try:
+        tables = tomllib.loads((codex / "agents.toml").read_text(encoding="utf-8")).get("agents", {})
+    except tomllib.TOMLDecodeError as exc:
+        fail(f"codex/agents.toml: invalid TOML: {exc}")
+        return
+    if len(tables) != expected:
+        fail(f"codex/agents.toml: {len(tables)} tables, expected {expected}")
+    for key, entry in tables.items():
+        if not isinstance(entry, dict) or set(entry) != {"config_file", "description"}:
+            fail(f"codex/agents.toml: [agents.{key}] must have exactly config_file and description")
+    if len(errors) == before:
+        print(f"codex toml ok: {expected} roles, agents.toml")
+
+
+def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, str]]]) -> tuple[int, int]:
+    """Step 6: codex and agy trees from the finished Claude tree. Returns (agents, prompts)."""
+    claude = out / "claude"
+    codex_agents = out / "codex" / "agents"
+    agy_agents = out / "agy" / "agents"
+    prompts_dir = out / "codex" / "prompts"
+    for d in (codex_agents, agy_agents, prompts_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    entries: list[str] = []
+    subagents: list[str] = []
+    for p in sorted((claude / "agents").glob("*.md")):
+        name = p.stem
+        try:
+            fm, body = split(p.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            fail(f"agents/{name}.md: {exc}")
+            continue
+        desc = get(fm, "description") or ""
+        if not desc or desc[0] in ">|":
+            fail(f"agents/{name}.md: description must be one plain non-empty line (no block scalar)")
+            continue
+        if len(desc) >= 2 and desc[0] == desc[-1] and desc[0] in "\"'":
+            quote = desc[0]
+            desc = desc[1:-1]
+            if ("''" if quote == "'" else "\\") in desc:
+                fail(f"agents/{name}.md: description uses YAML escapes; write it plainly or without quotes")
+                continue
+        if CONTROL_CHARS.search(desc + body):
+            fail(f"agents/{name}.md: description or body contains a control character")
+            continue
+        if "'''" in body:
+            fail(f"agents/{name}.md: body contains ''' which would end the TOML literal string in codex/agents/{name}.toml")
+            continue
+        try:
+            codex, agy = models[name]["codex"], models[name]["agy"]
+            cmodel, ceffort, tier = codex["model"], codex["effort"], agy["model"]
+        except (KeyError, TypeError) as exc:
+            fail(f"agents/{name}.md: agent-models.json has no usable {exc} entry for codex/agy")
+            continue
+        if not all(isinstance(v, str) and v.strip() for v in (cmodel, ceffort, tier)):
+            fail(f"agents/{name}.md: agent-models.json codex.model, codex.effort and agy.model must be non-empty strings")
+            continue
+        granted = set(as_list(get(fm, "tools"))) - set(as_list(get(fm, "disallowedTools")))
+        sandbox = "workspace-write" if WRITE_TOOLS & granted else "read-only"
+        quoted = json.dumps(desc, ensure_ascii=False)
+        (codex_agents / f"{name}.toml").write_text(
+            f"name = {json.dumps(name)}\n"
+            f"description = {quoted}\n"
+            f"model = {json.dumps(cmodel)}\n"
+            f"model_reasoning_effort = {json.dumps(ceffort)}\n"
+            f"sandbox_mode = {json.dumps(sandbox)}\n"
+            f"developer_instructions = '''\n{body.strip("\n")}\n'''\n",
+            encoding="utf-8",
+        )
+        entries.append(f'[agents.{name.replace("-", "_")}]\nconfig_file = "agents/{name}.toml"\ndescription = {quoted}\n')
+        (agy_agents / f"{name}.md").write_text(
+            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\ninheritMcp: false\n---\n\n{body.lstrip("\n")}",
+            encoding="utf-8",
+        )
+        subagents.append(f"- `{name}` — {desc} (codex: {cmodel}/{ceffort}; agy: {tier})")
+    (out / "codex" / "agents.toml").write_text("\n".join(entries), encoding="utf-8")
+
+    codex_toml_check(out / "codex", len(subagents))
+
+    prompts = 0
+    for p in sorted((claude / "commands").glob("*.md")):
+        if p.stem in SKIPPED_PROMPTS:
+            continue
+        try:
+            _, body = split(p.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            fail(f"commands/{p.name}: {exc}")
+            continue
+        body = body.lstrip("\n")
+        first = next((ln for ln in body.splitlines() if ln.strip()), "")
+        if first.strip() != f"# /{p.stem}":
+            body = f"# /{p.stem}\n\n{body}"
+        (prompts_dir / p.name).write_text(body, encoding="utf-8")
+        prompts += 1
+
+    shutil.copytree(claude / "skills", out / "codex" / "skills", copy_function=shutil.copyfile)
+    core = (br / "core" / "CLAUDE.md").read_text(encoding="utf-8")
+    agents_md = core.rstrip("\n") + "\n\n## Subagents\n\n" + "\n".join(subagents) + "\n"
+    if len(agents_md.encode("utf-8")) > AGENTS_MD_LIMIT:
+        fail(f"AGENTS.md: {len(agents_md.encode('utf-8'))} bytes, limit {AGENTS_MD_LIMIT}")
+    for tool in ("codex", "agy"):
+        (out / tool / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+    return len(subagents), prompts
 
 
 def main() -> int:
@@ -235,6 +364,8 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
+    n_codex, n_prompts = export_codex_agy(out, br, models)
+
     if errors:
         print("br payload self-check failed:", file=sys.stderr)
         for msg in errors:
@@ -243,7 +374,8 @@ def main() -> int:
     print(f"br payload: {len(list(agents_dir.glob('*.md')))} agents, "
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
-          f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules — self-checks passed")
+          f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
+          f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 
 

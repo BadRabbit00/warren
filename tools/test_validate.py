@@ -79,25 +79,36 @@ log.info("x", x=x)
 """
 
 
+def make_root(tmp: Path) -> Path:
+    """Copies the shipped tree (explicit allowlist) into tmp/br and returns that root."""
+    root = tmp / "br"
+    root.mkdir()
+    # Explicit allowlist (mirrors the payload.nix fileset): copying the repo root would follow
+    # .direnv symlinks into /nix/store and fail to clean up read-only files.
+    for name in COPIED:
+        src = REPO / name
+        if src.is_dir():
+            shutil.copytree(
+                src, root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
+                copy_function=shutil.copyfile,  # a read-only source tree must not give read-only copies
+            )
+        else:
+            shutil.copyfile(src, root / name)
+    return root
+
+
 class ValidateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.root = self.tmp / "br"
-        self.root.mkdir()
-        # Explicit allowlist (mirrors the payload.nix fileset): copying the repo root would follow
-        # .direnv symlinks into /nix/store and fail to clean up read-only files.
-        for name in COPIED:
-            src = REPO / name
-            if src.is_dir():
-                shutil.copytree(
-                    src, self.root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
-                    copy_function=shutil.copyfile,  # a read-only source tree must not give read-only copies
-                )
-            else:
-                shutil.copyfile(src, self.root / name)
+        self.root = make_root(self.tmp)
         models = json.loads((self.root / "agent-models.json").read_text(encoding="utf-8"))
-        models["agents"]["demo-agent"] = {"model": "claude-sonnet-5-5", "effort": "medium"}
+        models["agents"]["demo-agent"] = {
+            "model": "claude-sonnet-5-5",
+            "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"},
+            "agy": {"model": "flash"},
+        }
         (self.root / "agent-models.json").write_text(json.dumps(models), encoding="utf-8")
 
     def run_validator(self) -> list[str]:
@@ -364,6 +375,176 @@ Why: injection.
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("demo-agent: no frontmatter", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
+
+
+class ModelTableTest(unittest.TestCase):
+    """agent-models.json codex/agy schema and the TOML-literal guard on agent bodies."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = make_root(self.tmp)
+        # A complete, valid table written here, so the tests do not depend on the repo's own file content.
+        self.models_path = self.root / "agent-models.json"
+        models = json.loads(self.models_path.read_text(encoding="utf-8"))
+        for spec in models["agents"].values():
+            spec["codex"] = {"model": "gpt-6-astra", "effort": "high"}
+            spec["agy"] = {"model": "flash"}
+        self.save(models)
+        self.names = sorted(models["agents"])
+
+    def load(self) -> dict[str, dict[str, dict[str, object]]]:
+        data: dict[str, dict[str, dict[str, object]]] = json.loads(self.models_path.read_text(encoding="utf-8"))
+        return data
+
+    def save(self, models: dict[str, dict[str, dict[str, object]]]) -> None:
+        self.models_path.write_text(json.dumps(models), encoding="utf-8")
+
+    def findings_for(self, name: str, baseline: list[str]) -> list[str]:
+        """New findings (absent from the baseline run) about exactly this agent.
+
+        Model-table findings read "agent-models.json: '<name>': ...", body findings "agents/<name>.md: ...".
+        """
+        mine = (f"agent-models.json: '{name}':", f"agents/{name}.md:")
+        return [e for e in validate.Validator(self.root).run() if e not in baseline and e.startswith(mine)]
+
+    def test_models_complete_table_is_clean(self) -> None:
+        self.assertEqual(validate.Validator(self.root).run(), [])
+
+    def test_models_require_codex_and_agy(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        no_codex, no_agy = self.names[0], self.names[1]
+        models = self.load()
+        del models["agents"][no_codex]["codex"]
+        del models["agents"][no_agy]["agy"]
+        self.save(models)
+        self.assertTrue(any("codex" in e for e in self.findings_for(no_codex, baseline)), no_codex)
+        self.assertTrue(any("agy" in e for e in self.findings_for(no_agy, baseline)), no_agy)
+
+    def test_agy_model_vocabulary(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        bad, good = self.names[0], self.names[1]
+        models = self.load()
+        models["agents"][bad]["agy"] = {"model": "gemini-4-argon-high"}
+        models["agents"][good]["agy"] = {"model": "flash"}
+        self.save(models)
+        self.assertTrue(
+            any("gemini-4-argon-high" in e for e in self.findings_for(bad, baseline)), bad,
+        )
+        self.assertEqual(self.findings_for(good, baseline), [])
+
+    def test_codex_effort_vocabulary(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        bad = self.names[0]
+        models = self.load()
+        models["agents"][bad]["codex"] = {"model": "gpt-6-astra", "effort": "ultra"}
+        self.save(models)
+        self.assertTrue(any("ultra" in e for e in self.findings_for(bad, baseline)), bad)
+
+    def test_models_reject_wrong_shapes(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        list_codex, str_agy, int_model, blank_model = self.names[:4]
+        models = self.load()
+        models["agents"][list_codex]["codex"] = ["x"]
+        models["agents"][str_agy]["agy"] = "flash"
+        models["agents"][int_model]["codex"] = {"model": 5, "effort": "high"}
+        models["agents"][blank_model]["codex"] = {"model": "   ", "effort": "high"}
+        self.save(models)
+        for name in (list_codex, str_agy, int_model, blank_model):
+            self.assertTrue(self.findings_for(name, baseline), name)  # reports, does not raise
+
+    def test_config_list_keys_must_be_lists(self) -> None:
+        path = self.root / "tools" / "validate.json"
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        cfg["agyModels"] = "flash"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        with self.assertRaises(TypeError):
+            validate.Validator(self.root).run()
+        err = io.StringIO()
+        argv = sys.argv
+        sys.argv = ["validate.py", str(self.root)]
+        try:
+            with redirect_stderr(err):
+                rc = validate.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(rc, 2)
+
+    def set_description(self, name: str, replacement: str) -> None:
+        path = self.root / "agents" / f"{name}.md"
+        lines = path.read_text(encoding="utf-8").split("\n")
+        index = next(i for i, ln in enumerate(lines) if ln.startswith("description:"))
+        lines[index] = replacement
+        path.write_text("\n".join(lines), encoding="utf-8")
+
+    def test_description_block_scalar_is_a_finding(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        folded, literal = self.names[0], self.names[1]
+        self.set_description(folded, "description: >-\n  Reviews code across\n  several lines.")
+        self.set_description(literal, "description: |\n  Reviews code across\n  several lines.")
+        for name in (folded, literal):
+            with self.subTest(agent=name):
+                self.assertTrue(any("description" in e for e in self.findings_for(name, baseline)), name)
+
+    def test_quoted_description_with_yaml_escapes_is_a_finding(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        single, double, plain = self.names[0], self.names[1], self.names[2]
+        self.set_description(single, "description: 'It''s fine.'")
+        self.set_description(double, 'description: "Say \\"hi\\""')
+        self.set_description(plain, 'description: "Reviews code."')
+        for name in (single, double):
+            with self.subTest(agent=name):
+                self.assertTrue(any("description" in e for e in self.findings_for(name, baseline)), name)
+        self.assertEqual(self.findings_for(plain, baseline), [], "a plain quoted description stays valid")
+
+    def test_body_rejects_toml_literal_terminator(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        target = self.names[0]
+        path = self.root / "agents" / f"{target}.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\nPrint it as '''text''' please.\n", encoding="utf-8")
+        self.assertTrue(self.findings_for(target, baseline), target)
+
+    # -- agent names: charset and reserved codex [agents] keys
+
+    RESERVED_KEYS = [
+        "max_depth", "max_threads", "max_concurrent_threads_per_session", "default_subagent_model",
+        "default_subagent_reasoning_effort", "job_max_runtime_seconds", "interrupt_message",
+    ]
+
+    def inject_agent(self, name: str) -> None:
+        """Adds agents/<name>.md (a real agent's frontmatter and body, renamed) and a complete model entry."""
+        source = (self.root / "agents" / "code-reviewer.md").read_text(encoding="utf-8")
+        prefix = "".join(c for c in name.upper() if c.isalnum())  # keeps rule ids unique across injected agents
+        text = source.replace("name: code-reviewer", f"name: {name}", 1).replace("R-CR-", f"R-{prefix}-")
+        (self.root / "agents" / f"{name}.md").write_text(text, encoding="utf-8")
+        models = self.load()
+        models["agents"][name] = {
+            "model": "claude-sonnet-5-5", "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"}, "agy": {"model": "flash"},
+        }
+        self.save(models)
+
+    def test_agent_name_charset(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        self.inject_agent("Bad_Name")
+        self.inject_agent("good-name-2")
+        bad = [e.partition(": ")[2] for e in self.findings_for("Bad_Name", baseline)]
+        self.assertTrue(any("name" in e for e in bad), bad)
+        self.assertEqual(self.findings_for("good-name-2", baseline), [])
+
+    def test_agent_name_not_codex_reserved(self) -> None:
+        shipped = json.loads((Path(validate.__file__).resolve().parent / "validate.json").read_text(encoding="utf-8"))
+        self.assertEqual(shipped.get("codexReservedAgentKeys"), self.RESERVED_KEYS)
+        path = self.root / "tools" / "validate.json"
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        cfg["codexReservedAgentKeys"] = self.RESERVED_KEYS
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        baseline = validate.Validator(self.root).run()
+        for name in ("max-depth", "max-threads"):
+            with self.subTest(agent=name):
+                self.inject_agent(name)
+                found = [e.partition(": ")[2] for e in self.findings_for(name, baseline)]
+                self.assertTrue(any("reserved" in e for e in found), found)
 
 
 if __name__ == "__main__":
