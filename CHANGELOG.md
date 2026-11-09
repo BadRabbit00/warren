@@ -2,10 +2,28 @@
 
 ## 0.3.0 — unreleased
 
-- Saved workflows `/br-red`, `/br-green`, `/br-review` in `workflows/`, installed to `$out/claude/workflows/`: one plan
-  step for every task of a wave in parallel, with our agents by `agentType` (pins, contract, hooks apply).
-- The orchestrator style describes them and asks before any code whether to use workflows or manual dispatch;
-  `templates/PLAN.md` records the answer and gains a `Skills` line per task.
+- Saved workflows in `workflows/`, installed to `$out/claude/workflows/`, every agent by `agentType` (pins,
+  contract, hooks apply), at most 15 agents per run:
+  - `/br-wave` runs one wave from a manifest in the plan (red, green, refactor, fix-tests, fix-code, check items,
+    parts per agent, a `test-runner` per task with the tests-hash guard and an empty-diff guard);
+  - `/br-review` is the checkpoint review (deep and broad passes, db and migrations-only reviews, refuters for
+    security must-fix, `fix_items` for the next wave);
+  - `/br-research`, `/br-diagnose`, `/br-ci`, `/br-deploy`, `/br-e2e`, `/br-janitor` for research, failure
+    diagnosis, CI pipelines, deployment, end-to-end tests and cleanup. They never push, deploy or apply.
+  The earlier `/br-red` and `/br-green` (never released) are replaced by `/br-wave`.
+- Eleven agents: `python-coder`, `go-coder`, `ts-coder`, `rust-coder`, `deploy-engineer`, `ci-engineer`,
+  `stand-operator`, `log-collector`, `deploy-error-reader`, `web-researcher`, `janitor`.
+- Skills: `python-service`, `frontend-data-layer`, `user-flows`, `iac`, `ci-github-actions`, `registry-dockerhub-ghcr`,
+  `cloud-*` for Cloudflare, Railway, GCP, DigitalOcean and Yandex Cloud (with the official Cloudflare skills
+  vendored under Apache-2.0), and `cli-*` for gh, docker, wrangler, railway, doctl, gcloud and yc with a login
+  check first and read / effect / mutating marks per command.
+- Hooks: the reader gate is an allowlist that resolves wrappers; Bash writes are scoped like Write;
+  secret-printing commands are denied for readers; `stand-operator` and `janitor` have their own gates;
+  infrastructure-changing commands (`tofu`/`terraform` apply and destroy, `railway up`/`redeploy`/`down`,
+  `wrangler deploy`/`rollback`, `gcloud run deploy`, `doctl apps create`/`update`/`delete`, `gh run rerun`,
+  `gh workflow run`) are never run by a subagent; plans and dry runs stay allowed.
+- The orchestrator style opens and closes with the main rules, asks questions as popups, lists the workflow
+  catalog, manifests, parts and checkpoints; `templates/PLAN.md` gains Dispatch, Parts, Checkpoint and Manifest.
 - The payload checks that every workflow starts with `export const meta`; the validator rejects `agent(` calls
   without an existing `agentType` and calls the workflow runtime forbids.
 
