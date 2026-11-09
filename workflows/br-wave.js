@@ -25,8 +25,13 @@ const WORK_SCHEMA = {
 
 const RUN_SCHEMA = {
   type: 'object',
-  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'files_hashed', 'command'],
+  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'files_hashed', 'command', 'changes'],
   properties: {
+    changes: {
+      type: 'array',
+      description: 'one entry per item listed in the diff check: changed is true when git diff --stat or git ls-files --others shows anything for its files',
+      items: { type: 'object', required: ['id', 'changed'], properties: { id: { type: 'string' }, changed: { type: 'boolean' } } },
+    },
     ran: { type: 'integer' }, passed: { type: 'integer' }, failed: { type: 'integer' }, errors: { type: 'integer' }, skipped: { type: 'integer' },
     per_test: {
       type: 'array',
@@ -177,6 +182,7 @@ async function readPlan() {
   const plan = await agent(
     `Read .plan/PLAN.md only. Find the heading "## Manifest ${wave}" and return the fenced json block under it verbatim as manifest_text ("" if the heading or block is missing). ` +
       'Return every task that the block references (the "task" field of its items) with all fields copied verbatim from the plan; do not invent anything. ' +
+      'Exception for tests: it is only the backticked paths on the task\'s "Tests (test-writer)" line; a line such as "— (validator)" with no backticked path means tests = []. ' +
       'Put in problems every referenced task id that is not in the plan.',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
@@ -188,8 +194,16 @@ async function readPlan() {
     return { stopped: true, problems: [`manifest ${wave} is missing, not valid JSON, or has no items`] }
   }
   const items = manifest.items.map((i) => ({ ...i, files: i.files || [], after: i.after || [], expect_green: i.expect_green || [], needs_login: i.needs_login || [], brief: i.brief || '' }))
-  const problems = validate(items, plan.tasks)
-  return problems.length > 0 ? { stopped: true, problems } : { wave, items, tasks: plan.tasks }
+  const tasks = plan.tasks.map((t) => ({
+    ...t,
+    tests: t.tests.filter((p) => {
+      const isPath = p.includes('/') || p.includes('.')
+      if (!isPath) log(`${t.id}: dropped Tests entry "${p}" (not a path)`)
+      return isPath
+    }),
+  }))
+  const problems = validate(items, tasks)
+  return problems.length > 0 ? { stopped: true, problems } : { wave, items, tasks }
 }
 
 async function preflight(items) {
@@ -234,32 +248,52 @@ async function runItem(item, task) {
 }
 
 async function checkTask(task, own, done) {
-  const red = own.some((i) => neededStatus(i.step) === 'red')
+  const red = own.some((i) => i.step === 'red')
+  const fixTests = !red && own.some((i) => i.step === 'fix-tests')
   const out = { task: task.id, run: null, hash: '', files_hashed: 0, reason: '' }
-  const key = red ? 'red_ok' : 'green_ok'
+  const key = red ? 'red_ok' : fixTests ? 'tests_ok' : 'green_ok'
   const finish = (ok, reason) => {
     log(`${task.id} ${key}: ${ok ? 'ok' : 'NOT ok'}${reason ? ` (${reason})` : ''}`)
     return { ...out, [key]: ok, reason }
   }
   const notDone = done.filter((d) => d.status !== 'done')
   if (notDone.length > 0) return finish(false, `items not done: ${notDone.map((d) => d.id).join(', ')}`)
-  if (task.tests.length === 0) return finish(true, 'no Tests: run skipped')
-  if (!red && task.recorded_hash === '') return finish(false, 'no recorded tests hash')
+  const noTests = task.tests.length === 0
+  const writers = done.filter((d) => d.step !== 'check' && d.agent !== 'test-runner' && own.find((i) => i.id === d.id).files.length > 0)
+  if (noTests && writers.length === 0) return finish(true, 'no Tests: run skipped')
+  if (!noTests && !red && !fixTests && task.recorded_hash === '') return finish(false, 'no recorded tests hash')
   const checks = own.filter((i) => i.step === 'check' && i.brief !== '').map((i) => i.brief)
+  const diffLines = writers.map((d) => {
+    const files = own.find((i) => i.id === d.id).files.map(shellQuote).join(' ')
+    return `- ${d.id}: git diff --stat -- ${files} ; git ls-files --others --exclude-standard -- ${files}`
+  })
   const run = await agent(
-    `Mode: ${red ? 'red' : 'affected'}. Task ${task.id} — ${task.name}. Do not edit files.\n` +
-      `Tests: ${task.tests.join(', ')}\n` +
+    `Mode: ${noTests ? 'diff-only' : red ? 'red' : 'affected'}. Task ${task.id} — ${task.name}. Do not edit files.\n` +
       (checks.length > 0 ? `Check brief: ${checks.join(' | ')}\n` : '') +
-      'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. Report test names as the bare test function name. ' +
-      (red ? 'For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or wrong_reason (import, syntax or fixture error); n/a for tests that do not fail. ' : '') +
-      `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
-      `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}`,
+      (noTests
+        ? 'This task has no Tests: do not run tests; return ran, passed, failed, errors, skipped, files_hashed as 0, per_test [], tests_hash "", command "". '
+        : `Tests: ${task.tests.join(', ')}\n` +
+          'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. Report test names as the bare test function name. ' +
+          (red ? 'For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or wrong_reason (import, syntax or fixture error); n/a for tests that do not fail. ' : '') +
+          `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
+          `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}\n`) +
+      (diffLines.length > 0
+        ? `Diff check: for each item run both commands and return changes {id, changed}; changed is true when either prints anything.\n${diffLines.join('\n')}`
+        : 'Diff check: nothing to check, return changes [].'),
     { agentType: 'test-runner', phase: 'Check', label: `${task.id} test-runner`, schema: RUN_SCHEMA },
   )
   if (!run) return finish(false, 'test-runner returned nothing')
   out.run = run
   out.hash = run.tests_hash
   out.files_hashed = run.files_hashed
+  const unchanged = writers.filter((d) => run.changes.some((c) => c.id === d.id && !c.changed) || !run.changes.some((c) => c.id === d.id))
+  unchanged.forEach((d) => {
+    d.status = 'failed'
+    d.reason = 'agent reported done but its files did not change'
+    log(`${d.id} failed: ${d.reason}`)
+  })
+  if (unchanged.length > 0) return finish(false, `items without file changes: ${unchanged.map((d) => d.id).join(', ')}`)
+  if (noTests) return finish(true, 'no Tests: run skipped')
   if (run.files_hashed === 0) return finish(false, 'tests hash covers no files')
   if (red) {
     const written = done.flatMap((d) => (d.result ? d.result.tests : []))
@@ -273,7 +307,7 @@ async function checkTask(task, own, done) {
     return finish(ok, ok ? '' : 'red check failed')
   }
   const green = run.ran > 0 && run.failed === 0 && run.errors === 0 && run.skipped === 0
-  const hashOk = run.tests_hash === task.recorded_hash
+  const hashOk = fixTests || run.tests_hash === task.recorded_hash
   return finish(green && hashOk, green ? (hashOk ? '' : 'tests hash changed') : 'tests not green')
 }
 
