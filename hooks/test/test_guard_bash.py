@@ -17,7 +17,8 @@ def bash(cmd, **kw):
 
 class HostInstall(unittest.TestCase):
     # no-Nix (P261110 AC1/AC4): installs are a subagent ban now; the main session installs what requirements.md lists
-    SUBAGENT_DENIED = ["pip install requests", "python3 -m pip install x", "uv pip install x", "uv sync",
+    SUBAGENT_DENIED = ["pip install requests", "python3 -m pip install x", "uv pip install x",
+                       # no-Nix (P261110 AC6): project dependency command, allowed
                        "python -m venv .venv", "npm i -g pnpm", "go install golang.org/x/tools/gopls@latest",
                        "cargo install ripgrep", "nix-env -iA nixpkgs.jq", "nix profile install nixpkgs#jq",
                        "sudo apt install jq", "brew install jq", "cd api && pip install -r req.txt",
