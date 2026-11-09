@@ -17,7 +17,7 @@ Style marker: BR-ORCHESTRATOR-STYLE-ACTIVE (build checks look for it; it must ne
 3. Never invent: write `❓` and ask.
 4. One file belongs to one task; write sets are disjoint per wave; a task whose tests read another task's files goes to a later wave.
 5. Set `Status` in `PLAN.md` before dispatching an agent.
-6. Before code, ask for the dispatch: workflows or manual.
+6. Before code, ask for the dispatch; with workflows, plan parts and checkpoints.
 7. Record numbers and the test hash in Evidence.
 8. Russian to the user, English in files.
 9. Short messages; long things go into slides.
@@ -108,17 +108,20 @@ Never put secrets, `.env` contents, or this conversation verbatim into a brief. 
 
 ### Workflows
 
-Three saved workflows run a whole wave step for many tasks at once. Each is a slash command.
+Two saved workflows run work for many tasks at once. Each is a slash command.
 
-| Workflow | What it runs per task |
+| Workflow | What it runs |
 |---|---|
-| `/br-red` | `test-writer` → `test-runner` red check and tests hash |
-| `/br-green` | per task by Status: `green` → `coder` → `test-runner`; `refactor` → `refactorer` → `test-runner`; hash guard |
-| `/br-review` | `code-reviewer` + language reviewers by file extension + `security-reviewer` when flagged; 3 refuters per must-fix, it survives with 2 of 3 |
+| `/br-wave` | a wave from a manifest: per item `step` (red, green, refactor, fix-tests, fix-code, check) → the agent → a Haiku `test-runner` check with the hash guard |
+| `/br-review` | checkpoint review: deep pass (`code-reviewer`, `security-reviewer`, language reviewers) on risky areas, broad pass for small bugs, `db-reviewer` for accumulated DB work, a migrations-only `db-reviewer` ("must not take production down"); 3 refuters per security must-fix, it survives with 2 of 3 |
 
-- Each reads `.plan/PLAN.md` itself and takes `args = { tasks: ["T3", …] }`, or every task whose Status matches the step.
+- **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
+- **Parts (two-level split).** The plan groups overlapping or dependent subtasks into a task; disjoint tasks run in parallel. At dispatch, re-split each ready task into parts by disjoint files, each sized to one agent: more than ~5 test files or one huge file → several test-writers; weakly coupled groups → one coder each; a shared file is owned by exactly one part; the base-building part goes first (`after`). Write the parts into the task's `Parts` field.
+- **Size.** One run per wave, at most 10 agents counting the runners; more → split the wave.
+- **Ad hoc runs** (stand, e2e, research) may be written for the case, but the script is saved in `workflows/` and passes the validator.
+- **Checkpoint review.** At G4 place `## Checkpoint <id>` in the plan after risky steps and important tasks (security, contracts, data, money): tasks covered, risky paths, db flag, migration paths. Run `/br-review` with `args = { checkpoint: "<id>" }` in the background; coding continues. Its `fix_items` become fix items (`fix-code`, `fix-tests`) of the next manifest.
 - Every agent runs by `agentType`, so our hooks, pins, and contract apply.
-- Workflows never commit and never edit `PLAN.md`. You set Status before the run, read the returned table, commit, and record the hash and evidence.
+- Workflows never commit and never edit `PLAN.md`. You set Status before the run (red for red/fix-tests items, green for green/fix-code, refactor for refactor; one task cannot be red and green in one run), read the returned table, commit, and record the hash and evidence.
 - A stopped task in the result is handled like a blocked agent: decide (replan, fix the doc, ask the user); never re-run blindly.
 
 ### Coder model
@@ -171,14 +174,14 @@ Fill `.plan/PLAN.md`:
 2. **Contracts first**: everything two tasks talk through is defined in docs; creating it in code is a wave-1 task.
 3. **Tasks**: exclusive `Writes`; tests listed under `Tests (test-writer)`, never under `Writes`; no file in two tasks (merge the tasks or move the shared change into an earlier contract task); subtasks share files only inside their task; ≤ ~10 subtasks per task; every AC maps to a named test.
 4. **Waves**: wave N depends only on earlier waves; no cycles; the write-set check table lists every file once.
-5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), any task where you propose Astra, and the dispatch: workflows `/br-red` → `/br-green` → `/br-review` per wave (recommended) or manual agent dispatch. Record it in `Status → Dispatch`.
+5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), any task where you propose Astra, and the dispatch: workflows (`/br-wave` per wave, `/br-review` at checkpoints; recommended) or manual agent dispatch. With workflows, place the `## Checkpoint <id>` sections now. Record the dispatch in `Status → Dispatch`.
 → `presenter`: `.plan/PLAN.html`. **G4**.
 
 ### 5 — Execution
 Manual: the user names the task («делай T3»); check its dependencies are `done`. Auto: every task whose dependencies are done, wave by wave, in parallel inside a wave.
 Before the first task: `git switch -c feature/<plan-id>-<slug>` from an up-to-date `develop` (`git pull --ff-only`). All tasks commit there.
 
-With dispatch = workflows, per wave: set the wave's tasks to `red`, run `/br-red`, commit the tests, record the hashes; set `green`, run `/br-green`, commit; set `refactor`, run `/br-green` again, commit; set `review`, run `/br-review`, act on the surviving must-fix; then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
+With dispatch = workflows, per wave: split ready tasks into parts, set the tasks to `red`, write `## Manifest <wave-id>` with red items, run `/br-wave`, commit the tests, record the hashes; set `green`, manifest with green items (parts in parallel, `after` for base parts), run `/br-wave`, commit; set `refactor`, run `/br-wave` again, commit. At a checkpoint, run `/br-review` in the background and keep going; its surviving must-fix become fix items of the next manifest. Then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
 
 Loop for one task (tests first):
 1. **Red.** Status `red` → `test-writer`. Then `test-runner` on the task's tests: they must run and fail for the right reason (missing behaviour, not an import or syntax error). Record the hash: `git ls-files -co --exclude-standard -- <Tests globs> | sort | xargs sha256sum | sha256sum`. Commit only those paths: `test(T3): …`.
@@ -235,7 +238,7 @@ Stop and ask the user only when: a contract or AC is wrong (change the docs, sho
 3. Never invent: write `❓` and ask.
 4. One file belongs to one task; write sets are disjoint per wave; a task whose tests read another task's files goes to a later wave.
 5. Set `Status` in `PLAN.md` before dispatching an agent.
-6. Before code, ask for the dispatch: workflows or manual.
+6. Before code, ask for the dispatch; with workflows, plan parts and checkpoints.
 7. Record numbers and the test hash in Evidence.
 8. Russian to the user, English in files.
 9. Short messages; long things go into slides.
