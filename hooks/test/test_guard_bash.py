@@ -1,10 +1,12 @@
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from helpers import HOOKS, call, denied, git_repo, reason
 
@@ -1564,6 +1566,304 @@ class InfraChangesNeverRunBySubagents(unittest.TestCase):
                 with self.subTest(main_session=form):
                     res = self.run_cmd(form, None)
                     self.assertFalse(denied(res), f"{form}: {reason(res)}")
+
+
+def nested_substitutions(core: str, depth: int) -> str:
+    out = core
+    for _ in range(depth):
+        out = f"echo $({out})"
+    return out
+
+
+def nested_shells(core: str, depth: int) -> str:
+    out = core
+    for _ in range(depth):
+        out = f"bash -c {shlex.quote(out)}"
+    return out
+
+
+class InfraGateCannotBeHidden(unittest.TestCase):
+    """AC19: the AC18 rule survives package launchers, global flags with values, and nesting or parse failures."""
+    AGENTS = ["deploy-engineer", "ci-engineer", "coder", "python-coder"]
+    # package launchers; a bare launcher is refused by the Nix-only rule anyway, so they run inside `nix develop -c`
+    LAUNCHED_CHANGES = [
+        "npx wrangler deploy", "npx -y wrangler deploy", "pnpm exec wrangler deploy", "pnpm dlx wrangler deploy",
+        "pnpm exec wrangler rollback", "bunx wrangler deploy", "bunx wrangler versions deploy",
+        "bunx --bun wrangler deploy", "npm exec -- wrangler deploy", "npm exec wrangler deploy",
+        "yarn dlx wrangler deploy", "uvx wrangler deploy",
+    ]
+    BARE_LAUNCHER = ["bunx wrangler deploy"]
+    HIDDEN = BARE_LAUNCHER + [f"nix develop -c {c}" for c in LAUNCHED_CHANGES] + [
+        "nix shell nixpkgs#nodejs -c npx wrangler deploy", "nix develop -c bash -c 'npx wrangler deploy'",
+        "echo ok && nix develop -c pnpm exec wrangler deploy",
+        # global flags with a value before the subcommand
+        "nix shell nixpkgs#google-cloud-sdk -c gcloud --project p run deploy api --image x",
+        "gcloud --project p run deploy api --image x", "gcloud --project=p run deploy api --image x",
+        "gcloud --project p run services delete api", "gcloud --project p --quiet run deploy api --image x",
+        "doctl --context prod apps create --spec a.yaml", "doctl --context prod apps update 1111 --spec a.yaml",
+        "doctl --context prod apps delete 1111", "doctl -t token apps delete 1111",
+        "nix shell nixpkgs#doctl -c doctl --context prod apps create --spec a.yaml",
+        "wrangler -c wrangler.toml deploy", "wrangler --config wrangler.toml deploy", "wrangler -c wrangler.toml rollback",
+        "wrangler --config wrangler.toml versions deploy", "nix shell nixpkgs#wrangler -c wrangler -c wrangler.toml deploy",
+        "railway -s api up", "railway --service api redeploy", "railway -s api down -y", "railway -e prod up",
+        "nix shell nixpkgs#railway -c railway -s api up",
+        # doctl apps create-deployment is a change
+        "doctl apps create-deployment 1111-2222", "doctl --context prod apps create-deployment 1111-2222",
+        "doctl apps create-deployment 1111-2222 --wait", "nix shell nixpkgs#doctl -c doctl apps create-deployment id",
+        "echo ok && doctl apps create-deployment id",
+    ]
+    # nesting deeper than the hooks resolve, and commands the hooks cannot parse: no way to tell what runs
+    UNKNOWABLE = [
+        nested_substitutions("railway up", 12), nested_substitutions("echo hi", 12),
+        nested_shells("railway up", 12), nested_shells("echo hi", 12),
+        "echo 'unterminated railway up", "bash -c 'railway up", "echo \"$(railway up\"", "nix develop -c bash -c \"railway up",
+    ]
+    ALLOWED = [
+        "tofu plan", "wrangler deploy --dry-run", "wrangler -c wrangler.toml deploy --dry-run",
+        "wrangler --config wrangler.toml whoami",
+        "gcloud --project p run services list", "gcloud --project p run services describe api",
+        "doctl --context prod apps list", "doctl --context prod apps get 1111", "doctl apps list-deployments 1111",
+        "doctl apps get-deployment 1111 2222", "railway -s api logs", "railway -s api status",
+        nested_substitutions("echo hi", 2), nested_shells("echo hi", 2),
+    ] + [f"nix develop -c {c}" for c in [
+        "npx wrangler deploy --dry-run", "bunx wrangler deploy --dry-run", "pnpm exec wrangler deploy --dry-run --outdir dist",
+        "npx wrangler whoami", "pnpm exec wrangler whoami", "npx vitest run", "pnpm exec eslint .",
+        "bunx prettier --check .", "npm exec -- tsc --noEmit", "uvx ruff check .", "pnpm dlx create-vite@latest --help",
+        "yarn dlx --help",
+    ]]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = plan_project()
+
+    def run_cmd(self, cmd, agent):
+        return bash(cmd, agent=agent, cwd=self.root)
+
+    def test_infra_gate_cannot_be_hidden(self):
+        for agent in self.AGENTS:
+            for cmd in self.HIDDEN:
+                with self.subTest(agent=agent, denied=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+                    if "&&" not in cmd and "bash -c" not in cmd and cmd not in self.BARE_LAUNCHER:
+                        text = reason(res).lower()
+                        self.assertIn("prepare", text, "the reason must say the agent prepares the exact command")
+                        self.assertIn("user", text, "the reason must say the user runs it")
+            for cmd in self.UNKNOWABLE:
+                with self.subTest(agent=agent, denied=cmd[:80]):
+                    self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd[:80]!r} was allowed")
+
+    def test_infra_gate_hidden_forms_stay_denied_for_readers(self):
+        for agent in ["deploy-error-reader", "log-collector", "stand-operator", "janitor"]:
+            for cmd in self.HIDDEN:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd!r} was allowed")
+
+    def test_infra_gate_plans_reads_and_ordinary_launchers_stay_allowed(self):
+        for agent in self.AGENTS:
+            for cmd in self.ALLOWED:
+                with self.subTest(agent=agent, allowed=cmd[:80]):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertFalse(denied(res), f"{agent}: {cmd[:80]}: {reason(res)}")
+
+    def test_infra_gate_hidden_forms_do_not_limit_the_main_session(self):
+        for cmd in [c for c in self.HIDDEN if c not in self.BARE_LAUNCHER]:
+            with self.subTest(main_session=cmd):
+                res = self.run_cmd(cmd, None)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for cmd in ["echo 'unterminated railway up", "bash -c 'railway up"]:
+            with self.subTest(main_session=cmd):
+                res = self.run_cmd(cmd, None)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+STAND_LINE_PLAN = """# Plan
+
+### T1 — stand
+- **Goal:** bring the stand up; an old note says `nix run .#goal-only` but nobody named it a stand target.
+- **Stand:** `nix run .#dev-stand` and `nix run .#dev-stand-down`
+- **Status:** todo
+- **Writes (exclusive):** `src/a/app.py`
+- **Tests (test-writer):** `src/a/tests/test_a.py`
+
+### T2 — second stand
+- **Goal:** another environment.
+- **Stand:** `nix run .#e2e-stand`
+- **Status:** todo
+- **Writes (exclusive):** `src/b/app.py`
+- **Tests (test-writer):** `src/b/tests/test_b.py`
+"""
+
+
+def fake_git(exit_code: int) -> Path:
+    """A directory with a `git` that always fails, to put first on PATH."""
+    d = Path(tempfile.mkdtemp(prefix="t1r7a-fakegit-"))
+    script = d / "git"
+    script.write_text(f"#!/bin/sh\necho 'fatal: simulated git failure' >&2\nexit {exit_code}\n")
+    script.chmod(0o755)
+    return d
+
+
+class StandAndJanitorGates(unittest.TestCase):
+    """AC22: compose paths stay inside the project, nix run targets come from Stand lines, docker hosts are fixed,
+    janitor removes networks by name, the tracked check fails closed, cd tracking cannot be fooled."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.stand_root = plan_project(STAND_LINE_PLAN)
+        cls.janitor_root = janitor_project()
+        (cls.janitor_root / ".plan").mkdir()
+        (cls.janitor_root / ".plan" / "PLAN.md").write_text(STAND_LINE_PLAN)
+
+    def stand(self, cmd, root=None):
+        return bash(cmd, agent="stand-operator", cwd=root or self.stand_root)
+
+    def janitor(self, cmd, root=None):
+        return bash(cmd, agent="janitor", cwd=root or self.janitor_root)
+
+    def assertAllowedFor(self, run, cmds, label):
+        for cmd in cmds:
+            with self.subTest(**{label: cmd}):
+                res = run(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def assertDeniedFor(self, run, cmds, label):
+        for cmd in cmds:
+            with self.subTest(**{label: cmd}):
+                self.assertTrue(denied(run(cmd)), f"{cmd!r} was allowed")
+
+    def test_stand_and_janitor_gates_hold(self):
+        root = self.stand_root
+        # stand-operator: compose files, project directory and env file only inside the project
+        self.assertAllowedFor(self.stand, [
+            "docker compose -p shop -f docker-compose.dev.yaml up -d",
+            "docker compose -p shop -f deploy/compose.yaml up --wait",
+            f"docker compose -p shop -f {root}/docker-compose.dev.yaml up -d",
+            "docker compose -p shop -f ./deploy/../docker-compose.dev.yaml up -d",
+            "docker compose -p shop --project-directory deploy up -d",
+            "docker compose -p shop --project-directory . -f docker-compose.dev.yaml restart api",
+            "docker compose -p shop --env-file deploy/dev.env -f docker-compose.dev.yaml up -d",
+            "docker compose -p shop -f docker-compose.dev.yaml -f deploy/override.yaml up -d",
+            "nix shell nixpkgs#docker -c docker compose -p shop -f deploy/compose.yaml up -d",
+        ], "allowed")
+        self.assertDeniedFor(self.stand, [
+            "docker compose -p shop -f /tmp/x.yaml up -d",
+            "docker compose -f /tmp/x.yaml -p shop up -d",
+            "docker compose -p shop -f /tmp/x.yaml up --wait",
+            "docker compose -p shop -f /tmp/x.yaml down",
+            "docker compose -p shop -f /tmp/x.yaml restart api",
+            "docker compose -p shop -f /tmp/x.yaml ps",
+            "docker compose -p shop -f ../other/compose.yaml up -d",
+            "docker compose -p shop -f deploy/../../other/compose.yaml up -d",
+            "docker compose -p shop -f /etc/compose.yaml up -d",
+            "docker compose -p shop -f ~/stand/compose.yaml up -d",
+            "docker compose -p shop -f $HOME/stand/compose.yaml up -d",
+            "docker compose -p shop --file /tmp/x.yaml up -d",
+            "docker compose -p shop --file=/tmp/x.yaml up -d",
+            "docker compose -p shop -f docker-compose.dev.yaml -f /tmp/override.yaml up -d",
+            "docker compose -p shop --project-directory /tmp up -d",
+            "docker compose -p shop --project-directory=/tmp up -d",
+            "docker compose -p shop --project-directory ../other up -d",
+            "docker compose -p shop --env-file /tmp/x.env -f docker-compose.dev.yaml up -d",
+            "docker compose -p shop --env-file=/home/x/.env -f docker-compose.dev.yaml up -d",
+            "docker compose -p shop --env-file ../other/.env -f docker-compose.dev.yaml up -d",
+            "nix shell nixpkgs#docker -c docker compose -p shop -f /tmp/x.yaml up -d",
+            "docker compose -p shop -f /tmp/x.yaml up -d && docker compose -p shop ps",
+            "bash -c 'docker compose -p shop -f /tmp/x.yaml up -d'",
+        ], "denied")
+        # stand-operator: nix run targets come only from `- **Stand:**` lines
+        self.assertAllowedFor(self.stand, [
+            "nix run .#dev-stand", "nix run .#dev-stand-down", "nix run .#e2e-stand", "nix run .#e2e-stand-down",
+        ], "allowed")
+        self.assertDeniedFor(self.stand, [
+            "nix run .#goal-only", "nix run .#goal-only-down", "nix run .#unlisted", "nix run .#dev-stand-extra",
+            "nix run .#dev-stand-down-down", "nix run .#dev", "nix run nixpkgs#hello", "nix run .#dev-stand --impure",
+            "nix run .#dev-stand -- --help", "nix run .#goal-only && nix run .#dev-stand",
+        ], "denied")
+        # docker host selection is refused for stand-operator and janitor
+        for agent_run, agent, commands in [
+            (self.stand, "stand-operator", [
+                "docker -H tcp://h:2375 compose -p shop up -d", "docker -H tcp://h:2375 ps", "docker -H tcp://h:2375 logs api",
+                "docker --host tcp://h:2375 compose -p shop down", "docker --host=tcp://h:2375 logs api",
+                "docker --context remote compose -p shop up -d", "docker --context=remote logs api",
+                "docker -c remote logs api", "docker compose -H tcp://h:2375 -p shop up -d",
+                "DOCKER_HOST=tcp://h docker compose -p shop up -d", "DOCKER_CONTEXT=remote docker logs api",
+                "env DOCKER_HOST=tcp://h docker logs api", "export DOCKER_HOST=tcp://h && docker logs api",
+                "nix shell nixpkgs#docker -c docker -H tcp://h:2375 compose -p shop up -d",
+                "DOCKER_HOST=tcp://h nix shell nixpkgs#docker -c docker logs api",
+                "bash -c 'DOCKER_HOST=tcp://h docker logs api'",
+            ]),
+            (self.janitor, "janitor", [
+                "docker -H tcp://h:2375 volume rm v", "docker -H tcp://h:2375 rm c", "docker --host tcp://h:2375 rm c",
+                "docker --host=tcp://h:2375 volume rm v", "docker --context prod rm c", "docker --context=prod volume rm v",
+                "docker -H tcp://h compose -p shop down", "docker -H tcp://h:2375 ps -a",
+                "DOCKER_HOST=tcp://h docker rm c", "DOCKER_HOST=tcp://h docker volume rm v", "DOCKER_CONTEXT=prod docker rm c",
+                "env DOCKER_HOST=tcp://h docker rm c", "export DOCKER_HOST=tcp://h && docker rm c",
+                "nix shell nixpkgs#docker -c docker -H tcp://h:2375 volume rm v",
+                "DOCKER_HOST=tcp://h nix shell nixpkgs#docker -c docker rm c",
+                "bash -c 'DOCKER_HOST=tcp://h docker rm c'",
+            ]),
+        ]:
+            self.assertDeniedFor(agent_run, commands, f"{agent}_denied")
+        # janitor: a docker network by explicit name, never in bulk, never for stand-operator
+        self.assertAllowedFor(self.janitor, [
+            "docker network rm br-net", "docker network rm br-net br-net-2", "nix shell nixpkgs#docker -c docker network rm br-net",
+            "docker network rm br-net && docker rm shop-api-1",
+        ], "janitor_allowed")
+        self.assertDeniedFor(self.janitor, [
+            "docker network rm", "docker network rm $(docker network ls -q)", "docker network rm `docker network ls -q`",
+            "docker network rm br-*", "docker network rm -f", "docker network ls -q | xargs docker network rm",
+            "docker network prune", "docker network prune -f", "docker network create br-net",
+            "docker network connect br-net c", "docker network disconnect br-net c",
+        ], "janitor_denied")
+        self.assertDeniedFor(self.stand, ["docker network rm br-net", "docker network prune"], "stand_denied")
+        # janitor: the tracked-file check fails closed (git error = tracked)
+        for exit_code in (128, 2, 127):
+            bin_dir = fake_git(exit_code)
+            with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
+                for cmd in ["rm docs/temp/curl-out.json", "rm docs/temp/trace-1.log docs/temp/trace-2.log",
+                            "rm scripts/new-helper.sh", "cd docs/temp && rm trace-1.log"]:
+                    with self.subTest(git_exit=exit_code, denied=cmd):
+                        res = self.janitor(cmd)
+                        self.assertTrue(denied(res), f"{cmd!r} was allowed although git failed with {exit_code}")
+        with mock.patch.dict(os.environ, {"PATH": tempfile.mkdtemp(prefix="t1r7a-nogit-")}):
+            with self.subTest(denied="rm with no git on PATH"):
+                self.assertTrue(denied(self.janitor("rm docs/temp/curl-out.json")), "rm was allowed with no git")
+        not_a_repo = plan_project(STAND_LINE_PLAN)
+        (not_a_repo / "leftover.txt").write_text("x\n")
+        with self.subTest(denied="rm in a directory that is not a git repository"):
+            self.assertTrue(denied(self.janitor("rm leftover.txt", root=not_a_repo)), "rm was allowed outside a git repo")
+        # janitor: cd tracking cannot be fooled
+        self.assertAllowedFor(self.janitor, [
+            "cd docs/temp && rm trace-1.log", "cd scripts && cd ../docs/temp && rm trace-2.log",
+            "rm docs/temp/curl-out.json",
+        ], "cd_allowed")
+        self.assertDeniedFor(self.janitor, [
+            "cd -L docs/temp && rm trace-1.log", "cd -P docs/temp && rm trace-1.log", "cd -e docs/temp && rm trace-1.log",
+            "cd -- docs/temp && rm trace-1.log", "cd -L scripts && rm seed.sh", "cd -P scripts && rm seed.sh",
+            "cd -- scripts && rm seed.sh", "cd -L src && rm x",
+            "cd scripts && bash -c 'cd ../docs/temp' && rm seed.sh",
+            "cd scripts && sh -c 'cd ../docs/temp; true'; rm seed.sh",
+            "cd scripts && (cd ../docs/temp) && rm seed.sh",
+            "cd scripts && eval 'cd ../docs/temp' && rm seed.sh",
+            "cd scripts && nix develop -c bash -c 'cd ../docs/temp' && rm seed.sh",
+            "bash -c 'cd docs/temp' && rm trace-1.log",
+            "sh -c 'cd docs/temp'; rm trace-1.log",
+            "cd docs/temp && bash -c 'cd /' && rm trace-1.log",
+            "bash -c 'cd scripts && rm seed.sh'", "bash -lc 'cd -L docs/temp && rm trace-1.log'",
+            "cd ~ && rm trace-1.log", "cd && rm trace-1.log", "cd - && rm trace-1.log", "cd $HOME && rm trace-1.log",
+        ], "cd_denied")
+
+    def test_stand_and_janitor_gates_do_not_limit_other_agents_or_the_main_session(self):
+        for agent in [None, "deploy-engineer", "ci-engineer", "coder"]:
+            for cmd in ["docker compose -p shop -f /tmp/x.yaml up -d", "docker -H tcp://h:2375 volume rm v",
+                        "DOCKER_HOST=tcp://h docker rm c", "docker network rm br-net", "nix run .#goal-only"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.stand_root)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+            with self.subTest(agent=agent, cmd="cd -L + rm"):
+                res = bash("cd -L docs/temp && rm trace-1.log", agent=agent, cwd=self.janitor_root)
+                self.assertFalse(denied(res), reason(res))
 
 
 if __name__ == "__main__":
