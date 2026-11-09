@@ -42,7 +42,7 @@ If an AC is ambiguous or contradicts the docs, stop with `STATUS: blocked` and q
 |---|---|---|---|
 | Python | `src/<svc>/tests/` mirroring `app/` | `test_<file>.py` | fixtures in `conftest.py` per level |
 | Go | `src/<svc>/tests/<layer>/`, package `<layer>_test` | `<entity>_<layer>_test.go` | black-box through the exported API; `internal/` is importable from inside the module |
-| TS / React | `src/web/tests/` mirroring `src/`; e2e in `src/web/tests/e2e/` | `OrderTable.test.tsx`, `login.spec.ts` | API mocked with MSW |
+| TS / React | `src/web/tests/` mirroring `src/`; end-to-end tests of the whole system in the root `tests/e2e/` (for every stack) | `OrderTable.test.tsx`, `login.spec.ts` | API mocked with MSW |
 | Flutter / Dart | `<package>/test/`, `<package>/integration_test/` | `<file>_test.dart` | the one exception: Flutter's tooling expects `test/` |
 | Rust | `<crate>/tests/` | `<area>.rs` | test through the public API; no `#[cfg(test)]` modules inside `src/` files, they belong to `coder` |
 

@@ -17,7 +17,7 @@ paths:
 
 ## Scope
 
-Every test file. Our layout: a service's tests in `src/<service>/tests/`, shared tests in `/tests`. The one exception is Flutter/Dart, which keeps its native `test/` and `integration_test/`. Existing projects keep their layout (`_test.go`, `*.test.tsx`). Only `test-writer` writes tests (a hook enforces it). Everyone else reads.
+Every test file. Our layout: a service's tests in `src/<service>/tests/`, shared tests in `/tests`, end-to-end tests in `/tests/e2e`. The one exception is Flutter/Dart, which keeps its native `test/` and `integration_test/`. Existing projects keep their layout (`_test.go`, `*.test.tsx`). Only `test-writer` writes tests (a hook enforces it). Everyone else reads.
 
 ## Rules
 

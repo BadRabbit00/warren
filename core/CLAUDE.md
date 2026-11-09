@@ -114,7 +114,7 @@ Each of these is stated in full, with examples, in the path rules and the agents
 - **Layers** go one way: router → service → repository → model. Files are named `<entity>_<layer>`.
 - **Horizontal scaling first.** No state in the process: data in the DB, cache and locks in Redis, files in S3. Scale vertically only on request or when horizontal is impossible. A broker is optional, but outbox and idempotent consumers are required when events must be delivered.
 - **Configuration** is read by one module; nothing else calls `os.getenv`.
-- **Tests** live in `tests/` (a service's tests in `src/<service>/tests/`, shared ones in `/tests`; Flutter/Dart keep their native `test/`). They run on a real database. TDD is the default: tests first, then code.
+- **Tests** live in `tests/` (a service's tests in `src/<service>/tests/`, shared ones in `/tests`, end-to-end tests in `/tests/e2e`; Flutter/Dart keep their native `test/`). They run on a real database. TDD is the default: tests first, then code.
 - **Policies** — retries, timeouts, pagination limits, TTLs, git style — come from the project `docs/POLICY.md`. A value marked `Source: default` has not been confirmed by the user; confirm it before you build on it.
 
 ## 12. Learn once
