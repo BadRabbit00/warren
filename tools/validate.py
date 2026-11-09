@@ -28,6 +28,41 @@ YAML_ESCAPES = re.compile(r"'.*''.*'|\".*\\.*\"")
 BLOCK_KEY = re.compile(r"([A-Za-z_][\w-]*):\s*$")
 
 
+# ---------------------------------------------------------------- workflow scripts
+
+JS_TOKEN = re.compile(r"//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`", re.S)
+JS_FORBIDDEN = (
+    (re.compile(r"\bDate\.now\s*\("), "Date.now("),
+    (re.compile(r"\bMath\.random\s*\("), "Math.random("),
+    (re.compile(r"\bnew\s+Date\s*\("), "new Date("),
+    (re.compile(r"\bimport\s*\("), "import("),
+)
+
+
+def mask_js(text: str) -> str:
+    """Same-length copy with comments and string contents blanked (newlines and quotes kept), so
+    structural regexes cannot match inside them and offsets stay valid in the original."""
+    def blank(m: re.Match[str]) -> str:
+        t = m.group(0)
+        if t.startswith(("//", "/*")):
+            return re.sub(r"[^\n]", " ", t)
+        return t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1]
+    return JS_TOKEN.sub(blank, text)
+
+
+def closing(masked: str, open_at: int) -> int:
+    """Index of the bracket closing the one at open_at (masked text), or len(masked)."""
+    depth = 0
+    for i in range(open_at, len(masked)):
+        if masked[i] in "({[":
+            depth += 1
+        elif masked[i] in ")}]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(masked)
+
+
 # ---------------------------------------------------------------- frontmatter
 
 def raw_frontmatter(text: str) -> tuple[str, str] | None:
@@ -513,6 +548,47 @@ class Validator:
                 if skill not in available:
                     self.err(p, f"preloaded skill '{skill}' is not in skills/")
 
+    def check_workflows(self) -> None:
+        agents = {p.stem for p in (self.root / "agents").glob("*.md")}
+        for p in sorted((self.root / "workflows").glob("*.js")):
+            text = self.read(p)
+            if text is None:
+                continue
+            masked = mask_js(text)
+
+            def line(pos: int) -> int:
+                return text.count("\n", 0, pos) + 1
+
+            m = re.match(r"\s*export\s+const\s+meta\s*=\s*\{", masked)
+            if not m:
+                self.err(p, "'export const meta = {...}' must be the first statement")
+            else:
+                end = closing(masked, m.end() - 1)
+                body = masked[m.end():end]
+                name = re.search(r"\bname\s*:\s*(['\"])", body)
+                if not name:
+                    self.err(p, "meta.name is missing")
+                else:
+                    at = m.end() + name.end()
+                    close = text.find(name.group(1), at)
+                    if text[at:close] != p.stem:
+                        self.err(p, f"meta.name '{text[at:close]}' must equal the file name '{p.stem}'")
+                if not re.search(r"\bdescription\s*:", body):
+                    self.err(p, "meta.description is missing")
+            for call in re.finditer(r"\bagent\s*\(", masked):
+                end = closing(masked, call.end() - 1)
+                args = masked[call.end():end]
+                at = re.search(r"\bagentType\s*:", args)
+                if not at:
+                    self.err(p, f"line {line(call.start())}: agent() call has no agentType")
+                    continue
+                lit = re.compile(r"\s*(['\"])([^'\"\n]*)\1").match(text, call.end() + at.end())
+                if lit and lit.group(2) not in agents:
+                    self.err(p, f"line {line(call.start())}: agentType '{lit.group(2)}' is not in agents/")
+            for pattern, token in JS_FORBIDDEN:
+                for hit in pattern.finditer(masked):
+                    self.err(p, f"line {line(hit.start())}: {token} is not allowed in a workflow script")
+
     def check_exemptions(self) -> None:
         """Stale exemptions silently weaken the checks, so every listed name must still exist."""
         cfg_path = self.root / "tools" / "validate.json"
@@ -554,6 +630,7 @@ class Validator:
         self.check_templates()
         self.check_commands()
         self.check_agent_skills()
+        self.check_workflows()
         self.check_exemptions()
         return self.errors
 
