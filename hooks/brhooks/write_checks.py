@@ -60,7 +60,7 @@ def check_write(ev: Event) -> str | None:
 
     # ---- subagents never write outside the project (temp dirs are fine)
     if agent and _outside_project(r) and not _is_temp(r):
-        return f"`{agent}` writes only inside the project. `{r}` is outside it."
+        return f"`{agent}` writes only inside the project. `{path}` is outside it."
 
     # ---- test boundary (always on, with or without a plan)
     if agent in NO_TEST_WRITE and is_test_path(r) and not _explicit_write(agent, r, root):
@@ -117,7 +117,7 @@ def _under(p: Path, root: Path) -> bool:
 
 
 def _reader_outside_roots(ev: Event, path: str) -> bool:
-    """True when `path` (relative to the event cwd, `~` = HOME) is outside the project, temp dirs and /nix/store."""
+    """True when `path` (relative to the event cwd, `~` = HOME) is outside the project and the temp dirs."""
     p = Path(os.path.expanduser(path))
     if not p.is_absolute():
         p = ev.cwd / p
@@ -130,7 +130,7 @@ def _reader_outside_roots(ev: Event, path: str) -> bool:
 def check_read(ev: Event) -> str | None:
     path = target_path(ev)
     if ev.agent in READER_ROOT_AGENTS and _reader_outside_roots(ev, path or "."):
-        return (f"`{ev.agent}` reads only inside the project, /tmp, /var/tmp, the scratchpad and /nix/store; "
+        return (f"`{ev.agent}` reads only inside the project, /tmp, /var/tmp, and the scratchpad; "
                 f"`{path or ev.cwd}` is outside them. Use the CLI commands for logs and status.")
     if not path:
         return None

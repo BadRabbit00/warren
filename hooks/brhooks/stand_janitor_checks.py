@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from .bash_checks import (
-    KEYWORDS, MAX_DEPTH, NIX_DEPTH_REASON, READER_BOOL_FLAGS, READER_VALUE_FLAGS, SHELLS, NestingError,
+    KEYWORDS, MAX_DEPTH, DEPTH_REASON, READER_BOOL_FLAGS, READER_VALUE_FLAGS, SHELLS, NestingError,
     _reader_words, _resolve, _scan_redirections, _shell_script, _split_commands, _strip_redirections, split_words,
     strip_env_and_wrappers,
 )
@@ -80,11 +80,11 @@ class _Gate:
     # -- walk -------------------------------------------------------------------------------------------
     def reason(self, cmd: str, depth: int = 0) -> str | None:
         if depth > MAX_DEPTH:
-            return NIX_DEPTH_REASON
+            return DEPTH_REASON
         try:
             commands = _split_commands(cmd.replace("\\\n", " "))
         except NestingError:
-            return NIX_DEPTH_REASON
+            return DEPTH_REASON
         for command in commands:
             raw = split_words(_scan_redirections(command.text)[1], comments=False)
             lead = next((a for a in raw if not re.fullmatch(r"\w+=.*", a) and a not in KEYWORDS), "")
