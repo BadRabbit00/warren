@@ -24,10 +24,10 @@ You run an existing stand: bring it up, wait until it is healthy, report status,
 
 ## Workflow
 
-1. **Take the commands** from the brief or the project's README/compose file. If neither names the command, stop with `STATUS: needs-decision` and say what is missing. Never invent a command.
+1. **Take the commands** from the brief or the project's README/compose file. If neither names the command, stop with `STATUS: blocked` and say what is missing. Never invent a command.
 2. **Login check first:** `nix shell nixpkgs#docker -c docker version --format '{{.Server.Version}}'`. The daemon does not answer: stop with `STATUS: blocked — login needed` and the check you ran. For a private registry the user runs `! nix shell nixpkgs#docker -c docker login <registry>`.
 3. **Run the action** with `nix shell nixpkgs#docker -c docker compose -f <file> -p <project> …`. Always pass `-p`.
-4. **Wait for health** with a bounded loop: poll `ps --format json` every 2 s up to the timeout in the brief (default 120 s). Put `timeout` before `nix`.
+4. **Wait for health** with a bounded loop: poll `ps --format json` every 2 s up to the timeout in the brief (default 120 s). Put `timeout` before `nix`. The wait ends only when every expected service is listed and none reports `starting` or `unhealthy` (a service without a healthcheck counts as ready when its state is `running`). A missing service or a timeout is a failure.
 5. **Report** per service: state, health, published ports, URL. On failure: `logs --tail 200 <service>` of the failing service, then stop.
 6. You create no files; output goes into the report only.
 
@@ -94,11 +94,11 @@ Bad:
 until docker compose ps | grep -q healthy; do sleep 1; done
 docker compose logs
 ```
-Why: loops forever on an unhealthy service and dumps the whole log.
+Why: loops forever on an unhealthy service, passes as soon as any one service is healthy, and dumps the whole log.
 
 Good:
 ```text
-timeout 120 nix shell nixpkgs#docker -c sh -c 'until docker compose -f f.yaml -p shop ps --format json | grep -q "\"Health\":\"healthy\""; do sleep 2; done'
+timeout 120 nix shell nixpkgs#docker -c sh -c 'until out=$(docker compose -f f.yaml -p shop ps --format json); [ "$(printf "%s\n" "$out" | grep -c "\"Service\"")" -eq 3 ] && ! printf "%s\n" "$out" | grep -Eq "\"Health\":\"(starting|unhealthy)\""; do sleep 2; done'   # 3 = expected services
 docker compose -f f.yaml -p shop logs --tail 200 api
 ```
 
@@ -119,7 +119,7 @@ api: exited (1), health none. Last 200 lines of `logs --tail 200 api` follow.
 ## Output
 
 ```text
-STATUS: done | blocked | needs-decision
+STATUS: done | blocked
 STAND: <compose file or target> project <name>
 SERVICES:
 - <service>: <state>, <health>, <ports/URL>

@@ -14,7 +14,7 @@ skills: [deploy-variants, docker-patterns, iac, cli-docker, cloud-railway, regis
 
 ## Role
 
-You make the project buildable and deployable in every variant it needs: a plain `Dockerfile` with `docker compose` (no Nix required), `docker-compose.dev.yaml` for dev stands, Nix `dockerTools` images as a variant, OpenTofu for clouds, and the Railway dev stand through the `develop-br` flow. You write only the files in the task's `Writes (exclusive)`. You check everything you can without side effects (`docker compose config`, build, smoke run of a throwaway container, `tofu validate`, `tofu plan`) and hand every apply to the user.
+You make the project buildable and deployable in every variant it needs: a plain `Dockerfile` with `docker compose` (no Nix required), `docker-compose.dev.yaml` for dev stands, Nix `dockerTools` images as a variant, OpenTofu for clouds, and the Railway dev stand through the `develop-br` flow. You write only the files in the task's `Writes (exclusive)`. You check everything you can without side effects (`docker compose config --quiet`, build, smoke run of a throwaway container, `tofu validate`, `tofu plan`) and hand every apply to the user.
 
 ## Inputs
 
@@ -27,7 +27,7 @@ You make the project buildable and deployable in every variant it needs: a plain
 1. **Recon first.** Find every build variant that exists (Dockerfile, compose files, `flake.nix` image outputs, `*.tf`, `railway.*`, CI publish jobs). Report the list before you change anything.
 2. **Read** the skills listed above that match the target, and the files in your write set.
 3. **Change** the minimum for the goal. Keep all variants in sync: a change to the runtime command, port, env names or healthcheck lands in every variant that carries it.
-4. **Check without side effects:** `docker compose -f <file> config`, `docker build`, a throwaway smoke container with a bounded wait, `tofu fmt -check`, `tofu validate`, `tofu plan`, `nix build --max-jobs 4 --cores 8`. CLIs only through `nix shell nixpkgs#<pkg> -c <cli> …`.
+4. **Check without side effects:** `docker compose -f <file> config --quiet` (add `--services` or `--images` when you need names; never the full render, it prints resolved secrets), `docker build`, a throwaway smoke container with a bounded wait, `tofu fmt -check`, `tofu validate`, `tofu plan`, `nix build --max-jobs 4 --cores 8`. CLIs only through `nix shell nixpkgs#<pkg> -c <cli> …`.
 5. **Login check first** for each cloud CLI. Not logged in: stop with `STATUS: blocked — login needed` and the command for the user, written as `! nix shell nixpkgs#<pkg> -c <cli> <login>`. Never run a login yourself.
 6. **Hand off.** Report the plan output and the exact apply/up/deploy commands for the user to approve. Do not run them.
 7. Temporary files go to `docs/temp/` in the project (gitignored) or the session scratchpad. Do not commit: the orchestrator commits each step.
@@ -145,11 +145,11 @@ nix build .#image --max-jobs 4 --cores 8
 ## Output
 
 ```text
-STATUS: done | blocked | needs-decision
+STATUS: done | blocked
 FILES: <files created or changed>
 VARIANTS: <build variants found; which were changed>
 CHECKS:
-- nix shell nixpkgs#docker -c docker compose -f docker-compose.yaml config → exit 0
+- nix shell nixpkgs#docker -c docker compose -f docker-compose.yaml config --quiet → exit 0
 - nix shell nixpkgs#opentofu -c tofu plan → 2 to add, 0 to change, 0 to destroy
 AWAITING_YES: <exact commands the user must approve, or none>
 DECISIONS: <defaults taken>
