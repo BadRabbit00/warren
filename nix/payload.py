@@ -20,6 +20,7 @@ import json
 import re
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 # Skills each Nix agent is told to read in its body. The Skill tool is disabled for
@@ -110,6 +111,34 @@ def hooks_shape_ok(hooks: object) -> bool:
     return ok
 
 
+ROLE_KEYS = {"name", "description", "model", "model_reasoning_effort", "sandbox_mode", "developer_instructions"}
+
+
+def codex_toml_check(codex: Path, expected: int) -> None:
+    """Parse every generated codex TOML file and check its exact key set."""
+    files = sorted((codex / "agents").glob("*.toml"))
+    if len(files) != expected:
+        fail(f"codex toml: {len(files)} role files, expected {expected}")
+    for f in files:
+        try:
+            keys = set(tomllib.loads(f.read_text(encoding="utf-8")))
+        except tomllib.TOMLDecodeError as exc:
+            fail(f"codex/agents/{f.name}: invalid TOML: {exc}")
+            continue
+        if keys != ROLE_KEYS:
+            fail(f"codex/agents/{f.name}: keys {sorted(keys)} != {sorted(ROLE_KEYS)}")
+    try:
+        tables = tomllib.loads((codex / "agents.toml").read_text(encoding="utf-8")).get("agents", {})
+    except tomllib.TOMLDecodeError as exc:
+        fail(f"codex/agents.toml: invalid TOML: {exc}")
+        return
+    if len(tables) != expected:
+        fail(f"codex/agents.toml: {len(tables)} tables, expected {expected}")
+    for key, entry in tables.items():
+        if not isinstance(entry, dict) or set(entry) != {"config_file", "description"}:
+            fail(f"codex/agents.toml: [agents.{key}] must have exactly config_file and description")
+
+
 def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, str]]]) -> tuple[int, int]:
     """Step 6: codex and agy trees from the finished Claude tree. Returns (agents, prompts)."""
     claude = out / "claude"
@@ -148,7 +177,8 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         if not all(isinstance(v, str) and v.strip() for v in (cmodel, ceffort, tier)):
             fail(f"agents/{name}.md: agent-models.json codex.model, codex.effort and agy.model must be non-empty strings")
             continue
-        sandbox = "workspace-write" if WRITE_TOOLS & set(as_list(get(fm, "tools"))) else "read-only"
+        granted = set(as_list(get(fm, "tools"))) - set(as_list(get(fm, "disallowedTools")))
+        sandbox = "workspace-write" if WRITE_TOOLS & granted else "read-only"
         quoted = json.dumps(desc, ensure_ascii=False)
         (codex_agents / f"{name}.toml").write_text(
             f"name = {json.dumps(name)}\n"
@@ -161,11 +191,13 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         )
         entries.append(f'[agents.{name.replace("-", "_")}]\nconfig_file = "agents/{name}.toml"\ndescription = {quoted}\n')
         (agy_agents / f"{name}.md").write_text(
-            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\n---\n\n{body.lstrip("\n")}",
+            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\ninheritMcp: false\n---\n\n{body.lstrip("\n")}",
             encoding="utf-8",
         )
         subagents.append(f"- `{name}` — {desc} (codex: {cmodel}/{ceffort}; agy: {tier})")
     (out / "codex" / "agents.toml").write_text("\n".join(entries), encoding="utf-8")
+
+    codex_toml_check(out / "codex", len(subagents))
 
     prompts = 0
     for p in sorted((claude / "commands").glob("*.md")):
@@ -336,7 +368,7 @@ def main() -> int:
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
           f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
-          f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
+          f"codex/agy: {n_codex} agents, {n_prompts} prompts, codex toml ok — self-checks passed")
     return 0
 
 

@@ -26,6 +26,7 @@
     "flash",
     "pro"
   ],
+  "codexReservedAgentKeys": ["max_depth", "max_threads", "max_concurrent_threads_per_session", "default_subagent_model", "default_subagent_reasoning_effort", "job_max_runtime_seconds", "interrupt_message"],
   "requiredDisallowed": [
     "Agent",
     "Skill",

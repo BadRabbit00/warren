@@ -145,6 +145,7 @@ def fence_tags(body: str) -> tuple[list[str], bool]:
 LIST_KEYS = (
     "allowedModels", "allowedEffort", "agyModels", "requiredDisallowed", "forbiddenDescriptionWords",
     "examplesExempt", "hookEvents", "docTemplates", "buildIsolated", "useWhenExempt",
+    "codexReservedAgentKeys",
 )
 
 
@@ -253,6 +254,10 @@ class Validator:
             names.append(name)
             if name != p.stem:
                 self.err(p, f"name '{name}' != file name '{p.stem}'")
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+                self.err(p, f"name '{name}' must match [a-z][a-z0-9-]*")
+            elif name.replace("-", "_") in self.cfg.get("codexReservedAgentKeys", []):
+                self.err(p, f"name '{name}' is reserved by codex [agents] ({name.replace('-', '_')})")
             desc = scalar(fm.get("description")).strip()
             if not desc:
                 self.err(p, "description missing")

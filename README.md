@@ -126,7 +126,7 @@ writes them from the finished Claude tree, after the model pins and the subagent
 | `codex/prompts/<command>.md` | every command except `ask-astra` and `write-astra`, frontmatter stripped, `# /<command>` header |
 | `codex/skills/` | copy of `claude/skills/` |
 | `codex/AGENTS.md`, `agy/AGENTS.md` | `core/CLAUDE.md` plus a generated list of the subagents; identical files, under 24 000 bytes |
-| `agy/agents/<name>.md` | one agy custom agent per agent: `name`, `description`, `model` (tier), `subagent: true`, `mainAgent: true`, then the body |
+| `agy/agents/<name>.md` | one agy custom agent per agent: `name`, `description`, `model` (tier), `subagent: true`, `mainAgent: true`, `inheritMcp: false`, then the body |
 
 What does not carry over, because the other CLIs have no equivalent: `tools`, `disallowedTools`,
 `maxTurns`, the orchestrator output style and the hooks. Codex agents that have no Write, Edit, MultiEdit or NotebookEdit
@@ -135,7 +135,10 @@ only without writes); the rest get `workspace-write`.
 
 Models per CLI live next to the Claude pins in `agent-models.json` (`codex.model`, `codex.effort`,
 `agy.model`). The agy field accepts only the tiers `inherit`, `flash_lite`, `flash`, `pro`; a full model id
-makes agy drop the agent. The build fails when an agent lacks these fields or when its body contains `'''`.
+makes agy drop the agent. The build fails when an agent lacks these fields, when its description is empty or a YAML
+block scalar, when a description or body contains a control character or `'''`, or when a generated TOML file does
+not parse back with the expected keys. Agent names must match `[a-z][a-z0-9-]*` and must not collide with a codex
+`[agents]` field after `-` becomes `_`.
 ## Adding something
 
 1. Copy the matching file from `_templates/` and fill it in.
