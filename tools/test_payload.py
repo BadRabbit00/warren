@@ -454,6 +454,40 @@ class ExportInstalledWorkflowsTest(unittest.TestCase):
 
         self.assert_rejected(self.run_broken(add), "notes.txt")
 
+    # AC3: stray entries that are not readable text must be named in the failure, without a traceback
+    def test_payload_rejects_binary_or_dir_installed_entry(self) -> None:
+        def stray_binary_js(claude: Path) -> None:
+            (claude / "workflows" / "blob.js").write_bytes(b"\xff\xfe\x00\x80 not utf-8")
+
+        def stray_binary_other_ext(claude: Path) -> None:
+            (claude / "workflows" / "blob.bin").write_bytes(b"\xff\xfe\x00\x80")
+
+        def stray_dir(claude: Path) -> None:
+            (claude / "workflows" / "subdir").mkdir()
+
+        def stray_dir_named_js(claude: Path) -> None:
+            (claude / "workflows" / "folder.js").mkdir()
+
+        def source_replaced_by_binary(claude: Path) -> None:
+            (claude / "workflows" / "br-green.js").write_bytes(b"\xff\xfe\x00\x80")
+
+        def source_replaced_by_dir(claude: Path) -> None:
+            path = claude / "workflows" / "br-green.js"
+            path.unlink()
+            path.mkdir()
+
+        cases = (
+            ("blob.js", stray_binary_js),
+            ("blob.bin", stray_binary_other_ext),
+            ("subdir", stray_dir),
+            ("folder.js", stray_dir_named_js),
+            ("br-green.js", source_replaced_by_binary),
+            ("br-green.js", source_replaced_by_dir),
+        )
+        for name, break_installed in cases:
+            with self.subTest(case=break_installed.__name__):
+                self.assert_rejected(self.run_broken(break_installed), name)
+
     def test_payload_accepts_block_comment_before_meta(self) -> None:
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)

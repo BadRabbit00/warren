@@ -667,6 +667,28 @@ class WorkflowTest(unittest.TestCase):
         with self.subTest(case="the word import inside a string is not a call"):
             self.assertEqual(self.findings(self.GOOD + "const s = 'import, then run'\n"), [])
 
+    # AC7: code inside ${...} of a template literal is checked like any other code; template text is not
+    def test_workflow_template_interpolation(self) -> None:
+        with self.subTest(case="forbidden call inside ${...} is a finding on its line"):
+            found = self.findings(self.GOOD + "const s = `${Date.now()}`\n")
+            self.assertTrue(any("Date.now(" in e for e in found), found)
+            self.assert_line(found, 13)
+        with self.subTest(case="untyped agent() inside ${...} is a finding on its line"):
+            found = self.findings(self.GOOD + "const s = `${await agent('p')}`\n")
+            self.assertTrue(any("agentType" in e for e in found), found)
+            self.assert_line(found, 13)
+        with self.subTest(case="interpolation on a later line of a multi-line template names that line"):
+            found = self.findings(self.GOOD + "const s = `first\nsecond ${Math.random()}\nthird`\n")
+            self.assertTrue(any("Math.random(" in e for e in found), found)
+            self.assert_line(found, 14)
+        with self.subTest(case="text inside a nested template is not code"):
+            self.assertEqual(self.findings(self.GOOD + "const s = `a ${x ? `import(y)` : ''}`\n"), [])
+        with self.subTest(case="plain template text is not code"):
+            self.assertEqual(self.findings(self.GOOD + "const s = `call Date.now() and agent('p') later`\n"), [])
+        with self.subTest(case="code after a template on the same line is still checked"):
+            found = self.findings(self.GOOD + "const s = `${x}` + Date.now()\n")
+            self.assert_line(found, 13)
+
     # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
     def test_shipped_workflows_are_clean(self) -> None:
         shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
