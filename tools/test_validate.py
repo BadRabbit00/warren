@@ -829,7 +829,10 @@ class WorkflowTest(unittest.TestCase):
     # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
     def test_shipped_workflows_are_clean(self) -> None:
         shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
-        self.assertEqual(shipped, ["br-review.js", "br-wave.js"])
+        self.assertEqual(shipped, [
+            "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+            "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
+        ])
         self.assertEqual(validate.Validator(self.root).run(), [])
 
 

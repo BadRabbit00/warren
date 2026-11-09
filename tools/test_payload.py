@@ -22,7 +22,10 @@ COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
-WORKFLOWS = ("br-wave.js", "br-review.js")
+WORKFLOWS = (
+    "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+    "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
+)
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 AGENTS_MD_LIMIT = 24_000
