@@ -401,5 +401,30 @@ class TestReaders(unittest.TestCase):
                 self.assertTrue(denied(write("/etc/hosts", agent, r)))
 
 
+class TestLogCollector(unittest.TestCase):
+    """AC9: log-collector has exactly the read-only rules of deploy-error-reader (no Write/Edit anywhere)."""
+    PATHS = ["src/orders/app/services/order_service.py", "src/orders/test/services/test_order_service.py",
+             "docs/API.md", ".plan/PLAN.md", "README.md", "flake.nix", ".github/workflows/ci.yml", "notes.md"]
+
+    def test_log_collector_is_read_only(self):
+        for plan in (PLAN, None):
+            r = project(plan)
+            for p in self.PATHS:
+                for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+                    with self.subTest(plan=plan is not None, p=p, tool=tool):
+                        self.assertTrue(denied(write(r / p, "log-collector", r, tool=tool)), f"{p} {tool}")
+        r = project()
+        with self.subTest(outside="/etc/hosts"):
+            self.assertTrue(denied(write("/etc/hosts", "log-collector", r)))
+
+    def test_log_collector_gets_the_same_write_decision_as_deploy_error_reader(self):
+        r = project()
+        for p in self.PATHS + ["/etc/hosts"]:
+            target = p if p.startswith("/") else r / p
+            with self.subTest(p=p):
+                self.assertEqual(denied(write(target, "log-collector", r)),
+                                 denied(write(target, "deploy-error-reader", r)))
+
+
 if __name__ == "__main__":
     unittest.main()

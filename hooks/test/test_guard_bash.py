@@ -527,5 +527,67 @@ class DeployErrorReader(unittest.TestCase):
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
 
+class LogCollector(unittest.TestCase):
+    """AC9: log-collector has exactly the read-only rules of deploy-error-reader (D11)."""
+    AGENT = "log-collector"
+    SAME = DeployErrorReader
+
+    def wrapped(self, cmd):
+        return f"nix shell nixpkgs#{self.SAME.PKG[cmd.split()[0]]} -c {cmd}"
+
+    def test_log_collector_is_read_only(self):
+        for cmd in self.SAME.READ:
+            for form in (cmd, self.wrapped(cmd)):
+                with self.subTest(allowed=form):
+                    res = bash(form, agent=self.AGENT)
+                    self.assertFalse(denied(res), f"{form}: {reason(res)}")
+        for cmd in self.SAME.MUTATING:
+            for form in (cmd, self.wrapped(cmd)):
+                with self.subTest(denied=form):
+                    self.assertTrue(denied(bash(form, agent=self.AGENT)), form)
+        for cmd in ["gh run list && gh run rerun 12345", "railway logs | tee out.txt && railway up",
+                    "bash -c 'gh workflow run ci.yml'"]:
+            with self.subTest(chain=cmd):
+                self.assertTrue(denied(bash(cmd, agent=self.AGENT)), cmd)
+        for cmd in ["gh run view 12345 --log-failed | tail -n 80", "docker compose logs api | grep -i error"]:
+            with self.subTest(filtered=cmd):
+                res = bash(cmd, agent=self.AGENT)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+class ReaderGlobalFlags(unittest.TestCase):
+    """AC10: global flags with values before the subcommand are skipped when matching the allowlist."""
+    AGENTS = ["deploy-error-reader", "log-collector"]
+    ALLOWED = ["gh -R owner/repo run list", "gh --repo owner/repo run view 1 --log-failed",
+               "docker compose -f deploy/compose.yml logs api", "docker compose -p stand ps",
+               "docker --context stand logs api"]
+    DENIED = ["gh -R o/r run rerun 1", "gh --repo o/r workflow run ci.yml", "docker compose -f x.yml up -d",
+              "docker compose -p stand down", "docker --context stand rm api"]
+
+    @staticmethod
+    def forms(cmd):
+        pkg = "gh" if cmd.startswith("gh") else "docker"
+        return (cmd, f"nix shell nixpkgs#{pkg} -c {cmd}")
+
+    def test_reader_allowlist_skips_global_flags(self):
+        for agent in self.AGENTS:
+            for cmd in self.ALLOWED:
+                for form in self.forms(cmd):
+                    with self.subTest(agent=agent, allowed=form):
+                        res = bash(form, agent=agent)
+                        self.assertFalse(denied(res), f"{form}: {reason(res)}")
+            for cmd in self.DENIED:
+                for form in self.forms(cmd):
+                    with self.subTest(agent=agent, denied=form):
+                        self.assertTrue(denied(bash(form, agent=agent)), form)
+
+    def test_global_flags_do_not_limit_other_agents(self):
+        for agent in [None, "deploy-engineer", "ci-engineer"]:
+            for cmd in ["gh -R o/r run rerun 1", "docker compose -f x.yml up -d"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
 if __name__ == "__main__":
     unittest.main()
