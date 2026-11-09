@@ -100,7 +100,7 @@ Three saved workflows run a whole wave step for many tasks at once. Each is a sl
 | Workflow | What it runs per task |
 |---|---|
 | `/br-red` | `test-writer` → `test-runner` red check and tests hash |
-| `/br-green` | `coder` → `test-runner` → `refactorer` → `test-runner`; hash guard |
+| `/br-green` | per task by Status: `green` → `coder` → `test-runner`; `refactor` → `refactorer` → `test-runner`; hash guard |
 | `/br-review` | `code-reviewer` + language reviewers by file extension + `security-reviewer` when flagged; 3 refuters per must-fix, it survives with 2 of 3 |
 
 - Each reads `.plan/PLAN.md` itself and takes `args = { tasks: ["T3", …] }`, or every task whose Status matches the step.
@@ -165,7 +165,7 @@ Fill `.plan/PLAN.md`:
 Manual: the user names the task («делай T3»); check its dependencies are `done`. Auto: every task whose dependencies are done, wave by wave, in parallel inside a wave.
 Before the first task: `git switch -c feature/<plan-id>-<slug>` from an up-to-date `develop` (`git pull --ff-only`). All tasks commit there.
 
-With dispatch = workflows, per wave: set the wave's tasks to `red`, run `/br-red`, commit the tests, record the hashes; set `green`, run `/br-green`, commit; set `review`, run `/br-review`, act on the surviving must-fix; then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
+With dispatch = workflows, per wave: set the wave's tasks to `red`, run `/br-red`, commit the tests, record the hashes; set `green`, run `/br-green`, commit; set `refactor`, run `/br-green` again, commit; set `review`, run `/br-review`, act on the surviving must-fix; then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
 
 Loop for one task (tests first):
 1. **Red.** Status `red` → `test-writer`. Then `test-runner` on the task's tests: they must run and fail for the right reason (missing behaviour, not an import or syntax error). Record the hash: `git ls-files -co --exclude-standard -- <Tests globs> | sort | xargs sha256sum | sha256sum`. Commit only those paths: `test(T3): …`.

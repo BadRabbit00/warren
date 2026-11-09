@@ -1,9 +1,9 @@
-// br-green: coder, test-runner, refactorer, test-runner, with the tests-hash guard.
+// br-green: one step per task by its plan Status (green: coder; refactor: refactorer), then test-runner, with the tests-hash guard.
 export const meta = {
   name: 'br-green',
-  description: 'Green and refactor steps for plan tasks: coder, test-runner, refactorer, test-runner with the tests-hash guard',
-  whenToUse: 'Inside a wave, after the red step passed and the orchestrator set the tasks to green',
-  phases: ['Plan', 'Code', 'Green check', 'Refactor', 'Refactor check'],
+  description: 'Green or refactor step per task by its plan Status: coder or refactorer, then test-runner with the tests-hash guard',
+  whenToUse: 'Inside a wave: run once with tasks at Status green (coder), then again with tasks at Status refactor (refactorer)',
+  phases: ['Plan', 'Code', 'Refactor', 'Check'],
 }
 
 const CODER_SCHEMA = {
@@ -72,11 +72,12 @@ const PLAN_SCHEMA = {
 }
 
 // Stage 0, shared by all br workflows: read the plan, nothing else.
-async function readPlan(status) {
+async function readPlan(statuses) {
+  const list = statuses.map((x) => `"${x}"`).join(' or ')
   const ids = args && Array.isArray(args.tasks) ? args.tasks : null
   const which = ids
-    ? `the tasks with these ids: ${ids.join(', ')}. Report in problems every requested id that is missing or whose Status is not exactly "${status}".`
-    : `every task whose Status is exactly "${status}".`
+    ? `the tasks with these ids: ${ids.join(', ')}. Report in problems every requested id that is missing or whose Status is not exactly ${list}.`
+    : `every task whose Status is exactly ${list}.`
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
       'Copy every field verbatim from the plan; do not invent anything. ' +
@@ -89,7 +90,7 @@ async function readPlan(status) {
     plan.problems.forEach((p) => log(`stopped: ${p}`))
     return { stopped: true, problems: plan.problems }
   }
-  if (plan.tasks.length === 0) return { stopped: true, problems: [`no tasks with status ${status}`] }
+  if (plan.tasks.length === 0) return { stopped: true, problems: [`no tasks with status ${statuses.join(' or ')}`] }
   return plan
 }
 
@@ -132,64 +133,50 @@ async function check(plan, state, phaseTitle) {
   return { run, ok: isGreen(run) && hashOk, hashOk }
 }
 
-function code() {
+// The write hook allows coder only under Status green and refactorer only under refactor,
+// so each task runs the one step its Status names.
+function work() {
   return async (task) => {
+    if (task.status === 'refactor') {
+      const refactorer = await agent(
+        brief(task, task.writes, '{status: done|blocked, files, changes: [string], notes}') +
+          '\nBehaviour must stay unchanged; do not touch the tests.',
+        { agentType: 'refactorer', phase: 'Refactor', label: `${task.id} refactorer`, schema: REFACTOR_SCHEMA },
+      )
+      return { task, step: 'refactor', worker: refactorer }
+    }
     const coder = await agent(
       brief(task, task.writes, '{status: done|blocked, files, notes}'),
       { agentType: 'coder', phase: 'Code', label: `${task.id} coder`, schema: CODER_SCHEMA },
     )
-    return { task, coder }
+    return { task, step: 'green', worker: coder }
   }
 }
 
-function greenCheck(plan) {
+function verify(plan) {
   return async (state) => {
-    if (!state.coder || state.coder.status === 'blocked') {
-      return stop(state, state.coder ? `coder blocked: ${state.coder.notes}` : 'coder returned nothing')
+    const who = state.step === 'refactor' ? 'refactorer' : 'coder'
+    if (!state.worker || state.worker.status === 'blocked') {
+      return stop(state, state.worker ? `${who} blocked: ${state.worker.notes}` : `${who} returned nothing`)
     }
-    const { run, ok, hashOk } = await check(plan, state, 'Green check')
-    if (!ok) return stop({ ...state, green: run }, run ? (hashOk ? 'tests not green' : 'tests hash changed') : 'test-runner returned nothing')
-    return { ...state, green: run }
-  }
-}
-
-function refactor() {
-  return async (state) => {
-    if (state.stopped) return state
-    const task = state.task
-    const refactorer = await agent(
-      brief(task, task.writes, '{status: done|blocked, files, changes: [string], notes}') +
-        '\nBehaviour must stay unchanged; do not touch the tests.',
-      { agentType: 'refactorer', phase: 'Refactor', label: `${task.id} refactorer`, schema: REFACTOR_SCHEMA },
-    )
-    if (!refactorer || refactorer.status === 'blocked') {
-      return stop({ ...state, refactorer }, refactorer ? `refactorer blocked: ${refactorer.notes}` : 'refactorer returned nothing')
-    }
-    return { ...state, refactorer }
-  }
-}
-
-function refactorCheck(plan) {
-  return async (state) => {
-    if (state.stopped) return state
-    const { run, ok, hashOk } = await check(plan, state, 'Refactor check')
-    if (!ok) return stop({ ...state, refactor_run: run }, run ? (hashOk ? 'tests not green after refactor' : 'tests hash changed after refactor') : 'test-runner returned nothing')
+    const { run, ok, hashOk } = await check(plan, state, 'Check')
+    const after = state.step === 'refactor' ? ' after refactor' : ''
+    if (!ok) return stop({ ...state, run }, run ? (hashOk ? `tests not green${after}` : `tests hash changed${after}`) : 'test-runner returned nothing')
     log(`${state.task.id} done`)
-    return { ...state, refactor_run: run, done: true }
+    return { ...state, run, done: true }
   }
 }
 
-const plan = await readPlan('green')
+const plan = await readPlan(['green', 'refactor'])
 if (plan.stopped) return plan
 
-const results = await pipeline(plan.tasks, code(), greenCheck(plan), refactor(), refactorCheck(plan))
+const results = await pipeline(plan.tasks, work(), verify(plan))
 return {
   tasks: results.map((r) => ({
     id: r.task.id,
-    coder: r.coder || null,
-    green: r.green || null,
-    refactorer: r.refactorer || null,
-    refactor_run: r.refactor_run || null,
+    step: r.step,
+    agent: r.worker || null,
+    run: r.run || null,
     done: Boolean(r.done),
     reason: r.reason || '',
   })),
