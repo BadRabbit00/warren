@@ -466,5 +466,66 @@ class NixOnly(unittest.TestCase):
         self.assertLess(elapsed, 1.0, f"took {elapsed:.2f}s")
 
 
+class DeployErrorReader(unittest.TestCase):
+    """AC8: deploy-error-reader runs only read/status/log subcommands of the deploy CLIs (D3, D4)."""
+    AGENT = "deploy-error-reader"
+    # command -> nixpkgs package that provides its binary (only used to build the wrapped form)
+    PKG = {"gh": "gh", "railway": "railway", "gcloud": "google-cloud-sdk", "doctl": "doctl", "yc": "yandex-cloud-cli",
+           "wrangler": "wrangler", "docker": "docker", "kubectl": "kubectl", "terraform": "terraform"}
+    READ = ["gh auth status", "gh run list", "gh run list --limit 5 --branch feature/x",
+            "gh run view 12345 --log-failed", "gh run view 12345 --job 678 --log-failed",
+            "railway whoami", "railway logs", "gcloud auth list",
+            "gcloud logging read 'severity>=ERROR' --limit 50", "doctl account get",
+            "doctl apps logs 1111-2222 --type run", "yc config list", "yc logging read --group-name default",
+            "wrangler whoami", "wrangler tail my-worker", "docker compose ps", "docker compose logs --tail 100 api",
+            "docker logs --tail 50 api"]
+    MUTATING = ["gh run rerun 12345", "gh run rerun 12345 --failed", "gh workflow run ci.yml", "railway up",
+                "railway redeploy", "gcloud run deploy api --image gcr.io/p/api",
+                "gcloud app deploy", "gcloud compute instances delete vm-1",
+                "gcloud sql instances delete db-1", "doctl apps create --spec app.yaml",
+                "doctl databases delete 1111", "doctl compute droplet update 1 --size s-2vcpu-4gb",
+                "yc compute instance create --name vm", "yc compute instance delete vm",
+                "yc serverless function update --name f", "wrangler deploy", "docker compose up -d",
+                "docker compose up", "docker compose down", "docker compose restart api",
+                "docker rm api", "docker stop api", "docker kill api", "kubectl apply -f k8s/",
+                "kubectl delete pod api-0", "terraform apply -auto-approve", "terraform destroy"]
+
+    def wrapped(self, cmd):
+        return f"nix shell nixpkgs#{self.PKG[cmd.split()[0]]} -c {cmd}"
+
+    def test_deploy_error_reader_is_read_only(self):
+        for cmd in self.READ:
+            for form in (cmd, self.wrapped(cmd)):
+                with self.subTest(allowed=form):
+                    res = bash(form, agent=self.AGENT)
+                    self.assertFalse(denied(res), f"{form}: {reason(res)}")
+        for cmd in self.MUTATING:
+            for form in (cmd, self.wrapped(cmd)):
+                with self.subTest(denied=form):
+                    self.assertTrue(denied(bash(form, agent=self.AGENT)), form)
+
+    def test_deploy_error_reader_mutation_hidden_in_a_chain_is_denied(self):
+        for cmd in ["gh run list && gh run rerun 12345", "gh run view 1 --log-failed; railway redeploy",
+                    "railway logs | tee out.txt && railway up", "bash -c 'gh workflow run ci.yml'",
+                    "nix shell nixpkgs#gh -c bash -c 'gh run rerun 1'"]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(denied(bash(cmd, agent=self.AGENT)), cmd)
+
+    def test_deploy_error_reader_logs_may_be_filtered(self):
+        for cmd in ["gh run view 12345 --log-failed | tail -n 80", "docker compose logs api | grep -i error",
+                    "railway logs | head -n 200"]:
+            with self.subTest(cmd=cmd):
+                res = bash(cmd, agent=self.AGENT)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_read_only_limit_applies_to_deploy_error_reader_only(self):
+        for agent in [None, "deploy-engineer", "coder", "ci-engineer"]:
+            for cmd in ["gh run rerun 12345", "railway up", "wrangler deploy", "docker compose up -d",
+                        "terraform apply -auto-approve"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
 if __name__ == "__main__":
     unittest.main()
