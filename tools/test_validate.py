@@ -470,6 +470,22 @@ class ModelTableTest(unittest.TestCase):
             sys.argv = argv
         self.assertEqual(rc, 2)
 
+    def set_description(self, name: str, replacement: str) -> None:
+        path = self.root / "agents" / f"{name}.md"
+        lines = path.read_text(encoding="utf-8").split("\n")
+        index = next(i for i, ln in enumerate(lines) if ln.startswith("description:"))
+        lines[index] = replacement
+        path.write_text("\n".join(lines), encoding="utf-8")
+
+    def test_description_block_scalar_is_a_finding(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        folded, literal = self.names[0], self.names[1]
+        self.set_description(folded, "description: >-\n  Reviews code across\n  several lines.")
+        self.set_description(literal, "description: |\n  Reviews code across\n  several lines.")
+        for name in (folded, literal):
+            with self.subTest(agent=name):
+                self.assertTrue(any("description" in e for e in self.findings_for(name, baseline)), name)
+
     def test_body_rejects_toml_literal_terminator(self) -> None:
         baseline = validate.Validator(self.root).run()
         target = self.names[0]

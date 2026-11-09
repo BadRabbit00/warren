@@ -8,6 +8,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -19,13 +20,15 @@ COPIED = (
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
-WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
+WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 AGENTS_MD_LIMIT = 24_000
+EXPORTER_TIMEOUT = 120
 
 
 def split(text: str) -> tuple[dict[str, str], str]:
     """Frontmatter as a flat key -> raw value map, and the text after it."""
-    assert text.startswith("---\n"), text[:40]
+    if not text.startswith("---\n"):
+        raise ValueError(f"no frontmatter: {text[:40]!r}")
     end = text.index("\n---\n", 4)
     fm: dict[str, str] = {}
     for line in text[4:end].split("\n"):
@@ -77,8 +80,41 @@ def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
     shutil.copyfile(root / "settings.fragment.json", out / "settings.fragment.json")
     return subprocess.run(
         [sys.executable, "-I", "-B", str(PAYLOAD), str(out), str(root), "/x/br-hook"],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, timeout=EXPORTER_TIMEOUT,
     )
+
+
+@dataclass(frozen=True)
+class Probe:
+    """One extra agent injected into the source tree; `description` is the raw frontmatter value."""
+
+    name: str
+    description: str = "Reviews code."
+    tools: str = "Read, Grep"
+    body: str = "# Probe\n\nA probe agent.\n"
+
+
+def add_probes(root: Path, *probes: Probe) -> None:
+    models_path = root / "agent-models.json"
+    models = json.loads(models_path.read_text(encoding="utf-8"))
+    for probe in probes:
+        text = f"---\nname: {probe.name}\ndescription: {probe.description}\ntools: {probe.tools}\n---\n\n{probe.body}"
+        (root / "agents" / f"{probe.name}.md").write_text(text, encoding="utf-8")
+        models["agents"][probe.name] = {
+            "model": "claude-sonnet-5-5", "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"}, "agy": {"model": "flash"},
+        }
+    models_path.write_text(json.dumps(models), encoding="utf-8")
+
+
+def export_with_probes(case: unittest.TestCase, *probes: Probe) -> tuple[Path, subprocess.CompletedProcess[str]]:
+    """Runs the exporter on a fresh tree plus the probes; returns the output dir and the finished process."""
+    tmp = Path(tempfile.mkdtemp())
+    case.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    root = make_tree(tmp)
+    add_probes(root, *probes)
+    out = tmp / "out"
+    return out, run_exporter(root, out)
 
 
 def files_of(base: Path) -> dict[str, bytes]:
@@ -127,7 +163,8 @@ class ExportTest(unittest.TestCase):
             self.assertEqual(data["model"], self.models[name]["codex"]["model"], name)
             self.assertEqual(data["model_reasoning_effort"], self.models[name]["codex"]["effort"], name)
             instructions = data["developer_instructions"]
-            assert isinstance(instructions, str)
+            if not isinstance(instructions, str):
+                self.fail(f"{name}: developer_instructions is {type(instructions).__name__}, not str")
             self.assertEqual(instructions.strip(), body.strip(), name)
 
     def test_codex_sandbox_mode(self) -> None:
@@ -151,6 +188,12 @@ class ExportTest(unittest.TestCase):
         for name, mode in expected.items():
             self.assertEqual(self.codex_agent(name)["sandbox_mode"], mode, name)
 
+    def test_codex_sandbox_mode_counts_multiedit_as_write(self) -> None:
+        out, proc = export_with_probes(self, Probe("probe-multiedit", tools="Read, MultiEdit"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = tomllib.loads((out / "codex" / "agents" / "probe-multiedit.toml").read_text(encoding="utf-8"))
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
+
     def test_codex_agents_fragment(self) -> None:
         path = self.out / "codex" / "agents.toml"
         self.assertTrue(path.is_file(), f"{path} missing; exporter stderr: {self.proc.stderr!r}")
@@ -166,8 +209,11 @@ class ExportTest(unittest.TestCase):
         produced = sorted(p.stem for p in (self.out / "agy" / "agents").glob("*.md"))
         self.assertEqual(produced, self.names)
         for name in self.names:
-            fm, body = split((self.out / "agy" / "agents" / f"{name}.md").read_text(encoding="utf-8"))
+            text = (self.out / "agy" / "agents" / f"{name}.md").read_text(encoding="utf-8")
+            fm, body = split(text)
             self.assertEqual(set(fm), {"name", "description", "model", "subagent", "mainAgent"}, name)
+            raw_frontmatter = text.split("\n---\n", 1)[0].split("\n")
+            self.assertTrue(any(ln.startswith('description: "') for ln in raw_frontmatter), name)  # quoted scalar
             self.assertEqual(unquote(fm["name"]), name)
             self.assertEqual(unquote(fm["description"]), self.claude_agent(name)[0]["description"], name)
             self.assertEqual(unquote(fm["model"]), self.models[name]["agy"]["model"], name)
@@ -177,13 +223,14 @@ class ExportTest(unittest.TestCase):
 
     def test_codex_prompts(self) -> None:
         commands = sorted(p.stem for p in (self.root / "commands").glob("*.md"))
-        self.assertTrue(SKIPPED_PROMPTS <= set(commands))
+        self.assertTrue(set(commands) >= SKIPPED_PROMPTS)
         wanted = [c for c in commands if c not in SKIPPED_PROMPTS]
         prompts_dir = self.out / "codex" / "prompts"
         self.assertEqual(sorted(p.stem for p in prompts_dir.glob("*.md")), wanted)
         for cmd in wanted:
             lines = (prompts_dir / f"{cmd}.md").read_text(encoding="utf-8").split("\n")
             self.assertEqual(lines[0], f"# /{cmd}")
+            self.assertEqual(lines.count(f"# /{cmd}"), 1, cmd)  # the heading is not prepended twice
             self.assertNotIn("---", lines, cmd)
             self.assertFalse(any(ln.startswith(("description:", "argument-hint:")) for ln in lines), cmd)
             _, body = split((self.root / "commands" / f"{cmd}.md").read_text(encoding="utf-8"))
@@ -224,6 +271,44 @@ class ExportFailureTest(unittest.TestCase):
         self.assertIn("coder", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
         self.assertFalse((out / "codex" / "agents" / "coder.toml").exists())
+
+    def test_export_fails_on_block_scalar_description(self) -> None:
+        for indicator in (">-", "|"):
+            with self.subTest(indicator=indicator):
+                name = "probe-block"
+                out, proc = export_with_probes(
+                    self, Probe(name, description=f"{indicator}\n  Reviews code across\n  several lines."),
+                )
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn(name, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertFalse((out / "codex" / "agents" / f"{name}.toml").exists())
+
+    def test_export_fails_on_control_character(self) -> None:
+        in_body = Probe("probe-ctl-body", body="# Probe\n\nform\x0cfeed\n")
+        in_description = Probe("probe-ctl-desc", description="Reviews\x7fcode.")
+        out, proc = export_with_probes(self, in_body, in_description)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn(in_body.name, proc.stderr)
+        self.assertIn(in_description.name, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        for probe in (in_body, in_description):
+            self.assertFalse((out / "codex" / "agents" / f"{probe.name}.toml").exists(), probe.name)
+
+
+class ExportQuotedDescriptionTest(unittest.TestCase):
+    def test_quoted_source_description_round_trips(self) -> None:
+        probe = Probe("probe-quoted", description='"Reviews code."')
+        out, proc = export_with_probes(self, probe)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        codex = tomllib.loads((out / "codex" / "agents" / "probe-quoted.toml").read_text(encoding="utf-8"))
+        self.assertEqual(codex["description"], "Reviews code.")
+        fragment = tomllib.loads((out / "codex" / "agents.toml").read_text(encoding="utf-8"))
+        self.assertEqual(fragment["agents"]["probe_quoted"]["description"], "Reviews code.")
+        agy_text = (out / "agy" / "agents" / "probe-quoted.md").read_text(encoding="utf-8")
+        fm, _ = split(agy_text)
+        self.assertEqual(unquote(fm["description"]), "Reviews code.")
+        self.assertTrue(fm["description"].startswith('"'), fm["description"])
 
 
 if __name__ == "__main__":
