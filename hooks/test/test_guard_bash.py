@@ -521,9 +521,15 @@ class DeployErrorReader(unittest.TestCase):
                 self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
     def test_read_only_limit_applies_to_deploy_error_reader_only(self):
-        for agent in [None, "deploy-engineer", "coder", "ci-engineer"]:
-            for cmd in ["gh run rerun 12345", "railway up", "wrangler deploy", "docker compose up -d",
-                        "terraform apply -auto-approve"]:
+        # AC18: infrastructure-changing commands are denied for every subagent, so only the main
+        # session keeps the full set; subagents other than the reader keep non-infra commands.
+        for cmd in ["gh run rerun 12345", "railway up", "wrangler deploy", "docker compose up -d",
+                    "terraform apply -auto-approve"]:
+            with self.subTest(agent=None, cmd=cmd):
+                res = bash(cmd, agent=None)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for agent in ["deploy-engineer", "coder", "ci-engineer"]:
+            for cmd in ["docker compose up -d", "gh run list"]:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
@@ -585,7 +591,7 @@ class ReaderGlobalFlags(unittest.TestCase):
 
     def test_global_flags_do_not_limit_other_agents(self):
         for agent in [None, "deploy-engineer", "ci-engineer"]:
-            for cmd in ["gh -R o/r run rerun 1", "docker compose -f x.yml up -d"]:
+            for cmd in ["gh -R o/r run list", "docker compose -f x.yml up -d"]:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
@@ -956,8 +962,13 @@ class ReaderGateWrappers(unittest.TestCase):
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
     def test_reader_gate_wrappers_do_not_limit_other_agents(self):
-        for agent in [None, "deploy-engineer", "ci-engineer"]:
-            for cmd in ["bash -lc 'gh run rerun 1'", "nix run nixpkgs#gh -- run rerun 1", "echo 1 | xargs gh run rerun"]:
+        # AC18: the main session is not limited; other subagents run the same wrappers with non-infra commands.
+        for cmd in ["bash -lc 'gh run rerun 1'", "nix run nixpkgs#gh -- run rerun 1", "echo 1 | xargs gh run rerun"]:
+            with self.subTest(agent=None, cmd=cmd):
+                res = bash(cmd, agent=None)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for agent in ["deploy-engineer", "ci-engineer"]:
+            for cmd in ["bash -lc 'gh run list'", "nix run nixpkgs#gh -- run list", "echo 1 | xargs gh run list"]:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
