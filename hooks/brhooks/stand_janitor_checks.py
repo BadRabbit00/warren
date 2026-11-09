@@ -71,8 +71,7 @@ class _Gate:
         self.janitor = self.agent == "janitor"
         self.root = ev.project_root
         self.dynamic = re.search(r"[$`]", cmd) is not None     # a name or path may come from a variable or substitution
-        self.grouped = re.search(r"[(){}]", cmd) is not None   # a cd inside ( ) or { } may or may not leave its directory
-        self.cwd: str | None = str(ev.cwd)
+        self.cwd = str(ev.cwd)
         self.targets = set() if self.janitor else _stand_targets(self.root)
 
     def deny(self, shown: str, why: str) -> str:
@@ -115,32 +114,23 @@ class _Gate:
                 return self.reason(script, depth + 1)
         elif name == "eval":
             return self.reason(" ".join(args), depth + 1)
-        elif name == "cd":
-            self.track_cd(args, depth)
-            return None
-        elif name in {"pushd", "popd"}:
-            self.cwd = None
-            return None
+        elif name in {"cd", "pushd", "popd"}:
+            return self.deny(shown, "`cd` is not available here; use project-relative paths from the project root.")
         elif name in {"docker", "docker-compose"}:
             special = self.docker(name, args, shown)
             if special is not None:
                 return special or None
         elif name == "rm" and self.janitor:
             return self.rm(args, shown)
-        elif name == "git" and self.janitor and self.git_ls_files(args):
-            return None
+        elif name == "git":
+            if self.janitor and self.git_allowed(args):
+                return None
+            return self.deny(shown, "Only the janitor runs git, and only `git ls-files` and `git status --porcelain` "
+                                    "without global options.")
         return _reader_words(final, self.agent, depth)
 
-    def track_cd(self, args: list[str], depth: int) -> None:
-        """Only a plain `cd DIR` at the top level is tracked; anything else makes the directory unknown."""
-        if (depth > 0 or self.grouped or len(args) != 1 or args[0].startswith(("-", "~")) or UNSAFE_NAME.search(args[0])
-                or self.cwd is None):
-            self.cwd = None
-        else:
-            self.cwd = posixpath.normpath(posixpath.join(self.cwd, args[0]))
-
     def inside(self, value: str) -> bool:
-        if not value or value.startswith("~") or re.search(r"[$`]", value) or self.cwd is None:
+        if not value or value.startswith("~") or re.search(r"[$`]", value):
             return False
         full = posixpath.normpath(posixpath.join(self.cwd, value))
         root = posixpath.normpath(str(self.root))
@@ -207,13 +197,16 @@ class _Gate:
 
     # -- git, rm ------------------------------------------------------------------------------------------
     @staticmethod
-    def git_ls_files(args: list[str]) -> bool:
-        i = 0
-        while i < len(args) and args[i].startswith("-"):
-            if args[i] == "-c" or args[i].startswith(("-c=", "--config-env", "--exec-path")):
-                return False  # git -c / --config-env / --exec-path can run programs
-            i += 2 if args[i] == "-C" else 1
-        return i < len(args) and args[i] == "ls-files"
+    def git_allowed(args: list[str]) -> bool:
+        """`git ls-files ...` and `git status` with plain flags; no global option (-c, --config-env, --exec-path, -C, ...)."""
+        if not args or args[0].startswith("-"):
+            return False
+        if args[0] == "ls-files":
+            return not any(a.startswith(("--output", "--exclude-from", "--exclude-standard=")) for a in args[1:])
+        if args[0] == "status":
+            return all(a in {"--porcelain", "--porcelain=v1", "--porcelain=v2", "--short", "-s", "-b", "--branch", "-z"}
+                       or not a.startswith("-") for a in args[1:])
+        return False
 
     def tracked(self, rel: str) -> bool:
         """Fails closed: only git's own "did not match" answer (exit 1) means untracked."""
@@ -229,8 +222,6 @@ class _Gate:
         if not files or self.dynamic or any(a.startswith("-") or UNSAFE_NAME.search(a) for a in files):
             return self.deny(shown, "`rm` takes explicit file paths of untracked files, optionally with `-f`: "
                                     "no recursive flag, patterns, variables or substitutions.")
-        if self.cwd is None:
-            return self.deny(shown, "The directory after `cd` is not known; use project-relative paths.")
         root = posixpath.normpath(str(self.root))
         for f in files:
             full = posixpath.normpath(posixpath.join(self.cwd, f))

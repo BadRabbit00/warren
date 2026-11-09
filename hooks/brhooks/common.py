@@ -15,6 +15,9 @@ EXECUTORS_CODE = {"coder", "refactorer", "deploy-engineer", "ci-engineer"} | LAN
 EXECUTOR_TESTS = "test-writer"
 NO_TEST_WRITE = EXECUTORS_CODE | {"build-fixer"}
 READ_ONLY_AGENTS = {"deploy-error-reader", "log-collector", "web-researcher", "stand-operator", "janitor"}   # no Write/Edit anywhere
+# Readers reach files only with Read/Grep/Glob, and only inside the project, temp dirs and /nix/store (AC23).
+READER_ROOT_AGENTS = {"deploy-error-reader", "log-collector", "stand-operator", "janitor"}
+READER_READ_ROOTS = ("/tmp", "/var/tmp", "/nix/store")
 PROTECTED_BRANCHES = {"main", "master", "develop"}
 # Test locations. Our layout puts tests in `tests/` folders (Flutter/Dart: `test/`); the other entries cover
 # the native conventions of each language (`integration_test/`, Go `_test.go`, JS `*.test.*`) so the boundary

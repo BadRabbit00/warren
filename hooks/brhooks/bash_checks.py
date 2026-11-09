@@ -1189,12 +1189,8 @@ READER_VALUE_FLAGS = {"-R", "--repo", "-f", "--file", "-p", "--project-name", "-
                       "-c", "--config", "--profile", "--project-directory", "--env-file", "--project", "--account",
                       "--configuration", "-t", "--access-token", "-z", "--folder-id", "--cloud-id"}
 READER_BOOL_FLAGS = {"--help", "-h", "--version", "--debug", "-D", "--quiet", "-q", "--verbose"}
-READER_UTILS = {"cat", "head", "tail", "grep", "rg", "jq", "wc", "sort", "uniq", "cut", "tr", "ls", "stat",
-                "file", "date", "echo", "printf", "test", "[", "[[", "true", "sleep", "sed", "awk", "find", "cd",
-                "fi", "done", "ss"}
-READER_TEMP_WRITERS = {"tee", "cp", "touch"}             # their targets are checked by check_bash_writes
-READER_GIT = {"status", "log", "diff", "show"}
-GIT_RUNS = re.compile(r"-c.*|--config-env.*|--exec-path.*|-p|--paginate")   # global options that run a program
+READER_UTILS = {"date", "echo", "printf", "test", "[", "[[", "true", "sleep", "fi", "done", "ss"}
+READER_FILTERS = {"head", "tail", "grep", "jq", "wc", "sort", "uniq", "cut", "tr"}   # stdin only, no file operands
 TRUSTED_BIN = ("/nix/store/", "/usr/bin/", "/bin/", "/run/current-system/sw/bin/")
 AWK_UNSAFE = re.compile(r"system\s*\(|\|\s*getline|getline\s*<|\bprintf?\b[^;}]*(\||>>?\s*[\"\w$(])")
 
@@ -1380,16 +1376,79 @@ def _reader_util_reason(name: str, args: list[str]) -> str | None:
     return None
 
 
-def _reader_find_reason(w: list[str], agent: str, depth: int) -> str | None:
-    if any(a in {"-delete", "-fls"} or a.startswith("-fprint") for a in w):
-        return f"`{agent}` is read-only: `{' '.join(w[:6])}` deletes or writes files."
-    for cmd in _find_exec_commands(w):
-        final = _resolve(_strip_redirections(cmd))[0]
-        if not final:
-            return f"`{agent}` is read-only: `find -exec` without a command is refused."
-        reason = _reader_words(final, agent, depth + 1)
-        if reason:
-            return reason
+# per filter: (short options with a value, short flags, long options with a value, long flags, max positionals)
+_F = {
+    "head": ("nc", "qvz0123456789", {"--lines", "--bytes"}, {"--quiet", "--silent", "--verbose", "--zero-terminated"}, 0),
+    "tail": ("ncs", "qvzfF0123456789", {"--lines", "--bytes", "--pid", "--sleep-interval"},
+             {"--quiet", "--silent", "--verbose", "--zero-terminated", "--follow", "--retry"}, 0),
+    "grep": ("eAmBC", "EFGPiIvwxcLlnoqsHhTaUzVb", {"--regexp", "--max-count", "--after-context", "--before-context",
+                                                    "--context", "--label"},
+             {"--extended-regexp", "--fixed-strings", "--basic-regexp", "--perl-regexp", "--ignore-case",
+              "--no-ignore-case", "--invert-match", "--word-regexp", "--line-regexp", "--count", "--files-with-matches",
+              "--files-without-match", "--line-number", "--only-matching", "--quiet", "--silent", "--no-messages",
+              "--with-filename", "--no-filename", "--text", "--null", "--null-data", "--byte-offset", "--initial-tab",
+              "--binary", "--line-buffered", "--color", "--colour"}, 1),
+    "jq": ("", "cCrjasSneRM", {"--indent"}, {"--null-input", "--raw-input", "--slurp", "--compact-output",
+                                            "--raw-output", "--join-output", "--ascii-output", "--sort-keys",
+                                            "--color-output", "--monochrome-output", "--tab", "--exit-status",
+                                            "--seq", "--stream", "--unbuffered"}, 1),
+    "wc": ("", "clmLw", set(), {"--bytes", "--chars", "--lines", "--words", "--max-line-length"}, 0),
+    "sort": ("ktSTo", "bdfghiMnRrsuVzcCm", {"--key", "--field-separator", "--buffer-size", "--temporary-directory",
+                                            "--parallel", "--batch-size"},
+             {"--reverse", "--numeric-sort", "--unique", "--ignore-case", "--stable", "--human-numeric-sort",
+              "--version-sort", "--month-sort", "--general-numeric-sort", "--ignore-leading-blanks",
+              "--dictionary-order", "--ignore-nonprinting", "--check", "--zero-terminated", "--merge", "--debug",
+              "--random-sort"}, 0),
+    "uniq": ("fsw", "cdDuiz", {"--skip-fields", "--skip-chars", "--check-chars"},
+             {"--count", "--repeated", "--unique", "--ignore-case", "--zero-terminated"}, 0),
+    "cut": ("dfcb", "snz", {"--delimiter", "--fields", "--characters", "--bytes", "--output-delimiter"},
+            {"--complement", "--only-delimited", "--zero-terminated"}, 0),
+    "tr": ("", "cCdst", set(), {"--complement", "--delete", "--squeeze-repeats", "--truncate-set1"}, 2),
+}
+JQ_FILE_WORDS = re.compile(r"\benv\b|\$ENV|input_filename|\bimport\b|\binclude\b|\$__prog|get_search_list")
+
+
+def _filter_reason(name: str, args: list[str]) -> str | None:
+    """A stdin filter reads its standard input only: no file operand, no option that reads or runs a file."""
+    short_val, short_flag, long_val, long_flag, max_pos = _F[name]
+    pos: list[str] = []
+    patterns = 0
+    i = 0
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a == "--":
+            pos += args[i:]
+            break
+        if a.startswith("--"):
+            flag, eq, _ = a.partition("=")
+            if flag in long_val:
+                if not eq:
+                    i += 1
+                if flag == "--regexp":
+                    patterns += 1
+            elif flag not in long_flag:
+                return f"the option `{a}` is not a plain stdin filter option"
+        elif a.startswith("-") and a != "-":
+            for j, ch in enumerate(a[1:], 1):
+                if ch in short_val:
+                    if j == len(a) - 1:
+                        i += 1
+                    if ch == "e" and name == "grep":
+                        patterns += 1
+                    break
+                if ch not in short_flag:
+                    return f"the option `{a}` is not a plain stdin filter option"
+        else:
+            pos.append(a)
+    if name == "grep":
+        if (patterns and pos) or len(pos) > 1:
+            return "grep reads its standard input only; a file operand is refused"
+        return None
+    if name == "jq" and any(JQ_FILE_WORDS.search(p) for p in pos[:1]):
+        return "the jq program reads the environment or a file"
+    if len(pos) > max_pos:
+        return f"{name} reads its standard input only; the file operand is refused"
     return None
 
 
@@ -1402,8 +1461,9 @@ def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
     head = w[0]
     shown = " ".join(w)[:200]
     deny = (f"`{agent}` is read-only: `{shown}` is not an allowed read/status command. Allowed: auth checks and "
-            "run/log/status listings of gh, railway, gcloud, doctl, yc, wrangler, cf, docker, plus cat, grep, jq, "
-            "head, tail and similar read utilities. Report what must be done to the orchestrator.")
+            "run/log/status listings of gh, railway, gcloud, doctl, yc, wrangler, cf, docker, plus grep, jq, head, "
+            "tail, wc, sort, uniq, cut, tr as filters on a pipe. Files are read with Read, Grep and Glob. "
+            "Report what must be done to the orchestrator.")
     if re.search(r"[$`*?]", head) or ("/" in head and not head.startswith(TRUSTED_BIN)):
         return f"`{agent}` is read-only: the command word `{head}` cannot be resolved, `{shown}` is refused."
     name = Path(head).name
@@ -1421,30 +1481,13 @@ def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
         while i < len(args) and args[i].startswith("-"):
             i += 2 if args[i] in XARGS_VALUE_OPTIONS else 1
         return _reader_words(_resolve(_strip_redirections(args[i:]))[0], agent, depth + 1)
-    if name == "find":
-        return _reader_find_reason(w, agent, depth)
     if name in READER_ALLOWED or name == "docker-compose":
         if name == "docker-compose":
             name, args = "docker", ["compose", *args]
         return None if _reader_cli_allowed(name, args) else deny
-    if name == "git":
-        i = 0
-        while i < len(args) and args[i].startswith("-"):
-            if GIT_RUNS.fullmatch(args[i]):
-                return f"`{agent}` is read-only: `{shown}` is refused (git option `{args[i]}` runs a program)."
-            i += 2 if args[i] == "-C" else 1
-        bad = next((a for a in args[i:] if a.startswith(("--ext-diff", "--textconv", "--output"))), None)
-        if bad and bad.startswith("--output"):
-            return deny
-        if bad:
-            return f"`{agent}` is read-only: `{shown}` is refused (git option `{bad}` runs a program)."
-        return None if i < len(args) and args[i] in READER_GIT else deny
-    if name == "mv":     # moving a project file away deletes it: only temp files may be moved
-        if all(a.startswith(TMP_PREFIXES) or "/scratchpad/" in a for a in _file_args("mv", args)):
-            return None
-        return f"`{agent}` is read-only: `mv` moves only files under /tmp, /var/tmp or the scratchpad (`{shown}`)."
-    if name in READER_TEMP_WRITERS:
-        return None
+    if name in READER_FILTERS:
+        why = _reader_util_reason(name, args) or _filter_reason(name, args)
+        return f"`{agent}` is read-only: `{shown}` is refused ({why})." if why else None
     if name in READER_UTILS:
         why = _reader_util_reason(name, args)
         return f"`{agent}` is read-only: `{shown}` is refused ({why})." if why else None
@@ -1480,6 +1523,7 @@ def check_deploy_reader(ev: Event, cmd: str) -> str | None:
 # Every agent that runs "what a reader may run": environment prefixes and credential files are refused for all four.
 ALL_READER_AGENTS = READER_AGENTS | {"stand-operator", "janitor"}
 SAFE_ENV = re.compile(r"TZ|NO_COLOR|LC_\w+")
+LOCAL_VAR = re.compile(r"(?![a-z0-9_]*_proxy$)[a-z][a-z0-9_]*")      # lowercase names mean nothing to a shell or a CLI
 CREDENTIAL_DIRS = (r"(?:\.config/(?:gh|gcloud|yandex-cloud|doctl|\.wrangler)(?![\w-])|\.railway(?![\w-])"
                    r"|\.wrangler(?![\w-])|\.docker/config\.json|\.kube/config(?![\w-]))[^\s;&|)]*")
 
@@ -1504,6 +1548,8 @@ def _env_reason_words(w: list[str], agent: str, depth: int) -> str | None:
             return f"`{agent}` is read-only: `{shown}` uses `env -S`, which hides assignments, and is refused."
         for a in dropped:
             m = re.fullmatch(r"(\w+)=.*", a)
+            if m and not stripped and LOCAL_VAR.fullmatch(m.group(1)):
+                continue        # `out=$(…)` alone sets a shell variable for the later commands, not an environment
             if m and not SAFE_ENV.fullmatch(m.group(1)):
                 return (f"`{agent}` is read-only: `{shown}` sets {m.group(1)} in front of the command and is refused. "
                         "Only TZ, LC_* and NO_COLOR may be set.")

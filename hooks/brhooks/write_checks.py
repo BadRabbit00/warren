@@ -1,10 +1,12 @@
 """Checks for Edit / Write / MultiEdit / NotebookEdit and Read. Each returns a deny reason or None."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 from .common import (AGENT_WRITES, EXECUTOR_TESTS, EXECUTORS_CODE, MAIN_WRITES, NO_TEST_WRITE, READ_ONLY_AGENTS,
+                     READER_READ_ROOTS, READER_ROOT_AGENTS,
                      STEP_OF_AGENT, Event,
                      active_tasks, executor_scope, glob_match, is_orchestrated, is_test_path, rel)
 
@@ -110,8 +112,26 @@ SECRET_NAME = re.compile(r"^\.env(\.(?!example$)[\w.-]+)?$|\.(pem|key|p12|pfx)$|
 ALLOWED_PUBLIC = re.compile(r"(\.pub|\.example|\.sample|\.template)$|(^|[-_.])public[-_.]")
 
 
+def _under(p: Path, root: Path) -> bool:
+    return p == root or root in p.parents
+
+
+def _reader_outside_roots(ev: Event, path: str) -> bool:
+    """True when `path` (relative to the event cwd, `~` = HOME) is outside the project, temp dirs and /nix/store."""
+    p = Path(os.path.expanduser(path))
+    if not p.is_absolute():
+        p = ev.cwd / p
+    candidates = {Path(os.path.normpath(p)), p.resolve()}
+    roots = [ev.project_root, *(Path(r) for r in READER_READ_ROOTS)]
+    allowed = {r for root in roots for r in (Path(os.path.normpath(root)), root.resolve())}
+    return not all(any(_under(c, root) for root in allowed) for c in candidates)
+
+
 def check_read(ev: Event) -> str | None:
     path = target_path(ev)
+    if ev.agent in READER_ROOT_AGENTS and _reader_outside_roots(ev, path or "."):
+        return (f"`{ev.agent}` reads only inside the project, /tmp, /var/tmp, the scratchpad and /nix/store; "
+                f"`{path or ev.cwd}` is outside them. Use the CLI commands for logs and status.")
     if not path:
         return None
     name = Path(path).name
