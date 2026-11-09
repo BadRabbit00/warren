@@ -116,6 +116,7 @@ ROLE_KEYS = {"name", "description", "model", "model_reasoning_effort", "sandbox_
 
 def codex_toml_check(codex: Path, expected: int) -> None:
     """Parse every generated codex TOML file and check its exact key set."""
+    before = len(errors)
     files = sorted((codex / "agents").glob("*.toml"))
     if len(files) != expected:
         fail(f"codex toml: {len(files)} role files, expected {expected}")
@@ -137,6 +138,8 @@ def codex_toml_check(codex: Path, expected: int) -> None:
     for key, entry in tables.items():
         if not isinstance(entry, dict) or set(entry) != {"config_file", "description"}:
             fail(f"codex/agents.toml: [agents.{key}] must have exactly config_file and description")
+    if len(errors) == before:
+        print(f"codex toml ok: {expected} roles, agents.toml")
 
 
 def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, str]]]) -> tuple[int, int]:
@@ -372,7 +375,7 @@ def main() -> int:
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
           f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
-          f"codex/agy: {n_codex} agents, {n_prompts} prompts, codex toml ok — self-checks passed")
+          f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 
 
