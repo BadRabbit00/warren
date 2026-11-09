@@ -39,7 +39,10 @@ JS_FORBIDDEN = (
 )
 
 
-JS_REGEX_BEFORE = "(,=:[!&|?{};"
+JS_REGEX_BEFORE = "(,=:[!&|?{};+-*%<>~^"
+JS_REGEX_KEYWORDS = re.compile(
+    r"(?<![\w$.])(return|typeof|case|void|delete|throw|in|of|instanceof|new|await|yield)$"
+)
 
 
 def regex_allowed(out: list[str]) -> bool:
@@ -48,7 +51,9 @@ def regex_allowed(out: list[str]) -> bool:
     tail = "".join(out).rstrip(" \t")
     if not tail or tail[-1] == "\n":
         return True
-    return tail[-1] in JS_REGEX_BEFORE or re.search(r"(?<![\w$.])return$", tail) is not None
+    if tail.endswith(("++", "--")):  # postfix operator: what follows is a division
+        return False
+    return tail[-1] in JS_REGEX_BEFORE or JS_REGEX_KEYWORDS.search(tail) is not None
 
 
 def regex_end(text: str, start: int) -> int:
