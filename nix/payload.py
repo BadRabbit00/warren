@@ -232,6 +232,16 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
     return len(subagents), prompts
 
 
+META_RE = re.compile(r"export\s+const\s+meta\s*=\s*\{")
+_SKIP_RE = re.compile(r"(?:\s+|//[^\n]*|/\*.*?\*/)*", re.S)
+
+
+def first_statement(text: str) -> str:
+    """Text after leading blank lines, // comments and /* */ comments."""
+    m = _SKIP_RE.match(text)
+    return text[m.end():] if m else text
+
+
 def main() -> int:
     out, br, hook_exe = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
     claude = out / "claude"
@@ -364,13 +374,23 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
-    scripts = sorted((claude / "workflows").glob("*.js"))
-    if not scripts:
-        fail("claude/workflows: no *.js files")
-    for script in scripts:
-        first = next((ln for ln in script.read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.lstrip().startswith("//")), "")
-        if not first.startswith("export const meta = {"):
-            fail(f"claude/workflows/{script.name}: first statement must be export const meta = {{…}}")
+    src = sorted(p.name for p in (br / "workflows").glob("*.js"))
+    inst = claude / "workflows"
+    dst = sorted(p.name for p in inst.iterdir()) if inst.is_dir() else []
+    if not src:
+        fail("workflows: no *.js files")
+    for name in dst:
+        if name not in src:
+            fail(f"claude/workflows/{name}: not a source workflow")
+    for name in src:
+        if name not in dst:
+            fail(f"claude/workflows/{name}: missing")
+        elif (br / "workflows" / name).read_bytes() != (claude / "workflows" / name).read_bytes():
+            fail(f"claude/workflows/{name}: differs from workflows/{name}")
+    for name in dst:
+        text = (claude / "workflows" / name).read_text(encoding="utf-8")
+        if name.endswith(".js") and not META_RE.match(first_statement(text)):
+            fail(f"claude/workflows/{name}: first statement must be export const meta = {{…}}")
 
     n_codex, n_prompts = export_codex_agy(out, br, models)
 
@@ -383,7 +403,7 @@ def main() -> int:
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
           f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
-          f"{len(scripts)} workflows, "
+          f"{len(src)} workflows, "
           f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 
