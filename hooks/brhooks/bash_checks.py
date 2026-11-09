@@ -742,8 +742,10 @@ def check_destructive(ev: Event, cmd: str) -> str | None:
                             "with a named list. Temp dirs and rebuildable caches (node_modules, dist, target, result…) are fine.")
         if w[0] == "find" and ("-delete" in w or ("-exec" in w and "rm" in w)):
             return "Bulk delete with find needs the user's explicit «да» with a named list."
-        if re.search(r"docker[\s-]compose\b.*\bdown\b.*(\s-v\b|--volumes)", line) or \
-           re.search(r"docker\s+(volume\s+(rm|prune)|system\s+prune\b.*--volumes)", line):
+        # the janitor gate already accepted `docker volume rm NAME...` with explicit names
+        janitor_volume = ev.agent == "janitor" and re.fullmatch(r"docker\s+volume\s+rm(\s+(-f|--force))?(\s+[\w.-]+)+", line)
+        if not janitor_volume and (re.search(r"docker[\s-]compose\b.*\bdown\b.*(\s-v\b|--volumes)", line) or
+                                   re.search(r"docker\s+(volume\s+(rm|prune)|system\s+prune\b.*--volumes)", line)):
             return "This destroys Docker volumes (databases of this and other projects). Ask the user with a named list first."
         if re.search(r"nix-collect-garbage\s+(-d|--delete-old)|nix\s+profile\s+wipe-history|nix-store\s+--delete", line):
             return "Deleting old generations removes system rollbacks. Only on the user's direct request."
@@ -1053,7 +1055,7 @@ def check_bash_writes(ev: Event, cmd: str) -> str | None:
     """Bash writes inside the project follow the rules of Write/Edit for the same agent."""
     if not ev.agent:
         return None
-    reader = ev.agent in READER_AGENTS
+    reader = ev.agent in READER_AGENTS | {"stand-operator", "janitor"}
     for target in _written_files(cmd):
         unresolved = not target or re.search(r"[$`]", target) is not None or target.startswith("~")
         if reader:
@@ -1085,14 +1087,16 @@ def check_bash_writes(ev: Event, cmd: str) -> str | None:
 READER_AGENTS = {"deploy-error-reader", "log-collector"}
 READER_ALLOWED = {
     "gh": [("auth", "status"), ("run", "list"), ("run", "view")],
-    "railway": [("whoami",), ("logs",)],
-    "gcloud": [("auth", "list"), ("logging", "read")],
-    "doctl": [("account", "get"), ("apps", "logs")],
-    "yc": [("config", "list"), ("logging", "read")],
+    "railway": [("whoami",), ("logs",), ("status",), ("deployment", "list")],
+    "gcloud": [("auth", "list"), ("logging", "read"), ("run", "services", "logs", "read")],
+    "doctl": [("account", "get"), ("apps", "logs"), ("apps", "list"), ("apps", "get"), ("apps", "list-deployments"),
+              ("apps", "get-deployment")],
+    "yc": [("iam", "whoami"), ("config", "get", "folder-id"), ("config", "get", "cloud-id"), ("logging", "read"),
+           ("logging", "group", "list")],
     "wrangler": [("whoami",), ("tail",)],
     "cf": [("auth", "whoami"), ("auth", "list"), ("docs", "search"), ("cli", "search"), ("schema",),
            ("workers", "list"), ("workers", "get"), ("workers", "deployments"), ("workers", "versions")],
-    "docker": [("compose", "ps"), ("compose", "logs"), ("logs",)],
+    "docker": [("compose", "ps"), ("compose", "logs"), ("logs",), ("version",)],
 }
 # Global flags that take a separate value / flags without one. Any other flag before the subcommand is refused.
 READER_VALUE_FLAGS = {"-R", "--repo", "-f", "--file", "-p", "--project-name", "--context", "-H", "--host",
@@ -1129,6 +1133,34 @@ def _reader_cli_allowed(name: str, args: list[str]) -> bool:
         if any(tuple(pos[:len(p)]) == p for p in allowed):
             return True
     return False
+
+
+SECRET_COMMANDS = [
+    (("yc", "config", "list"), "prints the profile with the token"),
+    (("yc", "iam", "create-token"), "prints a token"),
+    (("gh", "auth", "token"), "prints a token"),
+    (("railway", "variable", "list"), "prints variable values"),
+    (("railway", "variables"), "prints variable values"),
+    (("doctl", "auth", "token"), "prints a token"),
+    (("doctl", "databases", "connection"), "prints a connection string with the password"),
+]
+
+
+def _secret_reason(name: str, args: list[str], agent: str, shown: str) -> str | None:
+    """Readers never print secrets (AC15)."""
+    why = None
+    if name == "printenv" or (name == "env" and not [a for a in args if not a.startswith("-") and "=" not in a]):
+        why = "dumps the environment"
+    else:
+        pos = [a for a in args if not a.startswith("-")]
+        for head, text in SECRET_COMMANDS:
+            if name == head[0] and tuple(pos[:len(head) - 1]) == head[1:]:
+                why = text
+        if name == "gh" and pos[:2] == ["auth", "status"] and any(a in {"--show-token", "-t"} for a in args):
+            why = "prints a token"
+    if why is None:
+        return None
+    return f"`{agent}` never prints secrets: `{shown}` {why} and is refused."
 
 
 def _reader_util_reason(name: str, args: list[str]) -> str | None:
@@ -1174,6 +1206,9 @@ def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
         return f"`{agent}` is read-only: the command word `{head}` cannot be resolved, `{shown}` is refused."
     name = Path(head).name
     args = w[1:]
+    secret = _secret_reason(name, args, agent, shown)
+    if secret:
+        return secret
     if name in SHELLS:
         script = _shell_script(w)
         return _reader_reason(script, agent, depth + 1) if script is not None else deny
@@ -1233,7 +1268,10 @@ def check_deploy_reader(ev: Event, cmd: str) -> str | None:
     return _reader_reason(cmd, ev.agent)
 
 
-CHECKS = [check_deploy_reader, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_bash_writes, check_tests_via_bash]
+from .infra_checks import check_infra  # noqa: E402 — after the checks above on purpose (import cycle)
+from .stand_janitor_checks import check_janitor, check_stand_operator  # noqa: E402
+
+CHECKS = [check_infra, check_deploy_reader, check_stand_operator, check_janitor, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_bash_writes, check_tests_via_bash]
 
 
 def run(ev: Event) -> str | None:

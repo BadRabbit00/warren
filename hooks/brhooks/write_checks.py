@@ -54,7 +54,7 @@ def check_write(ev: Event) -> str | None:
 
     # ---- readers write nothing
     if agent in READ_ONLY_AGENTS:
-        return f"`{agent}` is read-only: it writes no files. Report what you found in the answer."
+        return f"`{agent}` is read-only: it writes no files (`{r}` is refused). Report what you found in the answer."
 
     # ---- subagents never write outside the project (temp dirs are fine)
     if agent and _outside_project(r) and not _is_temp(r):

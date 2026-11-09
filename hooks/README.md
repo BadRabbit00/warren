@@ -30,7 +30,7 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | `refactorer` | anything except test paths | only `Writes (exclusive)` of tasks with status `refactor` |
 | `build-fixer` | anything except test paths | same, not limited by the plan |
 | `presenter` | `docs/slides/**`, `.plan/PLAN.html` | same |
-| `deploy-error-reader`, `log-collector`, `web-researcher` | nothing (no Write/Edit) | nothing |
+| `deploy-error-reader`, `log-collector`, `web-researcher`, `stand-operator`, `janitor` | nothing (no Write/Edit) | nothing |
 | any other subagent | nothing outside the project (temp dirs are fine) | same |
 
 Status in a task card is read tolerantly: backticks and trailing words are ignored (`` `red` ``, `red (round 2)` both mean `red`).
@@ -46,11 +46,18 @@ For subagents, the targets of `>` / `>>` redirections, `tee`, `sed -i` / `perl -
 ### Read-only agents and Bash
 
 `deploy-error-reader` (analyst) and `log-collector` (fetches raw logs) share one rule set. Besides having no Write/Edit, their Bash is an **allowlist**: a command runs only if every resolved command word is one of
-- a read/status subcommand of a deploy CLI: `gh auth status`, `gh run list|view`, `railway whoami|logs`, `gcloud auth list`, `gcloud logging read`, `doctl account get`, `doctl apps logs`, `yc config list`, `yc logging read`, `wrangler whoami|tail`, `cf auth whoami|list`, `cf docs search`, `cf cli search`, `cf schema`, `cf workers list|get|deployments|versions`, `docker compose ps|logs` (also `docker-compose`), `docker logs`;
+- a read/status subcommand of a deploy CLI: `gh auth status`, `gh run list|view`, `railway whoami|logs`, `gcloud auth list`, `gcloud logging read`, `doctl account get`, `doctl apps logs`, `yc logging read`, `wrangler whoami|tail`, `cf auth whoami|list`, `cf docs search`, `cf cli search`, `cf schema`, `cf workers list|get|deployments|versions`, `docker compose ps|logs` (also `docker-compose`), `docker logs`;
 - a read utility: `cat head tail grep rg jq less wc sort uniq cut tr ls stat file date echo printf test true sleep cd`, `sed`, `awk`, `find` (no `-delete`, `-fprint*`, `-fls`; `-exec` only with an allowed command), `git status|log|diff|show`;
 - `tee`, `cp`, `mv`, `touch`, `sed -i`, `awk -i inplace`, whose targets all resolve to `/tmp`, `/var/tmp` or the scratchpad (`mv` also needs temp sources).
 
 Everything else (`rm`, `git push`, `podman`, `kubectl`, `terraform`, `curl`, `python3`, unknown binaries, `gh run rerun`, `railway up`, `docker compose up|down`, …) is denied. The gate sees through the same wrappers as the Nix-only check: `nix shell|run … -c`, `bash -lc '…'`, `$(…)`, backticks, `xargs`, `eval`, `find -exec`, pipes and `&&`/`;` chains. A flag before the subcommand must be a known global flag (`gh -R owner/repo run list`, `docker compose -f x.yml logs`, `docker --context stand logs`); an unknown one is refused. A command word built from a variable or substitution, or a path outside the system bin directories, is refused. Every denial quotes the command or names the target.
+
+### Secrets, stand-operator, janitor, infrastructure changes
+
+- **No secrets for readers (AC15).** For `deploy-error-reader`, `log-collector`, `stand-operator` and `janitor`, commands that print a secret are denied: `yc config list`, `yc iam create-token`, `gh auth status --show-token`, `gh auth token`, `railway variable list`, `doctl auth token`, `doctl databases connection`, `printenv`, bare `env`. The reader allowlist follows the R marks of `skills/cli-*`: `yc iam whoami`, `yc config get folder-id|cloud-id`, `yc logging group list`, `railway status`, `railway deployment list`, `doctl apps list|get|list-deployments|get-deployment`, `gcloud run services logs read`, `docker version` (`yc config list` is no longer allowed).
+- **`stand-operator` (AC16).** No Write/Edit. Bash = reader commands plus `docker compose -p NAME [-f FILE] up -d|up --wait|restart SVC|down` and `nix run .#TARGET` / `.#TARGET-down` for the targets named in `.plan/PLAN.md`. Every compose command needs `-p`; `down` never takes the volumes or `--rmi` flags; `docker system prune`, volume and container removal are denied.
+- **`janitor` (AC17).** No Write/Edit. Bash = reader commands plus `rm FILE...` (explicit, untracked, non-recursive, no globs; tracked files per `git ls-files` are refused), `docker rm|container rm|volume rm NAME...` by explicit name, `docker compose -p NAME down`. `find -delete`, `git clean`, `git rm` and anything outside the project (except docker) are denied. The generic Docker-volume check yields to the janitor for an explicit volume name.
+- **Infrastructure changes (AC18, `infra_checks.py`).** Runs first for every subagent, including `deploy-engineer` and `ci-engineer`, also inside `nix shell`, `bash -c`, `xargs`, `eval`, chains: `tofu|terraform apply|destroy`, `railway up|redeploy|down`, `gh run rerun`, `gh workflow run`, `wrangler deploy|rollback|versions deploy`, `gcloud run deploy`, `gcloud run services delete`, `doctl apps create|update|delete`. The denial tells the agent to prepare the exact command for the user (or the orchestrator after the user's «да»). Plans and dry runs (`tofu plan`, `wrangler deploy --dry-run`) and the main session are not limited.
 
 A test path is any path with a `test`, `tests`, `__tests__`, `e2e`, `integration_test`, or `testdata` directory segment, or a test file name: `test_*.py`, `*_test.py`, `conftest.py`, `*_test.go`, `*_test.dart`, `*.test.{js,jsx,ts,tsx}`, `*.spec.{js,jsx,ts,tsx}`. Our layout uses `tests/` (Flutter/Dart: `test/`); the rest keeps the boundary in existing projects with other conventions.
 
