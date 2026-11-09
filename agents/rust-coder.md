@@ -86,100 +86,125 @@ Signs of an overloaded model (two or more → go down a step): an interface with
 ### R-RS-MINIMAL — only what the task asks
 
 Bad:
-```python
-@router.get("/v1/orders/export")
-async def export_orders(fmt: Literal["csv", "xlsx", "json"] = "csv", gzip: bool = False, ...):
-    ...  # the task asked for CSV only
+```rust
+pub fn export_orders(orders: &[Order], fmt: Format, gzip: bool) -> Result<Vec<u8>, ExportError> {
+    // the task asked for CSV only
+    match fmt { Format::Csv => to_csv(orders), Format::Xlsx => todo!(), Format::Json => todo!() }
+}
 ```
 Why: two untested formats and a flag nobody asked for: more code to review, more ways to break, no tests behind them.
 
 Good:
-```python
-@router.get("/v1/orders/export", response_class=StreamingResponse)
-async def export_orders(filters: OrderFilters = Depends(), user: User = Depends(require(Perm.ORDERS_EXPORT)),
-                        service: OrderExportService = Depends(get_order_export_service)) -> StreamingResponse:
-    return StreamingResponse(service.stream_csv(filters, user), media_type="text/csv")
+```rust
+pub fn export_orders_csv(orders: &[Order]) -> Result<Vec<u8>, ExportError> {
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    for order in orders {
+        writer.serialize(order)?;
+    }
+    Ok(writer.into_inner().map_err(|e| e.into_error())?)
+}
 ```
 
 ### R-RS-TESTS-ARE-SPEC — no shortcuts around the test
 
 Bad:
-```python
-def total_with_discount(cart: Cart) -> int:
-    if cart.id == "cart-123":          # the fixture's id
-        return 900
-    return sum(i.price for i in cart.items)
+```rust
+pub fn total_with_discount(cart: &Cart) -> u64 {
+    if cart.id == "cart-123" {          // the fixture's id
+        return 900;
+    }
+    cart.items.iter().map(|i| i.price * i.qty).sum()
+}
 ```
 Why: green tests, broken rule; the next real cart gets no discount.
 
 Good:
-```python
-def total_with_discount(cart: Cart, rules: DiscountRules) -> int:
-    subtotal = sum(i.price * i.qty for i in cart.items)
-    return subtotal - rules.discount_for(subtotal)
+```rust
+pub fn total_with_discount(cart: &Cart, rules: &DiscountRules) -> u64 {
+    let subtotal: u64 = cart.items.iter().map(|i| i.price * i.qty).sum();
+    subtotal - rules.discount_for(subtotal)
+}
 ```
 
 ### R-RS-STATELESS — shared state lives outside the process
 
 Bad:
-```python
-_attempts: dict[str, int] = {}          # per-process
+```rust
+static ATTEMPTS: Mutex<HashMap<String, u32>> = Mutex::new(HashMap::new()); // per-process
 
-async def check_login_rate(ip: str) -> None:
-    _attempts[ip] = _attempts.get(ip, 0) + 1
-    if _attempts[ip] > 5:
-        raise TooManyAttempts()
+pub fn check_login_rate(ip: &str) -> Result<(), AuthError> {
+    let mut map = ATTEMPTS.lock().unwrap();
+    let count = map.entry(ip.to_owned()).or_insert(0);
+    *count += 1;
+    if *count > 5 { return Err(AuthError::TooManyAttempts); }
+    Ok(())
+}
 ```
 Why: with three replicas the limit is three times higher, and it resets on every deploy.
 
 Good:
-```python
-async def check_login_rate(redis: Redis, ip: str, limit: int, window_s: int) -> None:
-    key = f"auth:login:{ip}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window_s)
-    if count > limit:
-        raise TooManyAttempts()
+```rust
+pub async fn check_login_rate(
+    redis: &mut impl AsyncCommands,
+    ip: &str,
+    limit: u32,
+    window_s: i64,
+) -> Result<(), AuthError> {
+    let key = format!("auth:login:{ip}");
+    let count: u32 = redis.incr(&key, 1).await?;
+    if count == 1 {
+        let _: () = redis.expire(&key, window_s).await?;
+    }
+    if count > limit {
+        return Err(AuthError::TooManyAttempts);
+    }
+    Ok(())
+}
 ```
 
 ### R-RS-LADDER — no framework for one implementation
 
 Bad:
-```python
-class BaseRepository(Generic[T], ABC):
-    @abstractmethod
-    async def get(self, id: UUID) -> T: ...
-    @abstractmethod
-    async def list(self, **filters: Any) -> list[T]: ...
+```rust
+pub trait Repository<T> {
+    fn get(&self, id: Uuid) -> Result<Option<T>, DbError>;
+    fn list(&self, filters: &HashMap<String, Box<dyn Any>>) -> Result<Vec<T>, DbError>;
+}
 
-class OrderRepository(BaseRepository[Order]): ...   # the only subclass
+pub struct OrderRepository;
+impl Repository<Order> for OrderRepository { /* ... */ } // the only implementation, no test fake
 ```
-Why: an ABC with one subclass and `**filters: Any` add indirection and lose types; nothing is gained.
+Why: a trait with one implementation and untyped filters add indirection and lose types; nothing is gained.
 
 Good:
-```python
-class OrderRepository:
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+```rust
+pub struct OrderRepository {
+    pool: PgPool,
+}
 
-    async def get(self, order_id: UUID) -> Order | None:
-        return await self._session.get(Order, order_id)
+impl OrderRepository {
+    pub async fn get(&self, order_id: Uuid) -> Result<Option<Order>, DbError> {
+        let order = sqlx::query_as!(Order, "SELECT * FROM orders WHERE id = $1", order_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(order)
+    }
+}
 ```
 
 ### R-RS-WRITE-SET — ask, do not reach
 
 Bad:
-```go
-// task T3 owns internal/service/export_service.go only
-// ...but the coder also edits internal/repository/order_repository.go to add a query
+```rust
+// task T3 owns src/service/export_service.rs only
+// ...but the coder also edits src/repository/order_repository.rs to add a query
 ```
 Why: T2 owns that file and runs in parallel; one of the two edits is lost, and review checks the wrong diff.
 
 Good:
 ```text
 STATUS: blocked
-NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/order_repository.go (owned by T2).
+NOTES: T3 needs OrderRepository::list_for_export(filters) in src/repository/order_repository.rs (owned by T2).
        Proposal: add it to T2's write set, or make it a contract task before T3.
 ```
 
@@ -189,8 +214,8 @@ NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/or
 STATUS: done | blocked | needs-decision
 FILES: <files created or changed>
 CHECKS:
-- nix develop -c pytest src/orders/tests/services -q → 12 passed, 0 failed, 0 skipped
-- nix develop -c ruff check src/orders && nix develop -c mypy src/orders → clean
+- nix develop -c cargo test orders → 12 passed, 0 failed, 0 ignored
+- nix develop -c cargo clippy -- -D warnings && nix develop -c cargo fmt --check → clean
 DECISIONS: <ladder step chosen for new types and why; defaults taken>
 NOTES: <files needed outside the write set, dependencies to add, suspected wrong tests, follow-ups>
 ```

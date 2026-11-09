@@ -87,100 +87,100 @@ Signs of an overloaded model (two or more → go down a step): an interface with
 ### R-TS-MINIMAL — only what the task asks
 
 Bad:
-```python
-@router.get("/v1/orders/export")
-async def export_orders(fmt: Literal["csv", "xlsx", "json"] = "csv", gzip: bool = False, ...):
-    ...  # the task asked for CSV only
+```tsx
+export function OrderExportButton({ format = "csv", gzip = false, onDone }: Props) {
+  // the task asked for a CSV button only
+  return <button onClick={() => exportOrders({ format, gzip }).then(onDone)}>Export</button>;
+}
 ```
-Why: two untested formats and a flag nobody asked for: more code to review, more ways to break, no tests behind them.
+Why: two untested options and a callback nobody asked for: more code to review, more ways to break, no tests behind them.
 
 Good:
-```python
-@router.get("/v1/orders/export", response_class=StreamingResponse)
-async def export_orders(filters: OrderFilters = Depends(), user: User = Depends(require(Perm.ORDERS_EXPORT)),
-                        service: OrderExportService = Depends(get_order_export_service)) -> StreamingResponse:
-    return StreamingResponse(service.stream_csv(filters, user), media_type="text/csv")
+```tsx
+export function OrderExportButton() {
+  const { mutate, isPending } = useExportOrders();
+  return <button disabled={isPending} onClick={() => mutate()}>Export CSV</button>;
+}
 ```
 
 ### R-TS-TESTS-ARE-SPEC — no shortcuts around the test
 
 Bad:
-```python
-def total_with_discount(cart: Cart) -> int:
-    if cart.id == "cart-123":          # the fixture's id
-        return 900
-    return sum(i.price for i in cart.items)
+```ts
+export function totalWithDiscount(cart: Cart): number {
+  if (cart.id === "cart-123") return 900; // the fixture's id
+  return cart.items.reduce((sum, i) => sum + i.price * i.qty, 0);
+}
 ```
 Why: green tests, broken rule; the next real cart gets no discount.
 
 Good:
-```python
-def total_with_discount(cart: Cart, rules: DiscountRules) -> int:
-    subtotal = sum(i.price * i.qty for i in cart.items)
-    return subtotal - rules.discount_for(subtotal)
+```ts
+export function totalWithDiscount(cart: Cart, rules: DiscountRules): number {
+  const subtotal = cart.items.reduce((sum, i) => sum + i.price * i.qty, 0);
+  return subtotal - rules.discountFor(subtotal);
+}
 ```
 
 ### R-TS-STATELESS — shared state lives outside the process
 
 Bad:
-```python
-_attempts: dict[str, int] = {}          # per-process
+```ts
+const attempts = new Map<string, number>(); // module-level, per process
 
-async def check_login_rate(ip: str) -> None:
-    _attempts[ip] = _attempts.get(ip, 0) + 1
-    if _attempts[ip] > 5:
-        raise TooManyAttempts()
+export function checkLoginRate(ip: string): void {
+  attempts.set(ip, (attempts.get(ip) ?? 0) + 1);
+  if (attempts.get(ip)! > 5) throw new TooManyAttempts();
+}
 ```
-Why: with three replicas the limit is three times higher, and it resets on every deploy.
+Why: with three replicas the limit is three times higher, and it resets on every deploy. In the browser the same pattern is a module-level cache that goes stale: server data belongs in the query cache, not in a global.
 
 Good:
-```python
-async def check_login_rate(redis: Redis, ip: str, limit: int, window_s: int) -> None:
-    key = f"auth:login:{ip}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window_s)
-    if count > limit:
-        raise TooManyAttempts()
+```ts
+export async function checkLoginRate(redis: Redis, ip: string, limit: number, windowS: number): Promise<void> {
+  const key = `auth:login:${ip}`;
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, windowS);
+  if (count > limit) throw new TooManyAttempts();
+}
 ```
 
 ### R-TS-LADDER — no framework for one implementation
 
 Bad:
-```python
-class BaseRepository(Generic[T], ABC):
-    @abstractmethod
-    async def get(self, id: UUID) -> T: ...
-    @abstractmethod
-    async def list(self, **filters: Any) -> list[T]: ...
-
-class OrderRepository(BaseRepository[Order]): ...   # the only subclass
+```ts
+interface Repository<T> {
+  get(id: string): Promise<T>;
+  list(filters: Record<string, unknown>): Promise<T[]>;
+}
+class BaseApi<T> implements Repository<T> { /* ... */ }
+class OrderApi extends BaseApi<Order> {} // the only subclass
 ```
-Why: an ABC with one subclass and `**filters: Any` add indirection and lose types; nothing is gained.
+Why: a generic base with one subclass and `Record<string, unknown>` filters add indirection and lose types; nothing is gained.
 
 Good:
-```python
-class OrderRepository:
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-
-    async def get(self, order_id: UUID) -> Order | None:
-        return await self._session.get(Order, order_id)
+```ts
+// api/orders.ts: one typed function per call, used by the useOrder hook
+export async function getOrder(id: string, signal?: AbortSignal): Promise<Order> {
+  const res = await fetch(`/v1/orders/${id}`, { signal });
+  if (!res.ok) throw new ApiError(res.status);
+  return orderSchema.parse(await res.json());
+}
 ```
 
 ### R-TS-WRITE-SET — ask, do not reach
 
 Bad:
-```go
-// task T3 owns internal/service/export_service.go only
-// ...but the coder also edits internal/repository/order_repository.go to add a query
+```tsx
+// task T3 owns src/features/orders/OrderList.tsx only
+// ...but the coder also edits src/api/orders.ts to add a query
 ```
 Why: T2 owns that file and runs in parallel; one of the two edits is lost, and review checks the wrong diff.
 
 Good:
 ```text
 STATUS: blocked
-NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/order_repository.go (owned by T2).
+NOTES: T3 needs listOrdersForExport(filters) in src/api/orders.ts (owned by T2).
        Proposal: add it to T2's write set, or make it a contract task before T3.
 ```
 
@@ -190,8 +190,8 @@ NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/or
 STATUS: done | blocked | needs-decision
 FILES: <files created or changed>
 CHECKS:
-- nix develop -c pytest src/orders/tests/services -q → 12 passed, 0 failed, 0 skipped
-- nix develop -c ruff check src/orders && nix develop -c mypy src/orders → clean
+- nix develop -c vitest run src/orders → 12 passed, 0 failed, 0 skipped
+- nix develop -c npx --no-install tsc --noEmit && nix develop -c eslint src/orders → clean
 DECISIONS: <ladder step chosen for new types and why; defaults taken>
 NOTES: <files needed outside the write set, dependencies to add, suspected wrong tests, follow-ups>
 ```

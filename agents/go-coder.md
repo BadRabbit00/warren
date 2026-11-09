@@ -86,85 +86,123 @@ Signs of an overloaded model (two or more → go down a step): an interface with
 ### R-GO-MINIMAL — only what the task asks
 
 Bad:
-```python
-@router.get("/v1/orders/export")
-async def export_orders(fmt: Literal["csv", "xlsx", "json"] = "csv", gzip: bool = False, ...):
-    ...  # the task asked for CSV only
+```go
+func (h *OrderHandler) Export(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format") // "csv", "xlsx", "json"
+	compress := r.URL.Query().Get("gzip") == "true"
+	// the task asked for CSV only
+}
 ```
 Why: two untested formats and a flag nobody asked for: more code to review, more ways to break, no tests behind them.
 
 Good:
-```python
-@router.get("/v1/orders/export", response_class=StreamingResponse)
-async def export_orders(filters: OrderFilters = Depends(), user: User = Depends(require(Perm.ORDERS_EXPORT)),
-                        service: OrderExportService = Depends(get_order_export_service)) -> StreamingResponse:
-    return StreamingResponse(service.stream_csv(filters, user), media_type="text/csv")
+```go
+func (h *OrderHandler) Export(w http.ResponseWriter, r *http.Request) {
+	filters, err := parseOrderFilters(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	if err := h.service.StreamCSV(r.Context(), w, filters); err != nil {
+		writeError(w, err)
+	}
+}
 ```
 
 ### R-GO-TESTS-ARE-SPEC — no shortcuts around the test
 
 Bad:
-```python
-def total_with_discount(cart: Cart) -> int:
-    if cart.id == "cart-123":          # the fixture's id
-        return 900
-    return sum(i.price for i in cart.items)
+```go
+func TotalWithDiscount(cart Cart) int {
+	if cart.ID == "cart-123" { // the fixture's id
+		return 900
+	}
+	return subtotal(cart)
+}
 ```
 Why: green tests, broken rule; the next real cart gets no discount.
 
 Good:
-```python
-def total_with_discount(cart: Cart, rules: DiscountRules) -> int:
-    subtotal = sum(i.price * i.qty for i in cart.items)
-    return subtotal - rules.discount_for(subtotal)
+```go
+func TotalWithDiscount(cart Cart, rules DiscountRules) int {
+	sub := subtotal(cart)
+	return sub - rules.DiscountFor(sub)
+}
 ```
 
 ### R-GO-STATELESS — shared state lives outside the process
 
 Bad:
-```python
-_attempts: dict[str, int] = {}          # per-process
+```go
+var (
+	mu       sync.Mutex
+	attempts = map[string]int{} // per-process
+)
 
-async def check_login_rate(ip: str) -> None:
-    _attempts[ip] = _attempts.get(ip, 0) + 1
-    if _attempts[ip] > 5:
-        raise TooManyAttempts()
+func CheckLoginRate(ip string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	attempts[ip]++
+	if attempts[ip] > 5 {
+		return ErrTooManyAttempts
+	}
+	return nil
+}
 ```
 Why: with three replicas the limit is three times higher, and it resets on every deploy.
 
 Good:
-```python
-async def check_login_rate(redis: Redis, ip: str, limit: int, window_s: int) -> None:
-    key = f"auth:login:{ip}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window_s)
-    if count > limit:
-        raise TooManyAttempts()
+```go
+func CheckLoginRate(ctx context.Context, rdb *redis.Client, ip string, limit int64, window time.Duration) error {
+	key := "auth:login:" + ip
+	count, err := rdb.Incr(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("incr %s: %w", key, err)
+	}
+	if count == 1 {
+		if err := rdb.Expire(ctx, key, window).Err(); err != nil {
+			return fmt.Errorf("expire %s: %w", key, err)
+		}
+	}
+	if count > limit {
+		return ErrTooManyAttempts
+	}
+	return nil
+}
 ```
 
 ### R-GO-LADDER — no framework for one implementation
 
 Bad:
-```python
-class BaseRepository(Generic[T], ABC):
-    @abstractmethod
-    async def get(self, id: UUID) -> T: ...
-    @abstractmethod
-    async def list(self, **filters: Any) -> list[T]: ...
+```go
+type Repository[T any] interface {
+	Get(ctx context.Context, id uuid.UUID) (T, error)
+	List(ctx context.Context, filters map[string]any) ([]T, error)
+}
 
-class OrderRepository(BaseRepository[Order]): ...   # the only subclass
+type OrderRepository struct{ db *sql.DB } // the only implementation, no test fake
 ```
-Why: an ABC with one subclass and `**filters: Any` add indirection and lose types; nothing is gained.
+Why: a generic interface with one implementation and `map[string]any` filters add indirection and lose types; nothing is gained.
 
 Good:
-```python
-class OrderRepository:
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+```go
+type OrderRepository struct {
+	db *sql.DB
+}
 
-    async def get(self, order_id: UUID) -> Order | None:
-        return await self._session.get(Order, order_id)
+func NewOrderRepository(db *sql.DB) *OrderRepository {
+	return &OrderRepository{db: db}
+}
+
+func (r *OrderRepository) Get(ctx context.Context, id uuid.UUID) (*Order, error) {
+	var o Order
+	err := r.db.QueryRowContext(ctx, `SELECT id, status FROM orders WHERE id = $1`, id).Scan(&o.ID, &o.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrOrderNotFound
+	}
+	return &o, err
+}
 ```
 
 ### R-GO-WRITE-SET — ask, do not reach
@@ -172,7 +210,10 @@ class OrderRepository:
 Bad:
 ```go
 // task T3 owns internal/service/export_service.go only
-// ...but the coder also edits internal/repository/order_repository.go to add a query
+// ...but the coder also edits internal/repository/order_repository.go to add a query:
+func (r *OrderRepository) ListForExport(ctx context.Context, f OrderFilters) ([]Order, error) { // file owned by T2
+	return nil, nil
+}
 ```
 Why: T2 owns that file and runs in parallel; one of the two edits is lost, and review checks the wrong diff.
 

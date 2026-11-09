@@ -170,16 +170,19 @@ class OrderRepository:
 ### R-PY-WRITE-SET — ask, do not reach
 
 Bad:
-```go
-// task T3 owns internal/service/export_service.go only
-// ...but the coder also edits internal/repository/order_repository.go to add a query
+```python
+# task T3 owns src/orders/services/order_export_service.py only
+# ...but the coder also edits src/orders/repositories/order_repository.py:
+class OrderRepository:
+    async def list_for_export(self, filters: OrderFilters) -> list[Order]:  # added by T3, file owned by T2
+        ...
 ```
 Why: T2 owns that file and runs in parallel; one of the two edits is lost, and review checks the wrong diff.
 
 Good:
 ```text
 STATUS: blocked
-NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/order_repository.go (owned by T2).
+NOTES: T3 needs OrderRepository.list_for_export(filters) in src/orders/repositories/order_repository.py (owned by T2).
        Proposal: add it to T2's write set, or make it a contract task before T3.
 ```
 
