@@ -12,7 +12,7 @@ Config file: `~/.config/doctl/config.yaml` (default). Env: `DIGITALOCEAN_ACCESS_
 |---|---|
 | `doctl account get` (R) | alias `g`; `--format Email,Team,DropletLimit,EmailVerified,UUID,Status`, `--no-header`. Exit 1 without a token. |
 | `doctl auth init` (user) | `--context <name>`; asks for the token (docs: `--access-token` or the env var saves it without asking). |
-| `doctl auth login` (user) | browser OAuth, `--no-browser`, `--scopes` (docs). |
+| `doctl auth login` | does not exist in doctl 1.169.0; use `auth init`. |
 | `doctl auth list` (E) | lists contexts; output not checked for secrets: not verified. |
 | `doctl auth token` (secret) | docs: prints the token. Never. |
 

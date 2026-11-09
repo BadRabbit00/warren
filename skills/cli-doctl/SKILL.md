@@ -23,7 +23,7 @@ nix shell nixpkgs#doctl -c doctl account get --format Status --no-header
 
 Not logged in: report `STATUS: blocked — login needed` and give the user this one command:
 `! nix shell nixpkgs#doctl -c doctl auth init`
-(prompts for an API token created at https://cloud.digitalocean.com/account/api/tokens; the browser flow is `doctl auth login --no-browser`, docs.)
+(prompts for an API token created at https://cloud.digitalocean.com/account/api/tokens.)
 CI or token mode: `DIGITALOCEAN_ACCESS_TOKEN` (applies to the `default` context only, never written to config; docs). Check that it is set with `test -n "$DIGITALOCEAN_ACCESS_TOKEN"`; never print it.
 
 ## 3. Read-only commands
