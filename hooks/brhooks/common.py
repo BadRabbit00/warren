@@ -10,9 +10,11 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-EXECUTORS_CODE = {"coder", "refactorer"}
+LANGUAGE_CODERS = {"python-coder", "go-coder", "ts-coder", "rust-coder"}
+EXECUTORS_CODE = {"coder", "refactorer", "deploy-engineer", "ci-engineer"} | LANGUAGE_CODERS
 EXECUTOR_TESTS = "test-writer"
 NO_TEST_WRITE = EXECUTORS_CODE | {"build-fixer"}
+READ_ONLY_AGENTS = {"deploy-error-reader", "web-researcher"}   # no Write/Edit anywhere
 PROTECTED_BRANCHES = {"main", "master", "develop"}
 # Test locations. Our layout puts tests in `tests/` folders (Flutter/Dart: `test/`); the other entries cover
 # the native conventions of each language (`integration_test/`, Go `_test.go`, JS `*.test.*`) so the boundary
@@ -20,7 +22,8 @@ PROTECTED_BRANCHES = {"main", "master", "develop"}
 TEST_DIR = re.compile(r"(^|/)(test|tests|__tests__|e2e|integration_test|testdata)(/|$)")
 TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.(py|go|dart)|conftest\.py|[^/]*\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs))$")
 # Which task status lets which executor write (status = the step being executed now).
-STEP_OF_AGENT = {"test-writer": "red", "coder": "green", "refactorer": "refactor"}
+STEP_OF_AGENT = {"test-writer": "red", "coder": "green", "refactorer": "refactor",
+                 **{a: "green" for a in LANGUAGE_CODERS | {"deploy-engineer", "ci-engineer"}}}
 # What the main thread (orchestrator) may write while the project is orchestrated (.plan/ exists).
 MAIN_WRITES = ["docs/**", ".plan/**", "README.md", "CHANGELOG.md", "CLAUDE.md", ".claude/rules/**"]
 # Fixed write scopes of non-executor agents that are allowed to write at all.
@@ -140,7 +143,8 @@ def parse_plan(text: str) -> list[Task]:
             elif key.startswith("tests"):
                 t.tests = paths
             elif key == "status":
-                t.status = val.strip().split()[0].lower() if val.strip() else ""
+                m = re.match(r"[\s`*]*([A-Za-z-]+)", val)   # `red`, red (round 2), `green` — second pass
+                t.status = m.group(1).lower() if m else ""
         tasks.append(t)
     return tasks
 

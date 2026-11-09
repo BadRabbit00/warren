@@ -856,7 +856,36 @@ def check_tests_via_bash(ev: Event, cmd: str) -> str | None:
     return None
 
 
-CHECKS = [check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_tests_via_bash]
+# deploy-error-reader (D4): read/status/log subcommands only. Each entry is the leading positional words.
+READER_AGENT = "deploy-error-reader"
+READER_ALLOWED = {
+    "gh": [("auth", "status"), ("run", "list"), ("run", "view")],
+    "railway": [("whoami",), ("logs",)],
+    "gcloud": [("auth", "list"), ("logging", "read")],
+    "doctl": [("account", "get"), ("apps", "logs")],
+    "yc": [("config", "list"), ("logging", "read")],
+    "wrangler": [("whoami",), ("tail",)],
+    "docker": [("compose", "ps"), ("compose", "logs"), ("logs",)],
+    "kubectl": [], "terraform": [], "tofu": [],
+}
+
+
+def check_deploy_reader(ev: Event, cmd: str) -> str | None:
+    if ev.agent != READER_AGENT:
+        return None
+    for seg in expand(cmd):
+        w = words(seg)
+        if not w or Path(w[0]).name not in READER_ALLOWED:
+            continue
+        head = Path(w[0]).name
+        positional = tuple(a for a in w[1:] if not a.startswith("-"))
+        if not any(positional[:len(p)] == p for p in READER_ALLOWED[head]):
+            return (f"`{READER_AGENT}` is read-only: `{' '.join(w[:3])}` changes state or is not a status/log command. "
+                    "Allowed: auth/login checks, run/log/status listings. Report what must be done to the orchestrator.")
+    return None
+
+
+CHECKS = [check_deploy_reader, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_tests_via_bash]
 
 
 def run(ev: Event) -> str | None:

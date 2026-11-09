@@ -4,7 +4,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .common import (AGENT_WRITES, EXECUTOR_TESTS, MAIN_WRITES, NO_TEST_WRITE, STEP_OF_AGENT, Event,
+from .common import (AGENT_WRITES, EXECUTOR_TESTS, EXECUTORS_CODE, MAIN_WRITES, NO_TEST_WRITE, READ_ONLY_AGENTS,
+                     STEP_OF_AGENT, Event,
                      active_tasks, executor_scope, glob_match, is_orchestrated, is_test_path, rel)
 
 TMP_PREFIXES = ("/tmp/", "/var/tmp/")
@@ -14,7 +15,8 @@ QUALITY_CONFIG = re.compile(
     r"|\.stylelintrc(\.\w+)?|\.golangci\.(ya?ml|toml|json)|\.?ruff\.toml|\.?mypy\.ini|\.flake8|\.pylintrc"
     r"|pyrightconfig\.json|\.coveragerc|pytest\.ini|analysis_options\.yaml|\.?clippy\.toml|\.?rustfmt\.toml"
     r"|\.editorconfig|\.pre-commit-config\.ya?ml|\.markdownlint(\.\w+|-cli2\.\w+)?)$")
-QUALITY_GUARDED = {"coder", "refactorer", "build-fixer", "test-writer"}
+# ci-engineer is deliberately absent: it owns the quality configs inside its write set.
+QUALITY_GUARDED = (NO_TEST_WRITE - {"ci-engineer"}) | {"test-writer"}
 
 
 def target_path(ev: Event) -> str | None:
@@ -24,6 +26,18 @@ def target_path(ev: Event) -> str | None:
 
 def _outside_project(r: str) -> bool:
     return r.startswith("/")
+
+
+def _is_temp(r: str) -> bool:
+    return r.startswith(TMP_PREFIXES) or "/scratchpad/" in r
+
+
+def _explicit_write(agent: str, r: str, root) -> bool:
+    """A path named literally (no wildcard) in Writes of the executor's active task: it beats the test-file pattern."""
+    if agent not in EXECUTORS_CODE or agent not in STEP_OF_AGENT or not is_orchestrated(root):
+        return False
+    globs, _ = executor_scope(agent, active_tasks(root) or [])
+    return any(r == g.strip() for g in globs if not re.search(r"[*?\[]", g))
 
 
 def _fmt(globs: list[str]) -> str:
@@ -38,12 +52,16 @@ def check_write(ev: Event) -> str | None:
     r = rel(path, root)
     agent = ev.agent
 
+    # ---- readers write nothing
+    if agent in READ_ONLY_AGENTS:
+        return f"`{agent}` is read-only: it writes no files. Report what you found in the answer."
+
     # ---- subagents never write outside the project (temp dirs are fine)
-    if agent and _outside_project(r) and not r.startswith(TMP_PREFIXES) and "/scratchpad/" not in r:
+    if agent and _outside_project(r) and not _is_temp(r):
         return f"`{agent}` writes only inside the project. `{r}` is outside it."
 
     # ---- test boundary (always on, with or without a plan)
-    if agent in NO_TEST_WRITE and is_test_path(r):
+    if agent in NO_TEST_WRITE and is_test_path(r) and not _explicit_write(agent, r, root):
         return (f"`{agent}` may read tests but never change them (`{r}`). If a test looks wrong, stop with "
                 "STATUS: blocked and explain; the orchestrator returns it to test-writer.")
     if agent == EXECUTOR_TESTS and not is_test_path(r) and not _outside_project(r):
@@ -57,6 +75,8 @@ def check_write(ev: Event) -> str | None:
 
     # ---- plan-driven scopes (only when the project is orchestrated)
     if not is_orchestrated(root):
+        return None
+    if agent and (agent in STEP_OF_AGENT) and _outside_project(r):   # temp dirs, checked above
         return None
     if agent is None:
         if _outside_project(r) or any(glob_match(r, g) for g in MAIN_WRITES):
