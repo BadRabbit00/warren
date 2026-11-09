@@ -179,6 +179,15 @@ class ReaderGateRunsAndWritesNothing(unittest.TestCase):
                         res = bash(form, agent=agent)
                         self.assertTrue(denied(res), f"{agent}: {form!r} was allowed")
                         self.assertIn(cmd.split(" | ")[0], reason(res), f"{form}: the reason does not quote the command")
+        # readers may not cd to ~, $HOME or outside the project and temp dirs (no reading a credential file via cd)
+        self.assert_denied_for(ALL_READERS, [
+            "cd ~/.config && cat gh/hosts.yml", "cd ~ && cat .docker/config.json",
+            "cd $HOME/.config/gh && cat hosts.yml", "cd /home/BadRabbit/.config/gh && cat hosts.yml",
+            "cd /etc && cat passwd"])
+        self.assert_allowed_for(ALL_READERS, ["cd logs && tail -n 5 run.txt", "cd /tmp && ls"])
+        # the janitor git ls-files path denies -c and --config-env too
+        self.assert_denied_for(["janitor"], ["git -c core.fsmonitor=x ls-files src/a.py",
+                                             "git --config-env=core.pager=X ls-files src/a.py"])
         # read-only listings are added; the removal and creation neighbours stay denied
         for agent in ALL_READERS:
             for cmd in self.LISTINGS:

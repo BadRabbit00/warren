@@ -863,7 +863,7 @@ GATE_AGENTS = ["deploy-error-reader", "log-collector"]
 class ReaderGateAllowlist(unittest.TestCase):
     """AC12: the reader gate is a true allowlist: every resolved command head must be an allowed read command."""
     UTILITIES = ["cat logs/run.txt", "head -n 5 logs/run.txt", "tail -n 20 logs/run.txt", "grep -rn error logs",
-                 "rg -n error logs", "jq . data.json", "less logs/run.txt", "wc -l logs/run.txt",
+                 "rg -n error logs", "jq . data.json", "wc -l logs/run.txt",
                  "sort logs/run.txt", "uniq logs/run.txt", "cut -d, -f1 logs/run.txt", "tr a-z A-Z",
                  "ls -la logs", "stat logs/run.txt", "file logs/run.txt", "date", "echo hello", "printf 'x\\n'",
                  "test -f logs/run.txt", "true", "sleep 1", "sed -n 1,5p logs/run.txt", "sed 's/a/b/' logs/run.txt",
@@ -1123,9 +1123,14 @@ class BashWritesGluedRedirections(unittest.TestCase):
 
     def test_bash_writes_executors_keep_skipping_unresolvable_targets(self):
         for agent in ["coder", "python-coder", "test-writer"]:
-            for cmd in ["echo x > $TMPDIR/out.txt", "echo x > \"$OUT\"", "echo x > ~/t1r4-out.txt"]:
+            for cmd in ["echo x > $TMPDIR/out.txt", "echo x > \"$OUT\""]:
                 with self.subTest(agent=agent, cmd=cmd):
                     self.assert_allowed_cmd(cmd, agent)
+            # AC21 supersedes the round-4 decision for home targets: an unresolved ~ target is denied for executors
+            cmd = "echo x > ~/t1r4-out.txt"
+            with self.subTest(agent=agent, denied=cmd):
+                res = self.run_cmd(cmd, agent)
+                self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
 
 
 ALL_READERS = ["deploy-error-reader", "log-collector", "stand-operator", "janitor"]
