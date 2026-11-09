@@ -7,6 +7,8 @@ paths:
 
 ## Scope
 
+The full rule set for coding agents is the skill `python-service`.
+
 Python 3.12+ code: FastAPI services, workers, scripts. Layers, DB, and tests have their own rules; this is the language part. `python-reviewer` checks it in depth.
 
 ## Rules
