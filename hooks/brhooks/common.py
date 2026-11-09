@@ -14,7 +14,7 @@ LANGUAGE_CODERS = {"python-coder", "go-coder", "ts-coder", "rust-coder"}
 EXECUTORS_CODE = {"coder", "refactorer", "deploy-engineer", "ci-engineer"} | LANGUAGE_CODERS
 EXECUTOR_TESTS = "test-writer"
 NO_TEST_WRITE = EXECUTORS_CODE | {"build-fixer"}
-READ_ONLY_AGENTS = {"deploy-error-reader", "web-researcher"}   # no Write/Edit anywhere
+READ_ONLY_AGENTS = {"deploy-error-reader", "log-collector", "web-researcher"}   # no Write/Edit anywhere
 PROTECTED_BRANCHES = {"main", "master", "develop"}
 # Test locations. Our layout puts tests in `tests/` folders (Flutter/Dart: `test/`); the other entries cover
 # the native conventions of each language (`integration_test/`, Go `_test.go`, JS `*.test.*`) so the boundary

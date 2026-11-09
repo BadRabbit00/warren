@@ -22,12 +22,26 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | Writer | Without `.plan/` | With `.plan/` (orchestrated project) |
 |---|---|---|
 | main thread (orchestrator) | anything | `docs/**`, `.plan/**`, `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `.claude/rules/**` |
-| `test-writer` | only test paths | only `Tests (test-writer)` of tasks with status `red` |
+| `test-writer` | only test paths | only `Tests (test-writer)` of tasks with status `red` (the union when several tasks are `red`) |
 | `coder` | anything except test paths | only `Writes (exclusive)` of tasks with status `green` |
+| `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | same as `coder` | same as `coder` (step `green`) |
+| `deploy-engineer` | anything except test paths | only `Writes (exclusive)` of tasks with status `green`, like `coder` |
+| `ci-engineer` | anything except test paths; may edit linter/formatter/type-check configs | only `Writes (exclusive)` of tasks with status `green`; configs only if inside that write set |
 | `refactorer` | anything except test paths | only `Writes (exclusive)` of tasks with status `refactor` |
 | `build-fixer` | anything except test paths | same, not limited by the plan |
 | `presenter` | `docs/slides/**`, `.plan/PLAN.html` | same |
-| any subagent | nothing outside the project (temp dirs are fine) | same |
+| `deploy-error-reader`, `log-collector`, `web-researcher` | nothing (no Write/Edit) | nothing |
+| any other subagent | nothing outside the project (temp dirs are fine) | same |
+
+Status in a task card is read tolerantly: backticks and trailing words are ignored (`` `red` ``, `red (round 2)` both mean `red`).
+
+A path listed explicitly in `Writes (exclusive)` of a `green` task is writable by its executor even when it matches a test-path pattern (for example `e2e/dev-stand.yml`, `scripts/seed/tests/x.py`); test files that are not listed stay forbidden.
+
+Executors (`coder`, language coders, `deploy-engineer`, `ci-engineer`, `refactorer`, `test-writer`) may also write under `/tmp/` and the session scratchpad.
+
+### Read-only agents and Bash
+
+`deploy-error-reader` (analyst) and `log-collector` (fetches raw logs) share one rule set. Besides having no Write/Edit, their Bash is limited to an allowlist of read/status/log subcommands: `gh auth status`, `gh run list|view`, `railway whoami|logs`, `gcloud auth list`, `gcloud logging read`, `doctl account get`, `doctl apps logs`, `yc config list`, `yc logging read`, `wrangler whoami|tail`, `docker compose ps|logs`, `docker logs`, also inside `nix shell nixpkgs#<pkg> -c …`. Everything else of these CLIs (`gh run rerun`, `railway up`, `wrangler deploy`, `docker compose up|down`, `kubectl`, `terraform`, …) is denied, also inside `&&`, `;`, pipes and `bash -c`. Global flags with a value before the subcommand (`gh -R owner/repo run list`, `docker compose -f x.yml logs`, `docker --context stand logs`) are skipped when matching.
 
 A test path is any path with a `test`, `tests`, `__tests__`, `e2e`, `integration_test`, or `testdata` directory segment, or a test file name: `test_*.py`, `*_test.py`, `conftest.py`, `*_test.go`, `*_test.dart`, `*.test.{js,jsx,ts,tsx}`, `*.spec.{js,jsx,ts,tsx}`. Our layout uses `tests/` (Flutter/Dart: `test/`); the rest keeps the boundary in existing projects with other conventions.
 

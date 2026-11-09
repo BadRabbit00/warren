@@ -857,7 +857,23 @@ def check_tests_via_bash(ev: Event, cmd: str) -> str | None:
 
 
 # deploy-error-reader (D4): read/status/log subcommands only. Each entry is the leading positional words.
-READER_AGENT = "deploy-error-reader"
+READER_AGENTS = {"deploy-error-reader", "log-collector"}
+# Global flags that take a separate value; the value must not be mistaken for the subcommand.
+READER_VALUE_FLAGS = {"-R", "--repo", "-f", "--file", "-p", "--project-name", "--context", "-H", "--host",
+                      "-c", "--config", "--profile", "--project-directory", "--env-file"}
+
+
+def _positional(args: list[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a.startswith("-"):
+            skip = "=" not in a and a in READER_VALUE_FLAGS
+        else:
+            out.append(a)
+    return tuple(out)
 READER_ALLOWED = {
     "gh": [("auth", "status"), ("run", "list"), ("run", "view")],
     "railway": [("whoami",), ("logs",)],
@@ -871,16 +887,16 @@ READER_ALLOWED = {
 
 
 def check_deploy_reader(ev: Event, cmd: str) -> str | None:
-    if ev.agent != READER_AGENT:
+    if ev.agent not in READER_AGENTS:
         return None
     for seg in expand(cmd):
         w = words(seg)
         if not w or Path(w[0]).name not in READER_ALLOWED:
             continue
         head = Path(w[0]).name
-        positional = tuple(a for a in w[1:] if not a.startswith("-"))
+        positional = _positional(w[1:])
         if not any(positional[:len(p)] == p for p in READER_ALLOWED[head]):
-            return (f"`{READER_AGENT}` is read-only: `{' '.join(w[:3])}` changes state or is not a status/log command. "
+            return (f"`{ev.agent}` is read-only: `{' '.join(w[:3])}` changes state or is not a status/log command. "
                     "Allowed: auth/login checks, run/log/status listings. Report what must be done to the orchestrator.")
     return None
 
