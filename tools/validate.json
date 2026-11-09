@@ -20,6 +20,12 @@
     "xhigh",
     "max"
   ],
+  "agyModels": [
+    "inherit",
+    "flash_lite",
+    "flash",
+    "pro"
+  ],
   "requiredDisallowed": [
     "Agent",
     "Skill",

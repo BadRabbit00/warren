@@ -272,6 +272,8 @@ class Validator:
                 self.err(p, f"model must be one of {self.cfg['allowedModels']}")
             if "effort" in fm and scalar(fm["effort"]) not in self.cfg["allowedEffort"]:
                 self.err(p, f"effort must be one of {self.cfg['allowedEffort']}")
+            if "'''" in body:
+                self.err(p, "body contains ''' (terminates the TOML literal string of the codex export)")
             count = self.lines(body)
             if count > self.cfg["limits"]["agent"]:
                 self.err(p, f"body {count} lines > limit {self.cfg['limits']['agent']}")
@@ -391,6 +393,22 @@ class Validator:
                 self.err(m, f"'{name}': model must be a full claude-* id")
             elif spec.get("effort") not in self.cfg["allowedEffort"]:
                 self.err(m, f"'{name}': bad effort")
+            if not isinstance(spec, dict):
+                continue
+            codex = spec.get("codex")
+            if not isinstance(codex, dict):
+                self.err(m, f"'{name}': codex must be an object with model and effort")
+            else:
+                cmodel = codex.get("model")
+                if not isinstance(cmodel, str) or not cmodel:
+                    self.err(m, f"'{name}': codex.model {cmodel!r} must be a non-empty string")
+                if codex.get("effort") not in self.cfg["allowedEffort"]:
+                    self.err(m, f"'{name}': codex.effort {codex.get('effort')!r} not in allowedEffort")
+            agy = spec.get("agy")
+            if not isinstance(agy, dict):
+                self.err(m, f"'{name}': agy must be an object with model")
+            elif agy.get("model") not in self.cfg["agyModels"]:
+                self.err(m, f"'{name}': agy.model {agy.get('model')!r} not in agyModels")
 
     def check_hooks(self) -> None:
         """hooks/hooks.json: unique br:* ids, descriptions, `@BR_HOOK@ <entry>` commands with existing entries."""
