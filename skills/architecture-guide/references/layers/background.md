@@ -21,7 +21,7 @@ Run something at 03:00 or every 5 minutes. The most underrated class: half of "w
 
 | Tech | Licence · status | Inside | Good for | Bad for |
 |---|---|---|---|---|
-| **systemd timers** | open (LGPL 2.1) · base | timer unit starts a service unit; OnCalendar, OnBootSec, random delay; `Persistent=true` catches up missed runs; logs in journald, resource limits, sandbox, own user; on NixOS declared via `systemd.timers` / `systemd.services` and reproduced with the system | backups, rotation, reports on one server; isolated jobs (DynamicUser, ProtectSystem) | jobs across several machines with double-run protection; dependencies between jobs |
+| **systemd timers** | open (LGPL 2.1) · base | timer unit starts a service unit; OnCalendar, OnBootSec, random delay; `Persistent=true` catches up missed runs; logs in journald, resource limits, sandbox, own user; declared as `.timer` and `.service` units kept in git | backups, rotation, reports on one server; isolated jobs (DynamicUser, ProtectSystem) | jobs across several machines with double-run protection; dependencies between jobs |
 | **Kubernetes CronJob** | open (Apache 2.0) · base | CronJob → Job → Pod; cron expression with time zone; `concurrencyPolicy: Forbid`; limits, backoffLimit, deadlines; logs live as long as pods — collect them | periodic jobs when the app is already in k8s | runs every few seconds; job chains with dependencies |
 | **pg_cron** | open (PostgreSQL) · pop | schedule in a table, jobs are SQL; cron expressions and second intervals; history in `cron.job_run_details`; in most managed Postgres | database upkeep without an external scheduler (purge old data, refresh materialised views, archive); Supabase and managed Postgres | calling external APIs and long jobs |
 

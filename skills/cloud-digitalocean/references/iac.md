@@ -4,7 +4,7 @@ General workflow: `iac` skill.
 
 ## Provider and auth
 
-- `nix shell nixpkgs#opentofu -c tofu ...` (MPL-2.0). `nixpkgs#terraform` is BUSL-1.1 and unfree: only if the project already uses it.
+- `tofu ...` (MPL-2.0). Terraform is BUSL-1.1: only if the project already uses it.
 - `required_providers { digitalocean = { source = "digitalocean/digitalocean", version = "~> 2.0" } }` [source](https://raw.githubusercontent.com/digitalocean/terraform-provider-digitalocean/main/docs/index.md). The latest version was not confirmed; pin when writing.
 - Token env, in this precedence: `DIGITALOCEAN_TOKEN`, then `DIGITALOCEAN_ACCESS_TOKEN`. Spaces keys: `SPACES_ACCESS_KEY_ID`, `SPACES_SECRET_ACCESS_KEY` (same source). Token from CI secrets or `sops exec-env`, never committed.
 - Resource names: read the provider docs of the pinned version or `tofu providers schema -json`.

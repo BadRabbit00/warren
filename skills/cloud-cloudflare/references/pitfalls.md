@@ -4,11 +4,11 @@ Each item: sources in brackets.
 
 Bad:
 ```
-nix shell nixpkgs#wrangler -c wrangler d1 execute prod-db --command "SELECT count(*) FROM sessions"
+wrangler d1 execute prod-db --command "SELECT count(*) FROM sessions"
 ```
 Good:
 ```
-nix shell nixpkgs#wrangler -c wrangler d1 execute prod-db --remote --command "SELECT count(*) FROM sessions"
+wrangler d1 execute prod-db --remote --command "SELECT count(*) FROM sessions"
 # without --remote the command may hit local Miniflare storage, so reads look empty and writes never reach production
 ```
 [d1 commands](https://developers.cloudflare.com/d1/wrangler-commands/)
@@ -62,7 +62,7 @@ wrangler login          # on SSH or in a container: waits for localhost:8976 for
 ```
 Good:
 ```
-! nix shell nixpkgs#wrangler -c wrangler login --device     # user runs it; CI uses an API token
+! wrangler login --device     # user runs it; CI uses an API token
 ```
 [general commands](https://developers.cloudflare.com/workers/wrangler/commands/general/)
 
@@ -72,19 +72,9 @@ Bad:
 ```
 Good:
 ```
-nix shell nixpkgs#cf -c cf auth whoami      # cf has its own credentials; or set CLOUDFLARE_API_TOKEN for both
+cf auth whoami      # cf has its own credentials; or set CLOUDFLARE_API_TOKEN for both
 ```
 [cf-cli skill](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md)
-
-Bad:
-```
-nix shell nixpkgs#terraform -c terraform plan     # fails: BUSL-1.1, unfree
-```
-Good:
-```
-nix shell nixpkgs#opentofu -c tofu plan           # same cloudflare/cloudflare provider
-```
-[nixpkgs](https://search.nixos.org/packages?channel=unstable&query=terraform)
 
 Bad:
 ```
@@ -94,4 +84,4 @@ Good:
 ```
 cf workers delete <name> --dry-run    # preview; ask the user for «да»; non-interactive delete without --force prints "Aborted." and still exits 0
 ```
-Flags checked in `cf workers delete --help` (nixpkgs cf, `-f, --force  Skip confirmation`; `--delete-with-references`; `--dry-run`). [cf-cli skill](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md)
+Flags checked in `cf workers delete --help` (`-f, --force  Skip confirmation`; `--delete-with-references`; `--dry-run`). [cf-cli skill](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md)

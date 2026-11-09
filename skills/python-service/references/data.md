@@ -126,9 +126,9 @@ Why: no history, no rollback, replicas race each other, production drifts from t
 
 Good:
 ```text
-nix develop -c alembic revision --autogenerate -m "add order.number"
+alembic revision --autogenerate -m "add order.number"
 # read the generated file, remove noise, one logical change, then:
-nix develop -c alembic upgrade head      # against the test DB only
+alembic upgrade head      # against the test DB only
 ```
 
 ### R-PYS-STORES - Redis is derived data

@@ -11,7 +11,7 @@ Why: the copy drifts silently; the compiler stays green while the UI shows `unde
 
 Good:
 ```ts
-// generated: nix develop -c npx --no-install openapi-typescript <backend openapi.json> -o src/shared/api/schema.ts   (or `npm run gen:api`)
+// generated: npx --no-install openapi-typescript <backend openapi.json> -o src/shared/api/schema.ts   (or `npm run gen:api`)
 import type { components } from "@/shared/api/schema";
 export type Order = components["schemas"]["OrderRead"];
 ```

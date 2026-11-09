@@ -10,13 +10,13 @@ Who: `R` = allowed for `log-collector` and `deploy-error-reader` (hook allowlist
 
 ## 1. Run
 
-Always `nix shell nixpkgs#google-cloud-sdk -c gcloud <args>`. Never a bare `gcloud`, never an install script piped into a shell, never `brew` or `apt`.
+Check the CLI first: `gcloud --version`. If it is missing, report `STATUS: blocked — install gcloud (requirements.md)` and stop. Then `gcloud <args>`. Never an install script piped into a shell.
 Pick the project with `--project <id>` and the Cloud Run region with `--region <region>` on every command; otherwise the defaults of `gcloud config` decide, and that may be the wrong project.
 
 ## 2. Login check FIRST
 
 ```
-nix shell nixpkgs#google-cloud-sdk -c gcloud auth list --filter=status:ACTIVE --format="value(account)"
+gcloud auth list --filter=status:ACTIVE --format="value(account)"
 ```
 - one account name printed = logged in. Say "yes", do not copy the account into the report.
 - empty output = NOT logged in, even though the exit code is 0. Judge by the output, not by the exit code.
@@ -24,7 +24,7 @@ nix shell nixpkgs#google-cloud-sdk -c gcloud auth list --filter=status:ACTIVE --
 - `gcloud auth print-access-token` also exits 1 without credentials, but it prints a live token on success: never use it as the check.
 
 Not logged in: report `STATUS: blocked — login needed` and give the user this one command:
-`! nix shell nixpkgs#google-cloud-sdk -c gcloud auth login --no-launch-browser`
+`! gcloud auth login --no-launch-browser`
 Agents never log in themselves and never use a service-account key file (a secret; Google does not recommend keys). In GitHub Actions CI authenticates through the `google-github-actions/auth` action with Workload Identity Federation (no key file); see skills `cloud-gcp` and `iac` (`references/iac.md`). Not run locally.
 
 ## 3. Read-only commands
@@ -32,43 +32,43 @@ Agents never log in themselves and never use a service-account key file (a secre
 ### Why did the Cloud Run service fail (R)
 ```
 # 1. the logs of one service, errors only, bounded
-nix shell nixpkgs#google-cloud-sdk -c gcloud run services logs read <service> --region <region> --project <id> --log-filter="severity>=ERROR" --freshness=1h --limit=100
+gcloud run services logs read <service> --region <region> --project <id> --log-filter="severity>=ERROR" --freshness=1h --limit=100
 # 2. the same through Cloud Logging with a filter (R, on the hook allowlist)
-nix shell nixpkgs#google-cloud-sdk -c gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="<service>" AND severity>=ERROR' --project <id> --freshness=1h --limit=100 --format=json
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="<service>" AND severity>=ERROR' --project <id> --freshness=1h --limit=100 --format=json
 ```
 - Both are bounded by `--limit` plus `--freshness` (default freshness is 1 day, default order is newest first).
 - `--format=json` gives `timestamp`, `severity`, `textPayload` / `jsonPayload`; table output cuts long lines.
 
 ### Which revision serves traffic (E)
 ```
-nix shell nixpkgs#google-cloud-sdk -c gcloud run services describe <service> --region <region> --project <id> --format=json
-nix shell nixpkgs#google-cloud-sdk -c gcloud run revisions list --service <service> --region <region> --project <id> --limit=10
-nix shell nixpkgs#google-cloud-sdk -c gcloud run revisions describe <revision> --region <region> --project <id> --format=json
-nix shell nixpkgs#google-cloud-sdk -c gcloud run services list --region <region> --project <id> --limit=20
+gcloud run services describe <service> --region <region> --project <id> --format=json
+gcloud run revisions list --service <service> --region <region> --project <id> --limit=10
+gcloud run revisions describe <revision> --region <region> --project <id> --format=json
+gcloud run services list --region <region> --project <id> --limit=20
 ```
 `services describe --format=json` shows the traffic split (`status.traffic`) and the latest ready revision. Environment variable values are part of that output: do not paste them into a report.
 
 ### Builds and images (E)
 ```
-nix shell nixpkgs#google-cloud-sdk -c gcloud builds list --project <id> --limit=5 --filter="status=FAILURE"
-nix shell nixpkgs#google-cloud-sdk -c gcloud builds log <build-id> --project <id> | tail -n 200
-nix shell nixpkgs#google-cloud-sdk -c gcloud artifacts docker images list <LOCATION-docker.pkg.dev/project/repo> --include-tags --limit=10
+gcloud builds list --project <id> --limit=5 --filter="status=FAILURE"
+gcloud builds log <build-id> --project <id> | tail -n 200
+gcloud artifacts docker images list <LOCATION-docker.pkg.dev/project/repo> --include-tags --limit=10
 ```
 `builds log --stream` follows a running build and blocks: only under `timeout`.
 
 ### Cloud SQL (E)
 ```
-nix shell nixpkgs#google-cloud-sdk -c gcloud sql instances list --project <id>
-nix shell nixpkgs#google-cloud-sdk -c gcloud sql instances describe <instance> --project <id> --format=json
-nix shell nixpkgs#google-cloud-sdk -c gcloud sql backups list --instance <instance> --project <id> --limit=10
-nix shell nixpkgs#google-cloud-sdk -c gcloud sql operations list --instance <instance> --project <id> --limit=10
+gcloud sql instances list --project <id>
+gcloud sql instances describe <instance> --project <id> --format=json
+gcloud sql backups list --instance <instance> --project <id> --limit=10
+gcloud sql operations list --instance <instance> --project <id> --limit=10
 ```
 
 ### Who am I, which project (E)
 ```
-nix shell nixpkgs#google-cloud-sdk -c gcloud config list
-nix shell nixpkgs#google-cloud-sdk -c gcloud projects list --limit=20
-nix shell nixpkgs#google-cloud-sdk -c gcloud secrets list --project <id> --limit=50
+gcloud config list
+gcloud projects list --limit=20
+gcloud secrets list --project <id> --limit=50
 ```
 `secrets list` shows names only. Reading a secret value (`gcloud secrets versions access`) is never done: not verified locally, and it prints the secret.
 
@@ -77,11 +77,11 @@ nix shell nixpkgs#google-cloud-sdk -c gcloud secrets list --project <id> --limit
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
 # M: roll back = send 100% of traffic to a known good revision (help read, not run)
-nix shell nixpkgs#google-cloud-sdk -c gcloud run services update-traffic <service> --to-revisions=<good-revision>=100 --region <region> --project <id>
+gcloud run services update-traffic <service> --to-revisions=<good-revision>=100 --region <region> --project <id>
 # M: back to the newest revision
-nix shell nixpkgs#google-cloud-sdk -c gcloud run services update-traffic <service> --to-latest --region <region> --project <id>
+gcloud run services update-traffic <service> --to-latest --region <region> --project <id>
 # M: deploy an image; --no-traffic creates the revision without sending traffic to it
-nix shell nixpkgs#google-cloud-sdk -c gcloud run deploy <service> --image <image> --region <region> --project <id> --no-traffic
+gcloud run deploy <service> --image <image> --region <region> --project <id> --no-traffic
 ```
 Check the revision list first: roll back to a revision you have seen serve traffic. Rollback after a bad migration does not undo the migration.
 
@@ -100,7 +100,7 @@ Bad: no `--project` / `--region` (the default config decides)
 Good: pass both on every command and write them in the report
 
 Bad: `gcloud builds log <id> --stream` with no timeout
-Good: `timeout 120 nix shell nixpkgs#google-cloud-sdk -c gcloud builds log <id> --stream`, or plain `builds log <id> | tail -n 200`
+Good: `timeout 120 gcloud builds log <id> --stream`, or plain `builds log <id> | tail -n 200`
 
 Bad: `--format=json` of `run services describe` pasted whole (it holds env var values)
 Good: `--format="value(status.traffic)"` or a `--filter` on one field; redact values as `<redacted>`

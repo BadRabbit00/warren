@@ -1,6 +1,6 @@
 # CI: frontend quality and accessibility (Lighthouse CI + axe)
 
-"Readability" in the user's sense is accessibility plus Lighthouse scores. Both tools are outside nixpkgs: `nixpkgs#lhci` and `nixpkgs#axe-core` do not exist, and `nixpkgs#lighthouse` is an Ethereum client, not Google Lighthouse [source](https://lighthouse.sigmaprime.io/). Install through npm inside the project's devShell as devDependencies (pin versions in the lockfile): `@lhci/cli` (0.16.x in the research) and `@axe-core/cli` [source](https://raw.githubusercontent.com/GoogleChrome/lighthouse-ci/main/docs/getting-started.md). Do not `npm install -g` on the host.
+"Readability" in the user's sense is accessibility plus Lighthouse scores. Install through npm as the project's devDependencies (pin versions in the lockfile): `@lhci/cli` (0.16.x in the research) and `@axe-core/cli` [source](https://raw.githubusercontent.com/GoogleChrome/lighthouse-ci/main/docs/getting-started.md). Do not `npm install -g` on the host.
 
 ## Lighthouse CI
 
@@ -16,7 +16,7 @@ npx axe <url> --exit                       # exit 1 on violations
 npx axe <url> --exit --tags wcag2a         # limit to a rule set
 ```
 
-Also `--rules`, `--disable`, `--chromedriver-path=<abs path>`; ChromeDriver via `npx browser-driver-manager install chrome` [source](https://raw.githubusercontent.com/dequelabs/axe-core-npm/develop/packages/cli/README.md). The ChromeDriver version must match the installed Chrome, or axe fails: pass a matching binary with `--chromedriver-path` (for example `nixpkgs#chromedriver` 156.0.8078.73 with a matching Chromium) or install the driver with browser-driver-manager.
+Also `--rules`, `--disable`, `--chromedriver-path=<abs path>`; ChromeDriver via `npx browser-driver-manager install chrome` [source](https://raw.githubusercontent.com/dequelabs/axe-core-npm/develop/packages/cli/README.md). The ChromeDriver version must match the installed Chrome, or axe fails: pass a matching binary with `--chromedriver-path` or install the driver with browser-driver-manager.
 
 axe finds only the issues automated rules can detect. It does not replace the `ui-verifier` check or manual keyboard and screen-reader review.
 
@@ -29,10 +29,12 @@ a11y:
   steps:
     - uses: actions/checkout@<full-sha> # vN
       with: { persist-credentials: false }
-    - run: nix develop -c npm ci
-    - run: nix develop -c npm run build
-    - run: nix develop -c npx lhci autorun
-    - run: nix develop -c npm run a11y      # project script wrapping: start preview server, axe <url> --exit
+    - uses: actions/setup-node@<full-sha> # vN
+      with: { node-version-file: .nvmrc, cache: npm }
+    - run: npm ci
+    - run: npm run build
+    - run: npx lhci autorun
+    - run: npm run a11y      # project script wrapping: start preview server, axe <url> --exit
 ```
 
 Starting the preview server and waiting for readiness is project-specific; keep it in the project script, not in the workflow.

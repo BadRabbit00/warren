@@ -1,6 +1,6 @@
 ---
 name: sops
-description: Use when a project's secrets are or may become sops-encrypted - when to ask the user about sops, age keys and .sops.yaml, running with exec-env, adding values without printing them, CI and server setup (sops-nix), and what is never done.
+description: Use when a project's secrets are or may become sops-encrypted - when to ask the user about sops, age keys and .sops.yaml, running with exec-env, adding values without printing them, CI and server setup, and what is never done.
 ---
 
 # sops
@@ -17,7 +17,7 @@ sops keeps secrets in the repo encrypted: the team gets them with the code, acce
 
 ## Layout
 
-- age encryption; `sops`, `age`, `ssh-to-age` in the project devShell.
+- age encryption; `sops`, `age`, `ssh-to-age` installed on the machine (missing → `STATUS: blocked — install needed (requirements.md)`).
 - Files `secrets/<env>.env` (dotenv: names visible, values encrypted). `.sops.yaml` in the root says who decrypts what:
 
 ```yaml
@@ -47,8 +47,7 @@ creation_rules:
 ## CI and servers
 
 - CI has its own age key in the GitHub Secret `SOPS_AGE_KEY` and is a recipient only of the files it needs; of prod only if CI deploys, and only in the `production` environment with human approval.
-- NixOS: sops-nix — `sops.defaultSopsFile`, `sops.defaultSopsFormat = "dotenv"`, `sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]`; secrets in `/run/secrets` (tmpfs); the unit's env file through `sops.templates`; `restartUnits` on change.
-- Without NixOS: decrypt with the host key at deploy time into tmpfs (`/run/<project>/<component>.env`, mode `0400`) and use `EnvironmentFile=`.
+- On a server: decrypt with the host key at deploy time into tmpfs (`/run/<project>/<component>.env`, mode `0400`) and use `EnvironmentFile=`.
 
 ## Never
 

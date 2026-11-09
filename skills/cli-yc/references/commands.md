@@ -1,7 +1,7 @@
 # yc: command and flag reference
 
 Source: `yc <command> --help` of yc 1.25.0 (checked locally; the commands were not run against a real cloud).
-Run as `NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc ...`.
+Run as `yc ...`.
 R = allowed for log-collector / deploy-error-reader. E = deploy-engineer / ci-engineer. M = mutating.
 Most list commands: `--limit` (default 1000 items). Folder selection flag `--folder-id` is a global flag (not shown in the per-command help; usage: `[Global Flags...]`).
 

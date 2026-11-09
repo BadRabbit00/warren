@@ -4,7 +4,7 @@
 
 - HashiCorp moved Terraform from MPL 2.0 to BUSL 1.1 for future releases (announced 2023-08-10); HashiCorp APIs, SDKs and most libraries stay MPL 2.0 [source](https://www.hashicorp.com/en/blog/hashicorp-adopts-business-source-license).
 - OpenTofu is MPL-2.0 with a Technical Steering Committee [source](https://github.com/opentofu/opentofu). 1.7.0 (2024-04-30) added client-side state encryption, provider-defined functions, the `removed` block and `for_each` import blocks [source](https://opentofu.org/blog/opentofu-1-7-0/).
-- Other tools in nixpkgs (checked locally with `nix eval`): `terraformer` 0.8.30, `ansible` (core 2.21.5), `ansible-lint` 25.8.2, `sops` 3.13.3, `tflint` 0.65.0, `terraform-docs` 0.24.0, `cf-terraforming` 0.29.0.
+- Other tools (versions checked in the research): `terraformer` 0.8.30, `ansible` (core 2.21.5), `ansible-lint` 25.8.2, `sops` 3.13.3, `tflint` 0.65.0, `terraform-docs` 0.24.0, `cf-terraforming` 0.29.0.
 
 ## Backends and locking
 
@@ -51,8 +51,8 @@ import {
 Optional `identity` (not with `id`), `for_each`, `provider`. `tofu plan -generate-config-out=generated.tf` writes HCL for import targets without a resource block; the target file must not exist, the feature is experimental, may emit invalid config for complex schemas, and does not work with `for_each` import blocks in OpenTofu [source](https://developer.hashicorp.com/terraform/language/block/import), [OpenTofu](https://opentofu.org/docs/language/import/). Review the generated file by hand, then require an empty `plan` before committing.
 
 - `cf-terraforming` (Cloudflare): `generate` fetches resources as Terraform stanzas, `import` prints `terraform import` commands, `--modern-import-block` emits import blocks (Terraform 1.5+), per its `--help` (0.29.0). Maintenance status and compatibility with provider v5: not verified.
-- Terraformer (GoogleCloudPlatform/terraformer): archived and read-only since 2026-03-16, no further updates or security patches; README targets Terraform 0.13; Cloudflare is marked broken [source](https://github.com/GoogleCloudPlatform/terraformer). Prefer import blocks. If you still must use it: `nix shell nixpkgs#terraformer -c terraformer import aws --resources=vpc,subnet --regions=eu-west-1`, then fix old provider addresses with `nix shell nixpkgs#opentofu -c tofu state replace-provider ...` (changes state: only after the user's «да»). Not verified with `--help`.
+- Terraformer (GoogleCloudPlatform/terraformer): archived and read-only since 2026-03-16, no further updates or security patches; README targets Terraform 0.13; Cloudflare is marked broken [source](https://github.com/GoogleCloudPlatform/terraformer). Prefer import blocks. If you still must use it: `terraformer import aws --resources=vpc,subnet --regions=eu-west-1`, then fix old provider addresses with `tofu state replace-provider ...` (changes state: only after the user's «да»). Not verified with `--help`.
 
 ## CI actions
 
-`hashicorp/setup-terraform@v4` (inputs `terraform_version`, `cli_config_credentials_token`, `terraform_wrapper`), `opentofu/setup-opentofu@v2` (`tofu_version`, `tofu_wrapper`, `cli_config_credentials_token`). Pin both by full SHA. PR plan jobs need `contents: read` and `pull-requests: write` only if they comment. Alternative: no action, `nix develop -c tofu ...` with opentofu in the project's devShell (or `nix shell --inputs-from . nixpkgs#opentofu -c tofu ...`) so nixpkgs comes from `flake.lock`.
+`hashicorp/setup-terraform@v4` (inputs `terraform_version`, `cli_config_credentials_token`, `terraform_wrapper`), `opentofu/setup-opentofu@v2` (`tofu_version`, `tofu_wrapper`, `cli_config_credentials_token`). Pin both by full SHA. PR plan jobs need `contents: read` and `pull-requests: write` only if they comment. Alternative: no action, install a pinned `tofu` release (version and checksum) and run `tofu ...` directly.

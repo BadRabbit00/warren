@@ -19,17 +19,19 @@ Which token is set decides which check works [source](https://docs.railway.com/c
 
 | Credentials in the environment | Check |
 |---|---|
-| none, or `RAILWAY_API_TOKEN` (account/workspace token) | `nix shell nixpkgs#railway -c railway whoami` (exit 1 and `Unauthorized` when missing) |
+| none, or `RAILWAY_API_TOKEN` (account/workspace token) | `railway whoami` (exit 1 and `Unauthorized` when missing) |
 | only `RAILWAY_TOKEN` (project token) | `railway status --json` or `railway deployment list --service <svc> --json`; `whoami` fails for project tokens by design |
 
-Not logged in: stop with `STATUS: blocked — login needed`, give `! nix shell nixpkgs#railway -c railway login` (or `! nix shell nixpkgs#railway -c railway login --browserless` without a browser). Never run it yourself; never ask for tokens in chat. A stale login that still says Unauthorized: user deletes `~/.railway/config.json` and logs in again (user-reported fix, not official). Which of `RAILWAY_TOKEN` / `RAILWAY_API_TOKEN` wins when both are set is not documented: set only one.
+CLI installed? `railway --version`; missing: `STATUS: blocked — install needed (requirements.md)`.
+
+Not logged in: stop with `STATUS: blocked — login needed`, give `! railway login` (or `! railway login --browserless` without a browser). Never run it yourself; never ask for tokens in chat. A stale login that still says Unauthorized: user deletes `~/.railway/config.json` and logs in again (user-reported fix, not official). Which of `RAILWAY_TOKEN` / `RAILWAY_API_TOKEN` wins when both are set is not documented: set only one.
 
 Never run an unauthenticated `railway up`: it chains into OAuth and can create a project [source](https://docs.railway.com/cli/up). Always pass `--service` and `--environment`.
 
 ## Deploy
 
 ```
-RAILWAY_TOKEN=<project token from CI secret> nix shell nixpkgs#railway -c railway up --ci --service <svc> --environment <env>
+RAILWAY_TOKEN=<project token from CI secret> railway up --ci --service <svc> --environment <env>
 ```
 
 - `--ci` streams build logs, then exits. `--detach --json` returns before the deployment is healthy: poll `railway deployment list --json` and `railway logs --json -n 50`.

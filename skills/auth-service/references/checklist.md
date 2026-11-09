@@ -29,7 +29,7 @@
 
 ## Checklist
 - [ ] Auth is a separate service with its own code, PostgreSQL, migrations, Redis; nobody else touches its DB or Redis.
-- [ ] FastAPI + AuthX (pinned in `nix/`, and in `uv.lock` for a Dockerfile variant); passwords pwdlib/argon2id via `run_in_threadpool`; deps from the devShell, no `.venv`.
+- [ ] FastAPI + AuthX (pinned in `pyproject.toml` and `uv.lock`); passwords pwdlib/argon2id via `run_in_threadpool`; deps from the lock, no ad-hoc environment.
 - [ ] Layers respected: HTTP and cookies in routers, rules and `commit` in services, ORM in repositories; no raw SQL or `create_all`.
 - [ ] Files named `<entity>_<layer>.py`; tests `test_<module>.py`.
 - [ ] ES256 (or justified RS256); no HS256 or shared signing secrets anywhere.
@@ -44,6 +44,6 @@
 - [ ] Browser: httpOnly + Secure + SameSite cookies, CSRF header on mutations, single-flight refresh in `http.ts`; no tokens in `localStorage` or URLs.
 - [ ] Service calls use service tokens with the target's `aud` and TTL ≤ 15 min.
 - [ ] Login, refresh, registration, reset rate-limited in Redis; answers and timing reveal no accounts; registration role not from the request.
-- [ ] `nix run .#images && docker compose up -d` brings up auth with DB, Redis, keys, migrations; `--scale auth=3` changes nothing.
+- [ ] `docker compose up -d --build` brings up auth with DB, Redis, keys, migrations; `--scale auth=3` changes nothing.
 - [ ] An external IdP only by explicit requirement, with auth still the issuer (or direct IdP trust explicitly agreed).
 - [ ] Tests on real PostgreSQL: login, expired and forged tokens, refresh as access, refresh reuse, logout, rate limit, role × endpoint matrix.

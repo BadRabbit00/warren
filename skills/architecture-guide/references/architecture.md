@@ -9,7 +9,7 @@ Applying them:
 
 ## 1. In short
 
-1. A microservice is autonomous: own code, config, DB, migrations, tests; its build recipe lives separately in `nix/`. It talks to others only through an API or events.
+1. A microservice is autonomous: own code, config, DB, migrations, tests; its build recipe (Dockerfile) lives in its own folder. It talks to others only through an API or events.
 2. Inside a service each file does one clear thing: router, schemas, models, repository, service, permissions, config, constants apart.
 3. Dependencies go one way: router → service → repository → models.
 4. A modular monolith uses the same layers plus hard module boundaries: another module only through its public interface.
@@ -23,13 +23,12 @@ Applying them:
 - New project, no shape given → propose a **modular monolith** whose boundaries let a module become a service. Split out a service only if that part has **its own deploy rhythm or load**, its **failure must not hit the rest** (payments, external APIs, LLM generation), it needs **another runtime** (GPU, heavy deps, another language), or **separate secrets** (key handling).
 - **Authentication is ALWAYS a separate `auth` service** with its own PostgreSQL, Python + FastAPI + AuthX, in any shape including a monolith. Everything else only verifies its JWTs (§3.3). Auth as a monolith module, an external IdP (Keycloak, Authentik, OIDC providers) or server sessions instead of JWT — **only on the user's explicit requirement**. Details: skill `auth-service`.
 - A flat `main.py + models.py + schemas.py + database.py` is fine for a teaching example or a two-endpoint script. If the app will grow, lay it out by layers at once.
-- One repository layout for every shape. Root: `README.md`, `AGENTS.md`/`CLAUDE.md`, `docs/`, build and run files (`flake.nix`, `flake.lock`, `compose.yaml`, `compose.override.yaml`, `.env.example`, optional `Makefile`), `nix/` and `deploy/`, with sops `.sops.yaml` and `secrets/`, service files (`.gitignore`, `.gitattributes`, `.editorconfig`, CI configs). **All code in `src/<component>/`** (monolith, service, `auth`, frontend, worker), each with its manifest, `.env.example`, migrations and tests. No `tests/`, `scripts/`, `migrations/` in the root.
+- One repository layout for every shape. Root: `README.md`, `AGENTS.md`/`CLAUDE.md`, `docs/`, build and run files (`compose.yaml`, `compose.override.yaml`, `.env.example`, optional `Makefile`), `deploy/`, with sops `.sops.yaml` and `secrets/`, service files (`.gitignore`, `.gitattributes`, `.editorconfig`, CI configs). **All code in `src/<component>/`** (monolith, service, `auth`, frontend, worker), each with its manifest, `.env.example`, migrations and tests. No `tests/`, `scripts/`, `migrations/` in the root.
 
 ```text
 project/
 ├── README.md, AGENTS.md, CLAUDE.md, docs/
-├── flake.nix, flake.lock, compose.yaml, .env.example, .gitignore, .gitattributes, .editorconfig
-├── nix/            # api.nix, auth.nix, web.nix, images.nix, module.nix, vm-test.nix
+├── compose.yaml, .env.example, .gitignore, .gitattributes, .editorconfig
 ├── deploy/         # server units and release scripts, if any
 └── src/
     ├── api/        # monolith or service: app/, migrations/, tests/, pyproject.toml
@@ -40,7 +39,7 @@ project/
 ## 3. Microservices: autonomy and isolation
 
 ### 3.1 What a service owns
-A service can be moved to its own repo with its `src/` folder and `nix/` recipe and still build, run and pass tests.
+A service can be moved to its own repo with its `src/` folder and Dockerfile and still build, run and pass tests.
 
 | What | Rule |
 |---|---|
@@ -48,7 +47,7 @@ A service can be moved to its own repo with its `src/` folder and `nix/` recipe 
 | Config | own settings module and `.env.example`; the root `.env.example` only aggregates for compose |
 | DB | own database — at least a separate DB or schema and a DB user with rights only to it |
 | Migrations | in the service folder, applied only to its DB |
-| Build | own recipe `nix/<service>.nix` (and Dockerfile in the service folder if used); needing a neighbour's code to build is coupling — remove it |
+| Build | own Dockerfile in the service folder; needing a neighbour's code to build is coupling — remove it |
 | Tests | in the service folder, run without other services |
 
 ### 3.2 How services talk

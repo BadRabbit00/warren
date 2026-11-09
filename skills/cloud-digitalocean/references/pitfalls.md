@@ -75,13 +75,3 @@ Good:
 envs: [{ key: DATABASE_URL, value: "${db.DATABASE_URL}", type: SECRET }]    # bindable variable; other secrets injected at deploy time
 ```
 `doctl apps spec get` returns encrypted values for SECRET envs, so a round trip changes them. [source](https://docs.digitalocean.com/products/app-platform/reference/app-spec/)
-
-Bad:
-```
-nix shell nixpkgs#terraform -c terraform plan      # unfree
-```
-Good:
-```
-nix shell nixpkgs#opentofu -c tofu plan
-```
-[source](https://search.nixos.org/packages?channel=unstable&query=terraform)

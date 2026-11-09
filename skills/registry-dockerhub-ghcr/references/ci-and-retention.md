@@ -24,8 +24,8 @@ Multi-arch builds and provenance leave untagged per-platform and attestation man
 A HEAD request does not count against the limit [source](https://docs.docker.com/docker-hub/usage/pulls/):
 
 ```
-TOKEN=$(nix shell nixpkgs#curl nixpkgs#jq -c sh -c 'curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull" | jq -r .token')
-nix shell nixpkgs#curl -c curl --head -H "Authorization: Bearer $TOKEN" https://registry-1.docker.io/v2/ratelimitpreview/test/manifests/latest
+TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull" | jq -r .token)
+curl --head -H "Authorization: Bearer $TOKEN" https://registry-1.docker.io/v2/ratelimitpreview/test/manifests/latest
 # read the ratelimit-limit and ratelimit-remaining headers (w=21600 is the window in seconds)
 ```
 

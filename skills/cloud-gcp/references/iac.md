@@ -4,7 +4,7 @@ General workflow: `iac` skill.
 
 ## Provider and auth
 
-- `nix shell nixpkgs#opentofu -c tofu ...` (MPL-2.0). `nixpkgs#terraform` (BUSL-1.1, unfree) only if the project already uses it: `NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#terraform -c terraform ...`.
+- `tofu ...` (MPL-2.0). Terraform (BUSL-1.1) only if the project already uses it.
 - Provider `hashicorp/google`; pinned version not checked, pin from the registry at write time. Auth names: `GOOGLE_CREDENTIALS`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_PROJECT`, `GOOGLE_REGION`, ADC from `gcloud auth application-default login`, provider argument `impersonate_service_account` [source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/guides/provider_reference).
 - Local human run: ADC (`! ... gcloud auth application-default login`), preferably with `impersonate_service_account` so no key file exists.
 

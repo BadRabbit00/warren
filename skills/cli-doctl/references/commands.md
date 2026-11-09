@@ -52,7 +52,7 @@ Other `apps` subcommands in the list (not verified, `--help` first): cancel-even
 | `doctl monitoring alert list` | alias `ls` |
 
 ## REST fallback for what doctl lacks (docs, not run)
-- Rollback: `POST /v2/apps/{app_id}/rollback` body `{"deployment_id":"<id>"}` (optional `skip_pin`); `/rollback/validate` checks first; `/rollback/commit` or `/rollback/revert` ends a pinned rollback. Call with `nix shell nixpkgs#curl -c curl`. Keep the token out of argv: `printf 'Authorization: Bearer %s\n' "$DIGITALOCEAN_ACCESS_TOKEN" | nix shell nixpkgs#curl -c curl -H @- ...` (`-H` takes `<header/@file>`; `@-` for stdin not verified). Never echo the token; report the command with `<token>`, never expanded.
+- Rollback: `POST /v2/apps/{app_id}/rollback` body `{"deployment_id":"<id>"}` (optional `skip_pin`); `/rollback/validate` checks first; `/rollback/commit` or `/rollback/revert` ends a pinned rollback. Call with `curl`. Keep the token out of argv: `printf 'Authorization: Bearer %s\n' "$DIGITALOCEAN_ACCESS_TOKEN" | curl -H @- ...` (`-H` takes `<header/@file>`; `@-` for stdin not verified). Never echo the token; report the command with `<token>`, never expanded.
 - App spec keys, `registry_type` (DOCR, DOCKER_HUB, GHCR), `deploy_on_push`: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
 
 ## Sources

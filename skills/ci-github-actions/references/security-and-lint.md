@@ -1,12 +1,12 @@
 # CI: security scans and workflow lint
 
-All nixpkgs attributes below were checked with `nix eval` on 2026-11-09 (research card): `gitleaks` 8.30.1, `trivy` 0.76.1, `osv-scanner` 2.7.0, `semgrep` 1.180.0, `codeql` 2.27.2 (unfree), `zizmor` 1.31.1, `actionlint` 1.7.12, `shellcheck` 0.11.0. Locally run as `nix shell nixpkgs#<attr> -c <cmd>` (not pinned: it follows the global registry, nixpkgs-unstable). In CI pin nixpkgs: put the tool in the project's devShell and run `nix develop -c <cmd>`, or `nix shell --inputs-from . nixpkgs#<attr> -c <cmd>` so nixpkgs comes from the project's `flake.lock` (both flags checked with `nix shell --help` / `nix develop --help`). A pinned CLI avoids trusting a mutable third-party action tag.
+All tools below are standalone CLIs (versions as of the 2026-11-09 research: `gitleaks` 8.30.1, `trivy` 0.76.1, `osv-scanner` 2.7.0, `semgrep` 1.180.0, `codeql` 2.27.2, `zizmor` 1.31.1, `actionlint` 1.7.12, `shellcheck` 0.11.0). In CI install a pinned release (pinned version and checksum, or a pinned container image by digest) and run it directly; a pinned CLI avoids trusting a mutable third-party action tag. Missing CLI locally: `STATUS: blocked — install needed (requirements.md)`.
 
 ## Which scanner when
 
 | Need | Tool | Notes |
 |---|---|---|
-| Code scanning | CodeQL (`github/codeql-action` v4) or semgrep | CodeQL on private repos needs GitHub Advanced Security; `nixpkgs#codeql` is unfree (`NIXPKGS_ALLOW_UNFREE=1 ... --impure`). Without GHAS: semgrep (LGPL engine) + osv-scanner [source](https://raw.githubusercontent.com/github/codeql-action/main/README.md) |
+| Code scanning | CodeQL (`github/codeql-action` v4) or semgrep | CodeQL on private repos needs GitHub Advanced Security; the CodeQL CLI has its own licence terms. Without GHAS: semgrep (LGPL engine) + osv-scanner [source](https://raw.githubusercontent.com/github/codeql-action/main/README.md) |
 | Secrets in history | gitleaks | `fetch-depth: 0` |
 | Dependencies and images | trivy, osv-scanner | |
 | PR dependency diff | `actions/dependency-review-action` | all public repos; private repos only with Code Security / GHAS; needs the dependency graph [source](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review) |
@@ -21,11 +21,11 @@ All nixpkgs attributes below were checked with `nix eval` on 2026-11-09 (researc
 
 ## gitleaks
 
-CLI: `nix shell nixpkgs#gitleaks -c gitleaks ...` needs no licence. `gitleaks/gitleaks-action` (v3, Node 24, runner >= 2.327.1) needs `GITLEAKS_LICENSE` for organization accounts (not personal) and `GITHUB_TOKEN` for PR comments [source](https://raw.githubusercontent.com/gitleaks/gitleaks-action/master/README.md). Without the key an org repo fails: set the secret or use the CLI.
+CLI: `gitleaks ...` needs no licence. `gitleaks/gitleaks-action` (v3, Node 24, runner >= 2.327.1) needs `GITLEAKS_LICENSE` for organization accounts (not personal) and `GITHUB_TOKEN` for PR comments [source](https://raw.githubusercontent.com/gitleaks/gitleaks-action/master/README.md). Without the key an org repo fails: set the secret or use the CLI.
 
 ## trivy
 
-`aquasecurity/trivy-action` inputs: `scan-type`, `image-ref`, `scan-ref`, `exit-code`, `ignore-unfixed`, `vuln-type`, `severity`, `format`, `output`, `scanners`, `trivyignores`, `timeout`, `version` (default v0.76.2), `cache` and others [source](https://raw.githubusercontent.com/aquasecurity/trivy-action/master/action.yaml). After the 2026-03-19 tag hijack the named safe versions were trivy v0.69.3, trivy-action v0.35.0, setup-trivy v0.2.6; verify tags and SHAs against the official repo before pinning, and rotate secrets reachable by affected runs [source](https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know). Safer: `nix shell --inputs-from . nixpkgs#trivy -c trivy fs .` in CI (nixpkgs from the project's `flake.lock`; plain `nixpkgs#trivy` is not pinned).
+`aquasecurity/trivy-action` inputs: `scan-type`, `image-ref`, `scan-ref`, `exit-code`, `ignore-unfixed`, `vuln-type`, `severity`, `format`, `output`, `scanners`, `trivyignores`, `timeout`, `version` (default v0.76.2), `cache` and others [source](https://raw.githubusercontent.com/aquasecurity/trivy-action/master/action.yaml). After the 2026-03-19 tag hijack the named safe versions were trivy v0.69.3, trivy-action v0.35.0, setup-trivy v0.2.6; verify tags and SHAs against the official repo before pinning, and rotate secrets reachable by affected runs [source](https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know). Safer: run the pinned `trivy` CLI release directly in CI (`trivy fs .`) instead of the action.
 
 ## osv-scanner
 
@@ -37,11 +37,11 @@ Inputs include `fail-on-severity`, `fail-on-scopes`, `allow-licenses`, `deny-lic
 
 ## actionlint
 
-`nix shell nixpkgs#actionlint nixpkgs#shellcheck -c actionlint -color`; uses shellcheck and pyflakes when on PATH (disable: `-shellcheck=` / `-pyflakes=`); `-format '{{json .}}'`. Exit 0 ok, 1 problems, 2 bad option, 3 fatal [source](https://raw.githubusercontent.com/rhysd/actionlint/main/docs/usage.md).
+`actionlint -color`; uses shellcheck and pyflakes when on PATH (disable: `-shellcheck=` / `-pyflakes=`); `-format '{{json .}}'`. Exit 0 ok, 1 problems, 2 bad option, 3 fatal [source](https://raw.githubusercontent.com/rhysd/actionlint/main/docs/usage.md).
 
 ## zizmor
 
-`nix shell nixpkgs#zizmor -c zizmor --offline .github/workflows`. Online audits use `GH_TOKEN` / `GITHUB_TOKEN` / `ZIZMOR_GITHUB_TOKEN` or `--gh-token`. `--format=plain|json|sarif|github`, `--min-severity`, `--min-confidence`, `--persona=regular|pedantic|auditor`. Exit codes: 0 clean, 1 error, 2 args, 3 no inputs, 11-14 findings by max severity (not with sarif or `--no-exit-codes`). `github` format shows only the first 10 findings per step: use sarif and upload to code scanning (`permissions: security-events: write`), or read the full log [source](https://docs.zizmor.sh/usage/).
+`zizmor --offline .github/workflows`. Online audits use `GH_TOKEN` / `GITHUB_TOKEN` / `ZIZMOR_GITHUB_TOKEN` or `--gh-token`. `--format=plain|json|sarif|github`, `--min-severity`, `--min-confidence`, `--persona=regular|pedantic|auditor`. Exit codes: 0 clean, 1 error, 2 args, 3 no inputs, 11-14 findings by max severity (not with sarif or `--no-exit-codes`). `github` format shows only the first 10 findings per step: use sarif and upload to code scanning (`permissions: security-events: write`), or read the full log [source](https://docs.zizmor.sh/usage/).
 
 Audits worth knowing: `artipacked` (checkout credentials on disk; fix `persist-credentials: false`), `excessive-permissions` (`permissions: {}` at top), `template-injection` (use `env:`), `dangerous-triggers` (`pull_request_target`, `workflow_run`, `issue_comment`, v1.31.0+) [source](https://docs.zizmor.sh/audits/).
 

@@ -4,7 +4,7 @@ General workflow: `iac` skill.
 
 ## Provider, mirror, auth
 
-- OpenTofu: `nix shell nixpkgs#opentofu -c tofu ...` (same mirror and provider). `nixpkgs#terraform` is BUSL-1.1 and unfree; only if the project already uses it.
+- OpenTofu: `tofu ...` (same mirror and provider). Terraform is BUSL-1.1; only if the project already uses it.
 - Provider source `yandex-cloud/yandex`. Arguments and env: `token` / `YC_TOKEN` (IAM token), `service_account_key_file` / `YC_SERVICE_ACCOUNT_KEY_FILE`, `cloud_id` / `YC_CLOUD_ID`, `folder_id` / `YC_FOLDER_ID`, `zone` / `YC_ZONE`, `storage_access_key` / `YC_STORAGE_ACCESS_KEY` [source](https://raw.githubusercontent.com/yandex-cloud/terraform-provider-yandex/master/docs/index.md).
 - Mirror, since registry.terraform.io may be unreachable from Russia: in `~/.terraformrc`
 

@@ -42,7 +42,7 @@ R = allowed for log-collector / deploy-error-reader (intended). E = deploy-engin
 
 ## Environment and tokens (docs)
 - `RAILWAY_TOKEN`: project token (one project + one environment; deploy, redeploy, logs). `RAILWAY_API_TOKEN`: account/workspace token (`whoami`, `link`, `list`, `init`).
-- CI recipe: `RAILWAY_TOKEN=<project token> nix shell nixpkgs#railway -c railway up --ci --service <svc> --environment <env>`. In CI pin the Nix input (flake lock or a pinned nixpkgs), not bare `nixpkgs#`. A container image, if used, is pinned by digest (`ghcr.io/railwayapp/cli@sha256:<digest>`), never `:latest`; prefer `nix shell nixpkgs#railway` as in SKILL.md section 1.
+- CI recipe: `RAILWAY_TOKEN=<project token> railway up --ci --service <svc> --environment <env>`. In CI pin the CLI version. A container image, if used, is pinned by digest (`ghcr.io/railwayapp/cli@sha256:<digest>`), never `:latest`.
 - Public GraphQL API: `https://backboard.railway.com/graphql/v2`; header `Authorization: Bearer <token>` (account tokens) or `Project-Access-Token: <token>` (project tokens).
 
 ## Sources

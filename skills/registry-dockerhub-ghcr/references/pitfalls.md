@@ -17,7 +17,7 @@ docker login ghcr.io -u me -p <token>      # token in argv and shell history
 Good:
 ```
 # CI: docker/login-action with GITHUB_TOKEN (logout: true is the default); or a token piped on stdin: --password-stdin
-# human: the user runs `! nix shell nixpkgs#skopeo -c skopeo login -u <user> ghcr.io` and types the token at the prompt
+# human: the user runs `! skopeo login -u <user> ghcr.io` and types the token at the prompt
 ```
 Without a credential store the token is stored base64-encoded in `~/.docker/config.json`. [source](https://docs.docker.com/reference/cli/docker/login/)
 

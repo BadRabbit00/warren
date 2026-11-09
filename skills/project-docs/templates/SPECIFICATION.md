@@ -64,7 +64,7 @@ flowchart LR
 | <Backend language> | <Python> | <3.12> | <...> |
 | <Framework> | <FastAPI> | <...> | <...> |
 | <DB> | <PostgreSQL> | <16> | <...> |
-| <Env / build> | <Nix flakes> | — | <reproducibility> |
+| <Env / build> | <Docker, uv> | — | <reproducibility> |
 
 ---
 
@@ -110,7 +110,7 @@ recurring techniques like "a repository per table" → PATTERN.md. -->
 
 ## Secrets
 
-- **Stored in:** <sops-nix / Vault / CI environment variables>
+- **Stored in:** <sops / Vault / CI environment variables>
 - **How they reach the service:** <...>
 - **Rotation:** <how and how often>
 - **Variable list (no values):** `<.env.example>`
@@ -132,6 +132,6 @@ recurring techniques like "a repository per table" → PATTERN.md. -->
 
 | Environment | Purpose | Differences | How it is deployed |
 |---|---|---|---|
-| `<dev>` | <local development> | <external APIs mocked> | `<nix develop>` |
+| `<dev>` | <local development> | <external APIs mocked> | `<docker compose up>` |
 | `<stage>` | <pre-release check> | <copy of prod without real payments> | <CI on merge to `main`> |
 | `<prod>` | <production> | — | <CI on tag> |

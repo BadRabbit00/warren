@@ -75,7 +75,7 @@ An error tracker groups exceptions with stack, release and user. Uptime monitori
 | **GlitchTip** | open (MIT) · pop | uses Sentry SDKs (change only the DSN); errors, basic performance, uptime; Postgres + one app, from 512 MB | a self-hosted error tracker with an open licence | session replay and deep performance |
 | **Bugsink** | src (Polyform Shield — no competing service) · grow | one container + SQLite/Postgres/MySQL; Sentry SDKs; >1M events/day on a €5 VPS | very small infrastructure | an open licence (→ GlitchTip) |
 | **Uptime Kuma** | open (MIT) · pop | one container; HTTP, TCP, DNS, ping, keyword, Docker, databases; notifications to Telegram, Slack and dozens more; status page. **Keep it outside the infrastructure it checks** | uptime monitoring of sites and services; a customer status page | checks from many world regions |
-| **Gatus** | open (Apache 2.0) · pop | one binary, YAML config in git; HTTP, TCP, DNS, ICMP, content and certificate checks; fits declarative infra and NixOS | checks in git and GitOps | a UI for non-technical people |
+| **Gatus** | open (Apache 2.0) · pop | one binary, YAML config in git; HTTP, TCP, DNS, ICMP, content and certificate checks | checks in git and GitOps | a UI for non-technical people |
 
 ### ALERT — dashboards, alerts, on-call
 A good alert is about a user symptom, has a **runbook**, and no noise. Bad alerts teach people to ignore them.

@@ -110,7 +110,7 @@ Almost every platform exposes an OpenAI-compatible API, so **going through your 
 | One model gateway for the team | LiteLLM with pinned versions | minimal overhead → Bifrost; k8s on Envoy → Envoy AI Gateway; on Cloudflare → AI Gateway |
 | Agent access to company tools | MCP gateway (agentgateway or ContextForge) | developer machine only → Docker MCP Gateway |
 | Agent memory about the user | own facts table in Postgres | temporal knowledge graph → Graphiti; ready API → Mem0 |
-| Running agent-generated code | E2B or Daytona sandbox | own microVMs / NixOS containers |
+| Running agent-generated code | E2B or Daytona sandbox | own microVMs |
 | Tracing and evaluating an LLM app | Langfuse | metrics in an existing OTel stack → OpenLIT |
 | Prompt regression and red teaming | promptfoo in CI | — |
 | Training and fine-tuning own models | MLflow | own GPU fleet without k8s → ClearML; research → W&B |
