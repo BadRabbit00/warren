@@ -161,7 +161,11 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
             fail(f"agents/{name}.md: description must be one plain non-empty line (no block scalar)")
             continue
         if len(desc) >= 2 and desc[0] == desc[-1] and desc[0] in "\"'":
+            quote = desc[0]
             desc = desc[1:-1]
+            if ("''" if quote == "'" else "\\") in desc:
+                fail(f"agents/{name}.md: description uses YAML escapes; write it plainly or without quotes")
+                continue
         if CONTROL_CHARS.search(desc + body):
             fail(f"agents/{name}.md: description or body contains a control character")
             continue

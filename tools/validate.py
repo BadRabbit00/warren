@@ -23,6 +23,8 @@ RULE_HEADING = re.compile(r"^###\s+(R-[A-Z0-9]+(?:-[A-Z0-9]+)+)\b", re.M)
 # pair with a Good: of the next.
 PAIR = re.compile(r"^Bad:\s*\n```[^\n]*\n.*?\n```.*?^Good:\s*\n```[^\n]*\n.*?\n```", re.M | re.S)
 HEADING = re.compile(r"#{1,3}\s")
+# A quoted description whose inner text needs YAML unescaping ('' in single quotes, a backslash in double quotes).
+YAML_ESCAPES = re.compile(r"'.*''.*'|\".*\\.*\"")
 BLOCK_KEY = re.compile(r"([A-Za-z_][\w-]*):\s*$")
 
 
@@ -259,10 +261,14 @@ class Validator:
             elif name.replace("-", "_") in self.cfg.get("codexReservedAgentKeys", []):
                 self.err(p, f"name '{name}' is reserved by codex [agents] ({name.replace('-', '_')})")
             desc = scalar(fm.get("description")).strip()
+            raw_description = next((ln.split(":", 1)[1].strip() for ln in (raw[0] if raw else "").splitlines()
+                                    if ln.startswith("description:")), "")
             if not desc:
                 self.err(p, "description missing")
             elif desc[0] in ">|":
                 self.err(p, "description must be one plain line (no block scalar)")
+            elif YAML_ESCAPES.fullmatch(raw_description):
+                self.err(p, "description uses YAML escapes; write it plainly or without quotes")
             # buildIsolated agents get isolation fields from nix/payload.py at build time.
             built = name in self.cfg.get("buildIsolated", [])
             checked = desc
