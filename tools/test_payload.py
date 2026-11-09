@@ -22,6 +22,7 @@ COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
+WORKFLOWS = ("br-red.js", "br-green.js", "br-review.js")
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 AGENTS_MD_LIMIT = 24_000
@@ -67,6 +68,10 @@ def make_tree(tmp: Path) -> Path:
             )
         else:
             shutil.copyfile(src, root / name)
+    # workflows/*.js; a tree without workflows/ gets an empty directory, so a missing source fails an assertion.
+    (root / "workflows").mkdir()
+    for script in sorted((REPO / "workflows").glob("*.js")):
+        shutil.copyfile(script, root / "workflows" / script.name)
     return root
 
 
@@ -78,6 +83,9 @@ def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
         ("output-styles", "output-styles"), ("templates", "br/templates"),
     ):
         shutil.copytree(root / src, claude / dst, copy_function=shutil.copyfile)
+    (claude / "workflows").mkdir()
+    for script in sorted((root / "workflows").glob("*.js")):
+        shutil.copyfile(script, claude / "workflows" / script.name)
     shutil.copyfile(root / "core" / "CLAUDE.md", claude / "CLAUDE.md")
     shutil.copyfile(root / "LICENSE", out / "LICENSE")
     shutil.copyfile(root / "settings.fragment.json", out / "settings.fragment.json")
@@ -297,6 +305,13 @@ class ExportTest(unittest.TestCase):
             self.assertEqual(fm["mainAgent"], "true", name)
             self.assertEqual(body.strip(), self.claude_agent(name)[1].strip(), name)
 
+    def test_workflows_installed(self) -> None:
+        installed = self.out / "claude" / "workflows"
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
+        self.assertEqual(sorted(p.name for p in installed.glob("*.js")), sorted(WORKFLOWS))
+        for name in WORKFLOWS:
+            self.assertEqual((installed / name).read_bytes(), (self.root / "workflows" / name).read_bytes(), name)
+
     def test_codex_prompts(self) -> None:
         commands = sorted(p.stem for p in (self.root / "commands").glob("*.md"))
         self.assertTrue(set(commands) >= SKIPPED_PROMPTS)
@@ -383,6 +398,21 @@ class ExportFailureTest(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, proc.stdout)
                 self.assertIn(probe.name, proc.stderr)
                 self.assertNotIn("Traceback", proc.stderr)
+
+
+class ExportWorkflowFailureTest(unittest.TestCase):
+    def test_payload_rejects_workflow_without_meta(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        bad = root / "workflows" / "bad.js"
+        bad.write_text(
+            "const x = 1\nexport const meta = {name: 'bad', description: 'x'}\n", encoding="utf-8",
+        )
+        proc = run_exporter(root, tmp / "out")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("bad.js", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 class ExportQuotedDescriptionTest(unittest.TestCase):
