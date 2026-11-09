@@ -122,15 +122,16 @@ writes them from the finished Claude tree, after the model pins and the subagent
 | Path in `$out` | Content |
 |---|---|
 | `codex/agents/<name>.toml` | one Codex role per agent: `name`, `description`, `model`, `model_reasoning_effort`, `sandbox_mode`, `developer_instructions` (the agent body as a TOML literal string) |
-| `codex/agents.toml` | `[agents.<name>]` entries (`config_file`, `description`) to merge into `~/.codex/config.toml` |
+| `codex/agents.toml` | `[agents.<name>]` entries with `-` replaced by `_` in the key (`config_file`, `description`) to merge into `~/.codex/config.toml` |
 | `codex/prompts/<command>.md` | every command except `ask-astra` and `write-astra`, frontmatter stripped, `# /<command>` header |
 | `codex/skills/` | copy of `claude/skills/` |
 | `codex/AGENTS.md`, `agy/AGENTS.md` | `core/CLAUDE.md` plus a generated list of the subagents; identical files, under 24 000 bytes |
 | `agy/agents/<name>.md` | one agy custom agent per agent: `name`, `description`, `model` (tier), `subagent: true`, `mainAgent: true`, then the body |
 
 What does not carry over, because the other CLIs have no equivalent: `tools`, `disallowedTools`,
-`maxTurns`, the orchestrator output style and the hooks. Codex agents that have no Write, Edit or Bash
-tool in Claude get `sandbox_mode = "read-only"`; the rest get `workspace-write`.
+`maxTurns`, the orchestrator output style and the hooks. Codex agents that have no Write, Edit, MultiEdit or NotebookEdit
+tool in Claude get `sandbox_mode = "read-only"` (Bash does not count: the read-only sandbox still runs commands,
+only without writes); the rest get `workspace-write`.
 
 Models per CLI live next to the Claude pins in `agent-models.json` (`codex.model`, `codex.effort`,
 `agy.model`). The agy field accepts only the tiers `inherit`, `flash_lite`, `flash`, `pro`; a full model id

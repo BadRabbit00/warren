@@ -31,7 +31,8 @@ NIX_AGENT_SKILLS = {
     "nix-test-runner": ["nix-testing"],
 }
 CONTRACT_HEADING = "## Contract (all br subagents)"
-WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
+WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 AGENTS_MD_LIMIT = 24_000  # agy reads at most 24 000 bytes per rules file; codex allows more
 
@@ -126,19 +127,26 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         except ValueError as exc:
             fail(f"agents/{name}.md: {exc}")
             continue
-        desc = get(fm, "description")
-        # multi-line descriptions are rejected by the validator, not here
-        if not desc:
-            fail(f"agents/{name}.md: description must be one non-empty line")
+        desc = get(fm, "description") or ""
+        if not desc or desc[0] in ">|":
+            fail(f"agents/{name}.md: description must be one plain non-empty line (no block scalar)")
+            continue
+        if len(desc) >= 2 and desc[0] == desc[-1] and desc[0] in "\"'":
+            desc = desc[1:-1]
+        if CONTROL_CHARS.search(desc + body):
+            fail(f"agents/{name}.md: description or body contains a control character")
             continue
         if "'''" in body:
             fail(f"agents/{name}.md: body contains ''' which would end the TOML literal string in codex/agents/{name}.toml")
             continue
         try:
             codex, agy = models[name]["codex"], models[name]["agy"]
-            cmodel, ceffort, tier = str(codex["model"]), str(codex["effort"]), str(agy["model"])
-        except KeyError as exc:
-            fail(f"agents/{name}.md: agent-models.json has no {exc} entry for codex/agy")
+            cmodel, ceffort, tier = codex["model"], codex["effort"], agy["model"]
+        except (KeyError, TypeError) as exc:
+            fail(f"agents/{name}.md: agent-models.json has no usable {exc} entry for codex/agy")
+            continue
+        if not all(isinstance(v, str) and v.strip() for v in (cmodel, ceffort, tier)):
+            fail(f"agents/{name}.md: agent-models.json codex.model, codex.effort and agy.model must be non-empty strings")
             continue
         sandbox = "workspace-write" if WRITE_TOOLS & set(as_list(get(fm, "tools"))) else "read-only"
         quoted = json.dumps(desc, ensure_ascii=False)
@@ -148,12 +156,12 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
             f"model = {json.dumps(cmodel)}\n"
             f"model_reasoning_effort = {json.dumps(ceffort)}\n"
             f"sandbox_mode = {json.dumps(sandbox)}\n"
-            f"developer_instructions = '''\n{body.strip(chr(10))}\n'''\n",
+            f"developer_instructions = '''\n{body.strip("\n")}\n'''\n",
             encoding="utf-8",
         )
         entries.append(f'[agents.{name.replace("-", "_")}]\nconfig_file = "agents/{name}.toml"\ndescription = {quoted}\n')
         (agy_agents / f"{name}.md").write_text(
-            f"---\nname: {name}\ndescription: {desc}\nmodel: {tier}\nsubagent: true\nmainAgent: true\n---\n\n{body.lstrip(chr(10))}",
+            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\n---\n\n{body.lstrip("\n")}",
             encoding="utf-8",
         )
         subagents.append(f"- `{name}` — {desc} (codex: {cmodel}/{ceffort}; agy: {tier})")
@@ -175,7 +183,7 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         (prompts_dir / p.name).write_text(body, encoding="utf-8")
         prompts += 1
 
-    shutil.copytree(claude / "skills", out / "codex" / "skills")
+    shutil.copytree(claude / "skills", out / "codex" / "skills", copy_function=shutil.copyfile)
     core = (br / "core" / "CLAUDE.md").read_text(encoding="utf-8")
     agents_md = core.rstrip("\n") + "\n\n## Subagents\n\n" + "\n".join(subagents) + "\n"
     if len(agents_md.encode("utf-8")) > AGENTS_MD_LIMIT:

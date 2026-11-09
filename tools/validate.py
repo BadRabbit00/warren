@@ -256,6 +256,8 @@ class Validator:
             desc = scalar(fm.get("description")).strip()
             if not desc:
                 self.err(p, "description missing")
+            elif desc[0] in ">|":
+                self.err(p, "description must be one plain line (no block scalar)")
             # buildIsolated agents get isolation fields from nix/payload.py at build time.
             built = name in self.cfg.get("buildIsolated", [])
             checked = desc
