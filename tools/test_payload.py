@@ -75,8 +75,14 @@ def make_tree(tmp: Path) -> Path:
     return root
 
 
-def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
-    """Lays out the Claude tree like nix/payload.nix installPhase, then runs payload.py on it."""
+def run_exporter(
+    root: Path, out: Path, between: Callable[[Path], None] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Lays out the Claude tree like nix/payload.nix installPhase, then runs payload.py on it.
+
+    `between` gets the finished claude dir after the copies and before payload.py runs, so a test can
+    break the installed tree the way a wrong installPhase would.
+    """
     claude = out / "claude"
     for src, dst in (
         ("agents", "agents"), ("skills", "skills"), ("rules", "rules/br"), ("commands", "commands"),
@@ -89,6 +95,8 @@ def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
     shutil.copyfile(root / "core" / "CLAUDE.md", claude / "CLAUDE.md")
     shutil.copyfile(root / "LICENSE", out / "LICENSE")
     shutil.copyfile(root / "settings.fragment.json", out / "settings.fragment.json")
+    if between is not None:
+        between(claude)
     return subprocess.run(
         [sys.executable, "-I", "-B", str(PAYLOAD), str(out), str(root), "/x/br-hook"],
         capture_output=True, text=True, check=False, timeout=EXPORTER_TIMEOUT,
@@ -308,7 +316,7 @@ class ExportTest(unittest.TestCase):
     def test_workflows_installed(self) -> None:
         installed = self.out / "claude" / "workflows"
         self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
-        self.assertEqual(sorted(p.name for p in installed.glob("*.js")), sorted(WORKFLOWS))
+        self.assertEqual(sorted(p.name for p in installed.iterdir()), sorted(WORKFLOWS))
         for name in WORKFLOWS:
             self.assertEqual((installed / name).read_bytes(), (self.root / "workflows" / name).read_bytes(), name)
 
@@ -413,6 +421,48 @@ class ExportWorkflowFailureTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("bad.js", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
+
+
+class ExportInstalledWorkflowsTest(unittest.TestCase):
+    """payload.py runs inside the real installPhase, so it must verify what was actually installed."""
+
+    def run_broken(self, break_installed: Callable[[Path], None]) -> subprocess.CompletedProcess[str]:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        return run_exporter(root, tmp / "out", between=break_installed)
+
+    def assert_rejected(self, proc: subprocess.CompletedProcess[str], name: str) -> None:
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn(name, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_payload_rejects_missing_installed_workflow(self) -> None:
+        proc = self.run_broken(lambda claude: (claude / "workflows" / "br-green.js").unlink())
+        self.assert_rejected(proc, "br-green.js")
+
+    def test_payload_rejects_modified_installed_workflow(self) -> None:
+        def modify(claude: Path) -> None:
+            path = claude / "workflows" / "br-green.js"
+            path.write_bytes(path.read_bytes() + b" ")
+
+        self.assert_rejected(self.run_broken(modify), "br-green.js")
+
+    def test_payload_rejects_extra_installed_file(self) -> None:
+        def add(claude: Path) -> None:
+            (claude / "workflows" / "notes.txt").write_text("stray\n", encoding="utf-8")
+
+        self.assert_rejected(self.run_broken(add), "notes.txt")
+
+    def test_payload_accepts_block_comment_before_meta(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        (root / "workflows" / "ok.js").write_text(
+            "/* licence */\n// note\nexport const meta={name:'ok',description:'x'}\n", encoding="utf-8",
+        )
+        proc = run_exporter(root, tmp / "out")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 class ExportQuotedDescriptionTest(unittest.TestCase):
