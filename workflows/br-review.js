@@ -70,7 +70,6 @@ const PLAN_SCHEMA = {
       },
     },
     problems: { type: 'array', items: { type: 'string' }, description: 'requested ids missing or with a different Status' },
-    base_branch: { type: 'string' },
   },
 }
 
@@ -82,8 +81,7 @@ async function readPlan(status) {
     : `every task whose Status is exactly "${status}".`
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
-      'Copy every field verbatim from the plan; do not invent anything. ' +
-      'Also return base_branch ("develop").',
+      'Copy every field verbatim from the plan; do not invent anything.',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
   if (!plan) return { stopped: true, problems: ['plan reader returned nothing'] }
@@ -114,8 +112,8 @@ function brief(task, files, ret) {
 function pickReviewers(task) {
   const names = ['code-reviewer']
   for (const file of [...task.writes, ...task.tests]) {
-    const m = /\.([a-z]+)$/.exec(file)
-    const reviewer = m ? BY_EXTENSION[m[1]] : undefined
+    const ext = file.slice(file.lastIndexOf('.') + 1)
+    const reviewer = file.includes('.') && ext.split('').every((c) => c >= 'a' && c <= 'z') ? BY_EXTENSION[ext] : undefined
     if (reviewer && !names.includes(reviewer)) names.push(reviewer)
   }
   if (names.length === 1) log(`${task.id}: no language reviewer for these paths, code-reviewer only`)
@@ -129,7 +127,7 @@ function reviewTask(plan) {
     const paths = [...task.writes, ...task.tests].join(' ')
     const prompt = (name) =>
       `Review task ${task.id} — ${task.name} as ${name}. Read-only: do not edit files, do not commit.\n` +
-      `Diff: git diff ${plan.base_branch}...HEAD -- ${paths}\n` +
+      `Diff: git diff $(git merge-base ${BASE} HEAD)...HEAD -- ${paths}\n` +
       'Check it against the acceptance criteria:\n' +
       task.acceptance.map((a) => `- ${a}`).join('\n') +
       '\nReturn findings with severity must_fix, suboptimal or nit, each with file, line, evidence and fix.'
@@ -177,6 +175,12 @@ function verifyTask() {
       nits: findings.filter((f) => f.severity === 'nit'),
     }
   }
+}
+
+const BASE = (args && typeof args.base === 'string' && args.base) || 'develop'
+const BASE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-'
+if (BASE.startsWith('-') || BASE.split('').some((c) => !BASE_CHARS.includes(c))) {
+  return { stopped: true, problems: ['bad args.base'] }
 }
 
 const plan = await readPlan('review')

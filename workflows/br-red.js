@@ -22,7 +22,7 @@ const WRITER_SCHEMA = {
 
 const RUN_SCHEMA = {
   type: 'object',
-  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'command'],
+  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'files_hashed', 'command'],
   properties: {
     ran: { type: 'integer' },
     passed: { type: 'integer' },
@@ -43,6 +43,7 @@ const RUN_SCHEMA = {
       },
     },
     tests_hash: { type: 'string' },
+    files_hashed: { type: 'integer' },
     command: { type: 'string' },
   },
 }
@@ -72,17 +73,24 @@ const PLAN_SCHEMA = {
       },
     },
     problems: { type: 'array', items: { type: 'string' }, description: 'requested ids missing or with a different Status' },
-    base_branch: { type: 'string' },
   },
 }
 
 // The tests-hash command is built here from the task's Tests paths, never taken from the plan.
 function shellQuote(s) {
-  return `'${s.replace(/'/g, `'\\''`)}'`
+  return "'" + String(s).split("'").join("'\\''") + "'"
 }
 
 function hashCommand(paths) {
-  return `git ls-files -co --exclude-standard -- ${paths.map(shellQuote).join(' ')} | sort | xargs sha256sum | sha256sum`
+  return `set -o pipefail; ${listFiles(paths)} | sort -z | xargs -0 -r sha256sum | sha256sum`
+}
+
+function listFiles(paths) {
+  return `git ls-files -co --exclude-standard -z -- ${paths.map(shellQuote).join(' ')}`
+}
+
+function countCommand(paths) {
+  return `${listFiles(paths)} | tr -cd '\\0' | wc -c`
 }
 
 // Stage 0, shared by all br workflows: read the plan, nothing else.
@@ -93,8 +101,7 @@ async function readPlan(status) {
     : `every task whose Status is exactly "${status}".`
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
-      'Copy every field verbatim from the plan; do not invent anything. ' +
-      'Also return base_branch ("develop").',
+      'Copy every field verbatim from the plan; do not invent anything.',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
   if (!plan) return { stopped: true, problems: ['plan reader returned nothing'] }
@@ -125,11 +132,17 @@ function brief(task, files, ret) {
 function writeTests() {
   return async (task) => {
     const writer = await agent(
-      brief(task, task.tests, '{status: done|blocked, files, tests: [{name, ac}], notes}; tests only, no production code'),
+      brief(task, task.tests, '{status: done|blocked, files, tests: [{name, ac}], notes}; tests only, no production code; report test names as the bare test function name'),
       { agentType: 'test-writer', phase: 'Tests', label: `${task.id} test-writer`, schema: WRITER_SCHEMA },
     )
     return { task, writer }
   }
+}
+
+// A runner name matches a writer name when equal, qualified by `.` or `::`, or a subtest (`name ` / `name(`).
+function nameMatches(runner, writer) {
+  return runner === writer || runner.endsWith('.' + writer) || runner.endsWith('::' + writer) ||
+    runner.startsWith(writer + ' ') || runner.startsWith(writer + '(')
 }
 
 function redCheck(plan) {
@@ -143,15 +156,18 @@ function redCheck(plan) {
       `Mode: red. Task ${task.id} — ${task.name}. Do not edit files.\n` +
         `Tests: ${task.tests.join(', ')}\n` +
         'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. ' +
-        'For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or ' +
+        'Report test names as the bare test function name. For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or ' +
         'wrong_reason (import, syntax or fixture error); n/a for tests that do not fail. ' +
-        `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}`,
+        `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
+        `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}`,
       { agentType: 'test-runner', phase: 'Red check', label: `${task.id} test-runner`, schema: RUN_SCHEMA },
     )
     const failing = run ? run.per_test.filter((t) => t.outcome === 'fail' || t.outcome === 'error') : []
     const red_ok = Boolean(run) && run.errors === 0 && run.failed > 0 &&
       failing.every((t) => t.verdict === 'right_reason') &&
-      writer.tests.every((w) => failing.some((t) => t.name === w.name))
+      run.files_hashed > 0 &&
+      writer.tests.every((w) => failing.some((t) => nameMatches(t.name, w.name)))
+    if (run && run.files_hashed === 0) log(`${task.id} red not ok: tests hash covers no files`)
     log(`${task.id} red: ${run ? `${run.failed} failed, ${run.errors} errors, ${run.passed} passed` : 'no run'} -> ${red_ok ? 'ok' : 'NOT ok'}`)
     return { id: task.id, writer, run, red_ok }
   }

@@ -29,7 +29,7 @@ const REFACTOR_SCHEMA = {
 
 const RUN_SCHEMA = {
   type: 'object',
-  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'tests_hash', 'command'],
+  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'tests_hash', 'files_hashed', 'command'],
   properties: {
     ran: { type: 'integer' },
     passed: { type: 'integer' },
@@ -37,6 +37,7 @@ const RUN_SCHEMA = {
     errors: { type: 'integer' },
     skipped: { type: 'integer' },
     tests_hash: { type: 'string' },
+    files_hashed: { type: 'integer' },
     command: { type: 'string' },
   },
 }
@@ -66,17 +67,24 @@ const PLAN_SCHEMA = {
       },
     },
     problems: { type: 'array', items: { type: 'string' }, description: 'requested ids missing or with a different Status' },
-    base_branch: { type: 'string' },
   },
 }
 
 // The tests-hash command is built here from the task's Tests paths, never taken from the plan.
 function shellQuote(s) {
-  return `'${s.replace(/'/g, `'\\''`)}'`
+  return "'" + String(s).split("'").join("'\\''") + "'"
 }
 
 function hashCommand(paths) {
-  return `git ls-files -co --exclude-standard -- ${paths.map(shellQuote).join(' ')} | sort | xargs sha256sum | sha256sum`
+  return `set -o pipefail; ${listFiles(paths)} | sort -z | xargs -0 -r sha256sum | sha256sum`
+}
+
+function listFiles(paths) {
+  return `git ls-files -co --exclude-standard -z -- ${paths.map(shellQuote).join(' ')}`
+}
+
+function countCommand(paths) {
+  return `${listFiles(paths)} | tr -cd '\\0' | wc -c`
 }
 
 // Stage 0, shared by all br workflows: read the plan, nothing else.
@@ -88,8 +96,7 @@ async function readPlan(statuses) {
     : `every task whose Status is exactly ${list}.`
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
-      'Copy every field verbatim from the plan; do not invent anything. ' +
-      'Also return base_branch ("develop").',
+      'Copy every field verbatim from the plan; do not invent anything.',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
   if (!plan) return { stopped: true, problems: ['plan reader returned nothing'] }
@@ -135,9 +142,11 @@ async function check(plan, state, phaseTitle) {
     `Mode: affected. Task ${task.id} — ${task.name}. Do not edit files.\n` +
       `Tests: ${task.tests.join(', ')}\n` +
       'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. ' +
-      `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}`,
+      `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
+        `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}`,
     { agentType: 'test-runner', phase: phaseTitle, label: `${task.id} test-runner`, schema: RUN_SCHEMA },
   )
+  if (run && run.files_hashed === 0) return { run, ok: false, hashOk: false, noFiles: true }
   const hashOk = Boolean(run) && run.tests_hash === task.recorded_hash
   return { run, ok: isGreen(run) && hashOk, hashOk }
 }
@@ -168,8 +177,9 @@ function verify(plan) {
     if (!state.worker || state.worker.status === 'blocked') {
       return stop(state, state.worker ? `${who} blocked: ${state.worker.notes}` : `${who} returned nothing`)
     }
-    const { run, ok, hashOk, noHash } = await check(plan, state, 'Check')
+    const { run, ok, hashOk, noHash, noFiles } = await check(plan, state, 'Check')
     if (noHash) return stop(state, 'no recorded tests hash')
+    if (noFiles) return stop({ ...state, run }, 'tests hash covers no files')
     const after = state.step === 'refactor' ? ' after refactor' : ''
     if (!ok) return stop({ ...state, run }, run ? (hashOk ? `tests not green${after}` : `tests hash changed${after}`) : 'test-runner returned nothing')
     log(`${state.task.id} done`)
