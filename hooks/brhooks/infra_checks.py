@@ -1,77 +1,105 @@
 """AC18: infrastructure-changing commands are never run by a subagent; the agent prepares them, the user runs them."""
 from __future__ import annotations
 
-import re
+import shlex
 from pathlib import Path
 
 from .common import Event
 
 SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh"}
 XARGS_VALUE = {"-I", "-n", "-P", "-d", "-L", "-s", "-E", "-a"}
-GH_VALUE_FLAGS = {"-R", "--repo", "--hostname"}
 
 
-def _positionals(args: list[str], value_flags: frozenset[str] | set[str] = frozenset()) -> list[str]:
-    out: list[str] = []
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in value_flags:
-            i += 2
-            continue
-        if not a.startswith("-"):
-            out.append(a)
-        i += 1
-    return out
+def _positionals(args: list[str]) -> list[str]:
+    """Words that are not flags. A flag's value stays in the list on purpose: matching is fail-closed (see _has)."""
+    return [a for a in args if not a.startswith("-")]
+
+
+def _has(pos: list[str], *verbs: str) -> bool:
+    """True if the verbs appear next to each other anywhere among the positionals, so that an unknown
+    global flag with a value in front of the subcommand cannot hide it."""
+    n = len(verbs)
+    return any(tuple(pos[i:i + n]) == verbs for i in range(len(pos) - n + 1))
 
 
 def _is_change(name: str, args: list[str]) -> bool:
+    pos = _positionals(args)
     if name in {"tofu", "opentofu", "terraform"}:
-        return _positionals(args)[:1] in (["apply"], ["destroy"])
+        return any(v in pos for v in ("apply", "destroy"))
     if name == "railway":
-        return _positionals(args)[:1] in (["up"], ["redeploy"], ["down"])
+        return any(v in pos for v in ("up", "redeploy", "down"))
     if name == "gh":
-        return _positionals(args, GH_VALUE_FLAGS)[:2] in (["run", "rerun"], ["workflow", "run"])
+        return _has(pos, "run", "rerun") or _has(pos, "workflow", "run")
     if name == "wrangler":
-        pos = _positionals(args)
-        if pos[:1] == ["rollback"] or pos[:2] == ["versions", "deploy"]:
+        if "rollback" in pos or _has(pos, "versions", "deploy"):
             return True
-        if pos[:1] == ["deploy"]:
+        if "deploy" in pos:
             return not any(a == "--dry-run" or a == "--dry-run=true" for a in args)
         return False
     if name == "gcloud":
-        pos = _positionals(args)
-        return pos[:2] == ["run", "deploy"] or pos[:3] == ["run", "services", "delete"]
+        return _has(pos, "run", "deploy") or _has(pos, "run", "services", "delete")
     if name == "doctl":
-        pos = _positionals(args)
-        return pos[:1] == ["apps"] and pos[1:2] in (["create"], ["update"], ["delete"])
+        return any(_has(pos, "apps", v) for v in ("create", "update", "delete", "create-deployment"))
     return False
+
+
+def _unknowable(agent: str) -> str:
+    return (f"`{agent}`: the command is too deeply nested or cannot be parsed, so it cannot be checked for "
+            "infrastructure changes. Simplify it, or prepare the exact command for the user to run.")
+
+
+def _substitution_depth(cmd: str) -> int:
+    """Deepest nesting of `$( … )` (the splitter flattens unquoted ones without counting)."""
+    depth = deepest = 0
+    for i, ch in enumerate(cmd):
+        if ch == "(" and cmd[i - 1:i] == "$":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch == ")" and depth:
+            depth -= 1
+    return deepest
 
 
 def _reason(cmd: str, agent: str, depth: int = 0) -> str | None:
     from . import bash_checks as bc
 
     if depth > bc.MAX_DEPTH:
-        return None
+        return _unknowable(agent)
+    if _substitution_depth(cmd) > bc.MAX_DEPTH:
+        return _unknowable(agent)
     try:
         commands = bc._split_commands(cmd.replace("\\\n", " "))
-    except bc.NestingError:
-        return None
-    for command in commands:
-        raw = bc.split_words(bc._scan_redirections(command.text)[1], comments=False)
-        found = _words(bc._strip_redirections(bc._resolve(raw)[0]), agent, depth)
-        if found:
-            return found
+        for command in commands:
+            raw = bc.split_words(bc._scan_redirections(command.text)[1], comments=False)
+            # split_words is lenient; an unterminated quote or substitution means we cannot tell what runs
+            shlex.split(command.text, comments=True)
+            if any(x.count("$(") > x.count(")") or x.count("`") % 2 for x in raw):
+                return _unknowable(agent)
+            found = _words(bc._strip_redirections(bc._resolve(raw)[0]), agent, depth)
+            if found:
+                return found
+    except (bc.NestingError, ValueError):
+        return _unknowable(agent)
     return None
 
 
 def _words(w: list[str], agent: str, depth: int) -> str | None:
     from . import bash_checks as bc
 
-    if not w or depth > bc.MAX_DEPTH:
+    if not w:
         return None
+    if depth > bc.MAX_DEPTH:
+        return _unknowable(agent)
     name = Path(w[0]).name
     args = w[1:]
+    if name in bc.LAUNCHER or (name in bc.LAUNCHER_SUBCOMMANDS and bc._is_interpreter(w)):
+        # package launcher: any later word may start the real command; try every suffix (fail closed)
+        for i in range(len(args)):
+            if not args[i].startswith("-"):
+                found = _words(args[i:], agent, depth + 1)
+                if found:
+                    return found
+        return None
     if name in SHELL_NAMES:
         script = bc._shell_script(w)
         return _reason(script, agent, depth + 1) if script is not None else None

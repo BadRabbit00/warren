@@ -8,6 +8,7 @@ Both agents may run everything a reader may run (bash_checks reader gate). On to
 """
 from __future__ import annotations
 
+import os
 import posixpath
 import re
 import subprocess
@@ -21,6 +22,10 @@ from .bash_checks import (
 from .common import Event
 
 STAND_TARGET = re.compile(r"nix\s+run\s+\.#([\w.-]+)")
+STAND_LINE = re.compile(r"^\s*[-*]\s*\*\*Stand:\*\*(.*)$", re.MULTILINE)
+HOST_FLAGS = {"-H", "--host", "--context", "-c"}
+PATH_FLAGS = {"-f", "--file", "--project-directory", "--env-file"}
+DOCKER_ENV = re.compile(r"(?:^|[\s;&|(])DOCKER_(?:HOST|CONTEXT)=")
 UNSAFE_NAME = re.compile(r"[$`*?\[\]{}~\\<>|;&()'\"]")
 
 
@@ -29,20 +34,21 @@ def _stand_targets(root: Path) -> set[str]:
         text = (root / ".plan" / "PLAN.md").read_text(encoding="utf-8", errors="replace")
     except OSError:
         return set()
-    names = set(STAND_TARGET.findall(text))
-    return names | {n + "-down" for n in names}
+    lines = STAND_LINE.findall(text)
+    names = set(STAND_TARGET.findall("\n".join(lines) if lines else text))   # no Stand line at all: the whole plan
+    bases = {n.removesuffix("-down") for n in names}
+    return bases | {n + "-down" for n in bases}
 
 
-def _skip_global_flags(args: list[str], on_project: list[str] | None = None) -> int | None:
+def _skip_global_flags(args: list[str], seen: list[tuple[str, str]] | None = None) -> int | None:
     """Index of the first positional word; global flags are skipped. None if a flag is unknown (fail closed).
-    `-p NAME` / `--project-name NAME` values are appended to `on_project`."""
+    Every skipped value flag is appended to `seen` as (flag, value)."""
     i = 0
     while i < len(args) and args[i].startswith("-") and args[i] != "-":
         flag, eq, value = args[i].partition("=")
-        if flag in {"-p", "--project-name"} and on_project is not None:
-            on_project.append(value if eq else (args[i + 1] if i + 1 < len(args) else ""))
-            i += 1 if eq else 2
-        elif flag in READER_VALUE_FLAGS:
+        if flag in {"-p", "--project-name"} or flag in READER_VALUE_FLAGS:
+            if seen is not None:
+                seen.append((flag, value if eq else (args[i + 1] if i + 1 < len(args) else "")))
             i += 1 if eq else 2
         elif flag in READER_BOOL_FLAGS:
             i += 1
@@ -65,6 +71,7 @@ class _Gate:
         self.janitor = self.agent == "janitor"
         self.root = ev.project_root
         self.dynamic = re.search(r"[$`]", cmd) is not None     # a name or path may come from a variable or substitution
+        self.grouped = re.search(r"[(){}]", cmd) is not None   # a cd inside ( ) or { } may or may not leave its directory
         self.cwd: str | None = str(ev.cwd)
         self.targets = set() if self.janitor else _stand_targets(self.root)
 
@@ -90,6 +97,8 @@ class _Gate:
         return None
 
     def words(self, raw: list[str], depth: int) -> str | None:
+        if any(DOCKER_ENV.search(" " + w) for w in raw):
+            return self.deny(" ".join(raw[:6]), "The docker host and context are fixed; do not set DOCKER_HOST or DOCKER_CONTEXT.")
         outer = _strip_redirections(strip_env_and_wrappers(raw))
         if (self.targets and len(outer) == 3 and Path(outer[0]).name == "nix" and outer[1] == "run"
                 and (m := re.fullmatch(r"\.#([\w.-]+)", outer[2])) and m.group(1) in self.targets):
@@ -107,7 +116,10 @@ class _Gate:
         elif name == "eval":
             return self.reason(" ".join(args), depth + 1)
         elif name == "cd":
-            self.track_cd(args[0] if args else "")
+            self.track_cd(args, depth)
+            return None
+        elif name in {"pushd", "popd"}:
+            self.cwd = None
             return None
         elif name in {"docker", "docker-compose"}:
             special = self.docker(name, args, shown)
@@ -119,27 +131,49 @@ class _Gate:
             return None
         return _reader_words(final, self.agent, depth)
 
-    def track_cd(self, arg: str) -> None:
-        if not arg or arg == "-" or arg.startswith(("~", "$")) or self.cwd is None:
+    def track_cd(self, args: list[str], depth: int) -> None:
+        """Only a plain `cd DIR` at the top level is tracked; anything else makes the directory unknown."""
+        if (depth > 0 or self.grouped or len(args) != 1 or args[0].startswith(("-", "~")) or UNSAFE_NAME.search(args[0])
+                or self.cwd is None):
             self.cwd = None
         else:
-            self.cwd = posixpath.normpath(posixpath.join(self.cwd, arg))
+            self.cwd = posixpath.normpath(posixpath.join(self.cwd, args[0]))
+
+    def inside(self, value: str) -> bool:
+        if not value or value.startswith("~") or re.search(r"[$`]", value) or self.cwd is None:
+            return False
+        full = posixpath.normpath(posixpath.join(self.cwd, value))
+        root = posixpath.normpath(str(self.root))
+        return full == root or full.startswith(root + "/")
+
+    def check_flags(self, seen: list[tuple[str, str]], shown: str) -> str | None:
+        for flag, value in seen:
+            if flag in HOST_FLAGS:
+                return self.deny(shown, "The docker host and context are fixed; `-H`, `--host` and `--context` are refused.")
+            if flag in PATH_FLAGS and not self.inside(value):
+                return self.deny(shown, f"`{flag} {value}` points outside the project; compose files, the project "
+                                        "directory and env files must be project paths.")
+        return None
 
     # -- docker -----------------------------------------------------------------------------------------
     def docker(self, name: str, args: list[str], shown: str) -> str | None:
         """None = not special (the reader gate decides), "" = allowed, text = refused."""
-        project: list[str] = []
+        seen: list[tuple[str, str]] = []
         if name == "docker-compose":
             sub, rest = "compose", args
         else:
-            i = _skip_global_flags(args)
-            if i is None:
-                return None
+            i = _skip_global_flags(args, seen)
+            bad = self.check_flags(seen, shown)
+            if bad or i is None:
+                return bad
             sub, rest = args[i], args[i + 1:]
         if sub == "compose":
-            i = _skip_global_flags(rest, project)
-            if i is None:
-                return None
+            seen = []
+            i = _skip_global_flags(rest, seen)
+            bad = self.check_flags(seen, shown)
+            if bad or i is None:
+                return bad
+            project = [v for f, v in seen if f in {"-p", "--project-name"}]
             action, tail = rest[i], rest[i + 1:]
             if action in {"ps", "logs"}:
                 return None if project and project[-1] else self.deny(shown, "Every compose command needs `-p <name>`.")
@@ -158,7 +192,9 @@ class _Gate:
                 return "" if ok else self.deny(shown, "Only `up -d` and `up --wait` are allowed.")
             ok = bool(tail) and not any(a.startswith("-") or UNSAFE_NAME.search(a) for a in tail)
             return "" if ok else self.deny(shown, "`restart` takes service names only.")
-        if self.janitor and sub in {"rm", "container", "volume"}:
+        if self.janitor and sub in {"rm", "container", "volume", "network"}:
+            if sub == "network" and not (rest and rest[0] == "rm"):
+                return None
             if sub != "rm":
                 if not rest or rest[0] != "rm":
                     return None
@@ -174,13 +210,19 @@ class _Gate:
     def git_ls_files(args: list[str]) -> bool:
         i = 0
         while i < len(args) and args[i].startswith("-"):
-            i += 2 if args[i] in {"-C", "-c"} else 1
+            if args[i] == "-c" or args[i].startswith(("-c=", "--config-env", "--exec-path")):
+                return False  # git -c / --config-env / --exec-path can run programs
+            i += 2 if args[i] == "-C" else 1
         return i < len(args) and args[i] == "ls-files"
 
     def tracked(self, rel: str) -> bool:
-        out = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel], cwd=self.root,
-                             capture_output=True, text=True, timeout=10)
-        return out.returncode == 0
+        """Fails closed: only git's own "did not match" answer (exit 1) means untracked."""
+        try:
+            out = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel], cwd=self.root,
+                                 capture_output=True, text=True, timeout=10, env={**os.environ, "LC_ALL": "C"})
+        except (OSError, subprocess.SubprocessError):
+            return True
+        return not (out.returncode == 1 and "did not match" in out.stderr)
 
     def rm(self, args: list[str], shown: str) -> str | None:
         files = [a for a in args if a != "-f"]
