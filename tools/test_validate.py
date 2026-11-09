@@ -366,5 +366,83 @@ Why: injection.
         self.assertNotIn("Traceback", proc.stderr)
 
 
+class ModelTableTest(unittest.TestCase):
+    """agent-models.json codex/agy schema and the TOML-literal guard on agent bodies."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = self.tmp / "br"
+        self.root.mkdir()
+        for name in COPIED:
+            src = REPO / name
+            if src.is_dir():
+                shutil.copytree(
+                    src, self.root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
+                    copy_function=shutil.copyfile,
+                )
+            else:
+                shutil.copyfile(src, self.root / name)
+        # A complete, valid table written here, so the tests do not depend on the repo's own file content.
+        self.models_path = self.root / "agent-models.json"
+        models = json.loads(self.models_path.read_text(encoding="utf-8"))
+        for spec in models["agents"].values():
+            spec["codex"] = {"model": "gpt-6-astra", "effort": "high"}
+            spec["agy"] = {"model": "flash"}
+        self.save(models)
+        self.names = sorted(models["agents"])
+
+    def load(self) -> dict[str, dict[str, dict[str, object]]]:
+        data: dict[str, dict[str, dict[str, object]]] = json.loads(self.models_path.read_text(encoding="utf-8"))
+        return data
+
+    def save(self, models: dict[str, dict[str, dict[str, object]]]) -> None:
+        self.models_path.write_text(json.dumps(models), encoding="utf-8")
+
+    def findings_for(self, name: str, baseline: list[str]) -> list[str]:
+        """New findings (absent from the baseline run) that name the agent."""
+        return [e for e in validate.Validator(self.root).run() if e not in baseline and name in e]
+
+    def test_models_complete_table_is_clean(self) -> None:
+        self.assertEqual(validate.Validator(self.root).run(), [])
+
+    def test_models_require_codex_and_agy(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        no_codex, no_agy = self.names[0], self.names[1]
+        models = self.load()
+        del models["agents"][no_codex]["codex"]
+        del models["agents"][no_agy]["agy"]
+        self.save(models)
+        self.assertTrue(any("codex" in e for e in self.findings_for(no_codex, baseline)), no_codex)
+        self.assertTrue(any("agy" in e for e in self.findings_for(no_agy, baseline)), no_agy)
+
+    def test_agy_model_vocabulary(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        bad, good = self.names[0], self.names[1]
+        models = self.load()
+        models["agents"][bad]["agy"] = {"model": "gemini-4-argon-high"}
+        models["agents"][good]["agy"] = {"model": "flash"}
+        self.save(models)
+        self.assertTrue(
+            any("gemini-4-argon-high" in e for e in self.findings_for(bad, baseline)), bad,
+        )
+        self.assertEqual(self.findings_for(good, baseline), [])
+
+    def test_codex_effort_vocabulary(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        bad = self.names[0]
+        models = self.load()
+        models["agents"][bad]["codex"] = {"model": "gpt-6-astra", "effort": "ultra"}
+        self.save(models)
+        self.assertTrue(any("ultra" in e for e in self.findings_for(bad, baseline)), bad)
+
+    def test_body_rejects_toml_literal_terminator(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        target = self.names[0]
+        path = self.root / "agents" / f"{target}.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\nPrint it as '''text''' please.\n", encoding="utf-8")
+        self.assertTrue(self.findings_for(target, baseline), target)
+
+
 if __name__ == "__main__":
     unittest.main()
