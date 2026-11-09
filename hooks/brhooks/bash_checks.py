@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, Event, git_branch, is_test_path
+from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, Event, git_branch, is_test_path, rel
+from .write_checks import _explicit_write, check_write
 
 # Split a command line into simple commands on ; && || | & and newlines (good enough for policy checks).
 SEPARATOR = r"&&|\|\||;|\||(?<![>&])&(?![>&])|\n"
@@ -849,10 +850,101 @@ def check_tests_via_bash(ev: Event, cmd: str) -> str | None:
     if ev.agent not in NO_TEST_WRITE:
         return None
     for seg in expand(cmd):
-        written = _test_paths_written(seg, ev.cwd)
+        written = [p for p in _test_paths_written(seg, ev.cwd)
+                   if not _explicit_write(ev.agent, rel(ev.cwd / p, ev.project_root), ev.project_root)]
         if written:
             return (f"`{ev.agent}` may read tests but never change them ({', '.join(written[:3])}). If a test looks "
                     "wrong, stop with STATUS: blocked and explain; the orchestrator returns it to test-writer.")
+    return None
+
+
+# ---------------------------------------------------------------- writes via bash
+
+WRITE_OPERATOR = re.compile(r"(?:\d*|&)>{1,2}\|?")
+WRITE_ATTACHED = re.compile(r"(?:\d*|&)>{1,2}\|?([^&>|].*)")
+# Options that take a separate value, per command (so the value is not mistaken for a file).
+WRITE_VALUE_FLAGS = {"cp": {"-t", "--target-directory", "-S", "--suffix"},
+                     "mv": {"-t", "--target-directory", "-S", "--suffix"},
+                     "install": {"-m", "-o", "-g", "-t", "--target-directory", "-S", "--suffix"},
+                     "touch": {"-d", "-t", "-r", "--date", "--reference"},
+                     "truncate": {"-s", "-r", "--size", "--reference"},
+                     "sed": {"-e", "-f", "--expression", "--file"}, "perl": {"-e", "-E", "-I", "-M", "-m"}}
+
+
+def _file_args(name: str, args: list[str]) -> list[str]:
+    out: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a.startswith("-") and a != "-":
+            skip = "=" not in a and a in WRITE_VALUE_FLAGS.get(name, set())
+        else:
+            out.append(a)
+    return out
+
+
+def _written_files(text: str, depth: int = 0) -> list[str]:
+    """Paths a command line writes to: redirections, tee, sed/perl -i, cp/mv/install, touch, truncate, dd."""
+    if depth > MAX_DEPTH:
+        return []
+    try:
+        commands = _split_commands(text.replace("\\\n", " "))
+    except NestingError:
+        return []
+    out: list[str] = []
+    for command in commands:
+        lex = shlex.shlex(command.text, posix=False)    # keeps quotes: a quoted `'>'` is an argument, not a redirection
+        lex.whitespace_split = True
+        lex.commenters = ""
+        try:
+            raw = list(lex)
+        except ValueError:
+            raw = command.text.split()
+        for i, a in enumerate(raw):
+            if WRITE_OPERATOR.fullmatch(a):
+                if i + 1 < len(raw) and not raw[i + 1].startswith("&"):
+                    out.append(raw[i + 1].strip("'\""))
+            elif m := WRITE_ATTACHED.fullmatch(a):
+                out.append(m.group(1).strip("'\""))
+        w = words(command.text)
+        if not w:
+            continue
+        name, args = Path(w[0]).name, w[1:]
+        files = _file_args(name, args)
+        if name in SHELLS:
+            script = _shell_script(w)
+            if script is not None:
+                out += _written_files(script, depth + 1)
+        elif name == "tee":
+            out += files
+        elif name in {"sed", "perl"} and any(re.fullmatch(r"-[A-Za-z]*i\S*|--in-place.*", a) for a in args):
+            has_script = any(a in WRITE_VALUE_FLAGS[name] for a in args)
+            out += files if has_script else files[1:]
+        elif name in {"cp", "install"}:
+            target = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in {"-t", "--target-directory"}), None)
+            out += [target] if target else files[-1:]
+        elif name in {"mv", "touch", "truncate"}:
+            out += files
+        elif name == "dd":
+            out += [a[3:] for a in args if a.startswith("of=")]
+    return out
+
+
+def check_bash_writes(ev: Event, cmd: str) -> str | None:
+    """Bash writes inside the project follow the rules of Write/Edit for the same agent."""
+    if not ev.agent:
+        return None
+    for target in _written_files(cmd):
+        if not target or re.search(r"[$`]", target) or target.startswith(("/dev/", "~")):
+            continue
+        r = rel(ev.cwd / target, ev.project_root)
+        if r.startswith("/"):
+            continue                      # outside the project: temp dirs and the rest are not this check's business
+        probe = Event(raw={}, tool="Write", tool_input={"file_path": r}, agent=ev.agent, cwd=ev.cwd)
+        reason = check_write(probe)
+        if reason:
+            return f"Bash write to `{r}` is refused: {reason}"
     return None
 
 
@@ -901,7 +993,7 @@ def check_deploy_reader(ev: Event, cmd: str) -> str | None:
     return None
 
 
-CHECKS = [check_deploy_reader, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_tests_via_bash]
+CHECKS = [check_deploy_reader, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_tests_via_bash, check_bash_writes]
 
 
 def run(ev: Event) -> str | None:

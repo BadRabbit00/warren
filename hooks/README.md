@@ -39,6 +39,10 @@ A path listed explicitly in `Writes (exclusive)` of a `green` task is writable b
 
 Executors (`coder`, language coders, `deploy-engineer`, `ci-engineer`, `refactorer`, `test-writer`) may also write under `/tmp/` and the session scratchpad.
 
+### Bash writes follow the write sets
+
+For subagents, the targets of `>` / `>>` redirections, `tee`, `sed -i` / `perl -i`, `cp` / `mv` / `install` destinations, `touch`, `truncate`, `dd of=` and `cat > f <<EOF` inside the project are checked with exactly the rules of Write/Edit (readers write nothing; test-writer only the Tests of `red` tasks, and never production code even without a plan; executors their Writes, the explicit-write rule and the test and config boundaries). The denial names the target and the rule. Heredoc bodies are data. Writes under `/tmp/`, the scratchpad and outside the project are not checked, and neither are the main session and agents in a project without a plan (apart from the always-on test boundary).
+
 ### Read-only agents and Bash
 
 `deploy-error-reader` (analyst) and `log-collector` (fetches raw logs) share one rule set. Besides having no Write/Edit, their Bash is limited to an allowlist of read/status/log subcommands: `gh auth status`, `gh run list|view`, `railway whoami|logs`, `gcloud auth list`, `gcloud logging read`, `doctl account get`, `doctl apps logs`, `yc config list`, `yc logging read`, `wrangler whoami|tail`, `docker compose ps|logs`, `docker logs`, also inside `nix shell nixpkgs#<pkg> -c …`. Everything else of these CLIs (`gh run rerun`, `railway up`, `wrangler deploy`, `docker compose up|down`, `kubectl`, `terraform`, …) is denied, also inside `&&`, `;`, pipes and `bash -c`. Global flags with a value before the subcommand (`gh -R owner/repo run list`, `docker compose -f x.yml logs`, `docker --context stand logs`) are skipped when matching.
