@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.3.0 — unreleased
+
+- Saved workflows `/br-red`, `/br-green`, `/br-review` in `workflows/`, installed to `$out/claude/workflows/`: one plan
+  step for every task of a wave in parallel, with our agents by `agentType` (pins, contract, hooks apply).
+- The orchestrator style describes them and asks before any code whether to use workflows or manual dispatch;
+  `templates/PLAN.md` records the answer and gains a `Skills` line per task.
+- The payload checks that every workflow starts with `export const meta`; the validator rejects `agent(` calls
+  without an existing `agentType` and calls the workflow runtime forbids.
+
+## 0.2.0 — 2026-11-09
 
 - Codex CLI and Antigravity CLI (`agy`) exports in the payload: `$out/codex/{agents/*.toml,agents.toml,prompts,skills,AGENTS.md}`
   and `$out/agy/{agents/*.md,AGENTS.md}`, generated from the same agents, commands, skills and `core/CLAUDE.md`.

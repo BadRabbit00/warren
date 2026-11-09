@@ -93,6 +93,21 @@ Never put secrets, `.env` contents, or this conversation verbatim into a brief. 
 3. Read the Output block. `STATUS: blocked` → decide (replan, fix the doc, ask the user); never just re-send the same brief.
 4. Record numbers in `Evidence`. A report without numbers is sent back.
 
+### Workflows
+
+Three saved workflows run a whole wave step for many tasks at once. Each is a slash command.
+
+| Workflow | What it runs per task |
+|---|---|
+| `/br-red` | `test-writer` → `test-runner` red check and tests hash |
+| `/br-green` | `coder` → `test-runner` → `refactorer` → `test-runner`; hash guard |
+| `/br-review` | `code-reviewer` + language reviewers by file extension + `security-reviewer` when flagged; 3 refuters per must-fix, it survives with 2 of 3 |
+
+- Each reads `.plan/PLAN.md` itself and takes `args = { tasks: ["T3", …] }`, or every task whose Status matches the step.
+- Every agent runs by `agentType`, so our hooks, pins, and contract apply.
+- Workflows never commit and never edit `PLAN.md`. You set Status before the run, read the returned table, commit, and record the hash and evidence.
+- A stopped task in the result is handled like a blocked agent: decide (replan, fix the doc, ask the user); never re-run blindly.
+
 ### Coder model
 
 `coder` runs on Sonnet. Propose GPT-6-Astra (`/write-astra`) when a task is heavy: tricky concurrency or consistency, a non-trivial algorithm, a large cross-cutting change inside one write set, or two failed review rounds. Say why in one line and wait for «да». Astra runs outside the hooks: after it, the test hash check (section 6, stage 5) is the only guard, so run it every time.
@@ -143,12 +158,14 @@ Fill `.plan/PLAN.md`:
 2. **Contracts first**: everything two tasks talk through is defined in docs; creating it in code is a wave-1 task.
 3. **Tasks**: exclusive `Writes`; tests listed under `Tests (test-writer)`, never under `Writes`; no file in two tasks (merge the tasks or move the shared change into an earlier contract task); subtasks share files only inside their task; ≤ ~10 subtasks per task; every AC maps to a named test.
 4. **Waves**: wave N depends only on earlier waves; no cycles; the write-set check table lists every file once.
-5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), and any task where you propose Astra.
+5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), any task where you propose Astra, and the dispatch: workflows `/br-red` → `/br-green` → `/br-review` per wave (recommended) or manual agent dispatch. Record it in `Status → Execution`.
 → `presenter`: `.plan/PLAN.html`. **G4**.
 
 ### 5 — Execution
 Manual: the user names the task («делай T3»); check its dependencies are `done`. Auto: every task whose dependencies are done, wave by wave, in parallel inside a wave.
 Before the first task: `git switch -c feature/<plan-id>-<slug>` from an up-to-date `develop` (`git pull --ff-only`). All tasks commit there.
+
+With dispatch = workflows, per wave: set the wave's tasks to `red`, run `/br-red`, commit the tests, record the hashes; set `green`, run `/br-green`, commit; set `review`, run `/br-review`, act on the surviving must-fix; then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
 
 Loop for one task (tests first):
 1. **Red.** Status `red` → `test-writer`. Then `test-runner` on the task's tests: they must run and fail for the right reason (missing behaviour, not an import or syntax error). Record the hash: `git ls-files -co --exclude-standard -- <Tests globs> | sort | xargs sha256sum | sha256sum`. Commit only those paths: `test(T3): …`.
@@ -160,7 +177,7 @@ Loop for one task (tests first):
 
 Code first (only if chosen at G4): green (`coder`) → red (`test-writer` writes tests from the AC against the existing behaviour; they must pass, and its report names, per test, the line of code whose removal would make it fail) → hash → refactor → review. Reviewers check that every AC has a test that can fail.
 
-After each wave: `optimizer` on the wave diff. A test that turns out wrong goes back to `test-writer` (status `red`) with the reason; the new hash and the reason go into Evidence.
+After each wave, workflows or manual: `optimizer` on the wave diff. A test that turns out wrong goes back to `test-writer` (status `red`) with the reason; the new hash and the reason go into Evidence.
 
 Stop and ask the user only when: a contract or AC is wrong (change the docs, show it, get «да»), scope grows beyond the plan, review failed twice, or an agent is blocked on something only the user knows.
 
@@ -196,5 +213,6 @@ Stop and ask the user only when: a contract or AC is wrong (change the docs, sho
 - give two tasks one file, or dispatch an executor before setting its status;
 - accept a step whose test hash changed without a recorded reason;
 - start code before docs and plan are approved;
+- start code before the user chose the dispatch (workflows or manual);
 - push `develop` or `main`, or merge before G5;
 - put long analysis into chat instead of slides.

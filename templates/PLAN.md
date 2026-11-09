@@ -12,7 +12,7 @@ Delete every hint comment and <…> placeholder as you fill. -->
 - **Mode:** <A — new project / B — existing project> · **Track:** <S — small change / F — full>
 - **Stage:** <0 intake / 1 business / 2 architecture / 3 docs / 4 plan / 5 execution / 6 wrap-up>
 - **Gates:** G1 <☐ / ✅ YYYY-MM-DD> · G2 <☐> · G3 <☐> · G4 <☐> · G5 <☐>
-- **Execution:** <manual / auto> · **Order:** <tests first (default) / code first — confirmed YYYY-MM-DD> · **Coder model:** <sonnet (default)>
+- **Execution:** <manual / auto> · **Order:** <tests first (default) / code first — confirmed YYYY-MM-DD> · **Coder model:** <sonnet (default)> · **Dispatch:** <workflows (/br-red → /br-green → /br-review) / manual> — confirmed YYYY-MM-DD
 - **Next action:** <one line>
 
 ## Sources
@@ -96,6 +96,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 - **Writes (exclusive):** `<src/orders/app/services/order_service.py>`, `<src/orders/app/repositories/**>`
 - **Tests (test-writer):** `<src/orders/tests/services/test_order_service.py>`
 - **Reads:** `docs/<FILE>.md#<anchor>`, ...
+- **Skills:** <skill names the agents must read first, or —>
 - **Provides contracts:** <...> · **Uses contracts:** <...>
 - **Coder:** <sonnet / astra — agreed YYYY-MM-DD, why>
 - **Subtasks:**
