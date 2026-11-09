@@ -37,7 +37,7 @@ let
 in
 stdenvNoCC.mkDerivation {
   pname = "br-payload";
-  version = "0.2.0";
+  version = "0.3.0";
   inherit src;
 
   dontConfigure = true;
