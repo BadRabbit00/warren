@@ -1,13 +1,16 @@
 """Tests for the codex and agy exports of nix/payload.py. Run: python3 -I -B -m unittest discover -s tools -p test_*.py"""
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
+import types
 import unittest
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -213,8 +216,58 @@ class ExportTest(unittest.TestCase):
         data = tomllib.loads((out / "codex" / "agents" / "probe-edit-kept.toml").read_text(encoding="utf-8"))
         self.assertEqual(data["sandbox_mode"], "workspace-write")
 
-    def test_exporter_reports_toml_self_check(self) -> None:
+    def test_codex_toml_self_check_rejects_bad_files(self) -> None:
         self.assertIn("codex toml ok", self.proc.stdout)
+        spec = importlib.util.spec_from_file_location("br_payload_under_test", PAYLOAD)
+        if spec is None or spec.loader is None:
+            self.fail(f"cannot load {PAYLOAD}")
+        payload: types.ModuleType = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(payload)
+        expected = len(self.names)
+
+        def check(mutate: Callable[[Path], None]) -> list[str]:
+            """Copies the real codex output, breaks it with `mutate`, runs the self-check, returns its errors."""
+            work = Path(tempfile.mkdtemp())
+            self.addCleanup(shutil.rmtree, work, ignore_errors=True)
+            codex = work / "codex"
+            shutil.copytree(self.out / "codex", codex, copy_function=shutil.copyfile)
+            mutate(codex)
+            payload.errors.clear()
+            payload.codex_toml_check(codex, expected)
+            return list(payload.errors)
+
+        victim = self.names[0]
+
+        def drop_sandbox(codex: Path) -> None:
+            path = codex / "agents" / f"{victim}.toml"
+            lines = path.read_text(encoding="utf-8").split("\n")
+            path.write_text("\n".join(ln for ln in lines if not ln.startswith("sandbox_mode")), encoding="utf-8")
+
+        def add_key(codex: Path) -> None:
+            path = codex / "agents" / f"{victim}.toml"
+            path.write_text('extra_key = "x"\n' + path.read_text(encoding="utf-8"), encoding="utf-8")
+
+        def drop_table(codex: Path) -> None:
+            path = codex / "agents.toml"
+            tables = path.read_text(encoding="utf-8").split("\n[agents.")
+            path.write_text("\n[agents.".join(tables[:-1]), encoding="utf-8")
+
+        def drop_description(codex: Path) -> None:
+            path = codex / "agents.toml"
+            lines = path.read_text(encoding="utf-8").split("\n")
+            index = next(i for i, ln in enumerate(lines) if ln.startswith("description"))
+            del lines[index]
+            path.write_text("\n".join(lines), encoding="utf-8")
+
+        self.assertEqual(check(lambda codex: None), [], "untouched exporter output must pass")
+        for label, mutate in (("missing sandbox_mode", drop_sandbox), ("extra key", add_key)):
+            with self.subTest(case=label):
+                found = check(mutate)
+                self.assertTrue(any(f"{victim}.toml" in e for e in found), found)
+        for label, mutate in (("table removed", drop_table), ("table without description", drop_description)):
+            with self.subTest(case=label):
+                found = check(mutate)
+                self.assertTrue(any("agents.toml" in e for e in found), found)
 
     def test_codex_agents_fragment(self) -> None:
         path = self.out / "codex" / "agents.toml"
@@ -317,6 +370,19 @@ class ExportFailureTest(unittest.TestCase):
         self.assertNotIn("Traceback", proc.stderr)
         for probe in (in_body, in_description):
             self.assertFalse((out / "codex" / "agents" / f"{probe.name}.toml").exists(), probe.name)
+
+    def test_export_fails_on_escaped_quoted_description(self) -> None:
+        # Fail closed: YAML escapes inside a quoted description are not decoded by the exporter.
+        probes = (
+            Probe("probe-single-esc", description="'It''s fine.'"),
+            Probe("probe-double-esc", description='"Say \\"hi\\""'),
+        )
+        for probe in probes:
+            with self.subTest(agent=probe.name):
+                out, proc = export_with_probes(self, probe)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn(probe.name, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
 
 
 class ExportQuotedDescriptionTest(unittest.TestCase):

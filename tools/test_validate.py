@@ -486,6 +486,17 @@ class ModelTableTest(unittest.TestCase):
             with self.subTest(agent=name):
                 self.assertTrue(any("description" in e for e in self.findings_for(name, baseline)), name)
 
+    def test_quoted_description_with_yaml_escapes_is_a_finding(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        single, double, plain = self.names[0], self.names[1], self.names[2]
+        self.set_description(single, "description: 'It''s fine.'")
+        self.set_description(double, 'description: "Say \\"hi\\""')
+        self.set_description(plain, 'description: "Reviews code."')
+        for name in (single, double):
+            with self.subTest(agent=name):
+                self.assertTrue(any("description" in e for e in self.findings_for(name, baseline)), name)
+        self.assertEqual(self.findings_for(plain, baseline), [], "a plain quoted description stays valid")
+
     def test_body_rejects_toml_literal_terminator(self) -> None:
         baseline = validate.Validator(self.root).run()
         target = self.names[0]
@@ -522,6 +533,8 @@ class ModelTableTest(unittest.TestCase):
         self.assertEqual(self.findings_for("good-name-2", baseline), [])
 
     def test_agent_name_not_codex_reserved(self) -> None:
+        shipped = json.loads((Path(validate.__file__).resolve().parent / "validate.json").read_text(encoding="utf-8"))
+        self.assertEqual(shipped.get("codexReservedAgentKeys"), self.RESERVED_KEYS)
         path = self.root / "tools" / "validate.json"
         cfg = json.loads(path.read_text(encoding="utf-8"))
         cfg["codexReservedAgentKeys"] = self.RESERVED_KEYS
