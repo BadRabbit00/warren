@@ -1419,5 +1419,141 @@ class JanitorDeletes(unittest.TestCase):
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
 
+INFRA_PKG = {"tofu": "opentofu", "terraform": "terraform", "railway": "railway", "gh": "gh", "wrangler": "wrangler",
+             "gcloud": "google-cloud-sdk", "doctl": "doctl"}
+# Executors that write code or config; the reason they get must tell them what to do instead.
+INFRA_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer",
+                   "test-writer", "refactorer"]
+# web-researcher has no Bash tool
+INFRA_SUBAGENTS = INFRA_EXECUTORS + ["deploy-error-reader", "log-collector", "stand-operator", "janitor"]
+# deploy-engineer and ci-engineer are the agents most likely to be trusted with these: they get the widest checks
+INFRA_WRAP_AGENTS = ["deploy-engineer", "ci-engineer", "python-coder"]
+
+
+class InfraChangesNeverRunBySubagents(unittest.TestCase):
+    """AC18: infrastructure-changing commands are prepared by the agent and run by the user, never by a subagent."""
+    INFRA = [
+        "tofu apply", "tofu apply -auto-approve", "tofu apply tfplan", "tofu destroy", "tofu destroy -auto-approve",
+        "tofu -chdir=infra apply", "tofu -chdir=infra destroy -auto-approve",
+        "terraform apply", "terraform apply -auto-approve", "terraform destroy", "terraform destroy -auto-approve",
+        "terraform -chdir=infra apply -auto-approve",
+        "railway up", "railway up --detach", "railway redeploy", "railway redeploy -y", "railway down", "railway down -y",
+        "gh run rerun 12345", "gh run rerun 12345 --failed", "gh workflow run ci.yml", "gh -R o/r workflow run ci.yml",
+        "gh -R o/r run rerun 12345",
+        "wrangler deploy", "wrangler deploy --env production", "wrangler rollback", "wrangler versions deploy",
+        "gcloud run deploy api --image gcr.io/p/api", "gcloud run services delete api --region europe-west1",
+        "doctl apps create --spec app.yaml", "doctl apps update 1111-2222 --spec app.yaml", "doctl apps delete 1111-2222",
+    ]
+    # one command per tool family: run through every wrapper form
+    WRAPPED = ["tofu apply -auto-approve", "terraform destroy", "railway up", "railway redeploy", "gh run rerun 12345",
+               "gh workflow run ci.yml", "wrangler deploy", "gcloud run deploy api --image gcr.io/p/api",
+               "doctl apps delete 1111-2222"]
+    WRAPPER_FORMS = [
+        "nix shell nixpkgs#{pkg} -c {cmd}",
+        "nix develop -c {cmd}",
+        "bash -c '{cmd}'",
+        "echo ok && {cmd}",
+        "{cmd}; echo done",
+        "{cmd} | tee /tmp/t1r6/out.txt",
+        "timeout 60 {cmd}",
+        "echo \"$({cmd})\"",
+    ]
+    EXTRA_FORMS = [
+        "nix run nixpkgs#opentofu -- apply -auto-approve", "nix run nixpkgs#gh -- run rerun 12345",
+        "nix run nixpkgs#railway -- up", "nix shell nixpkgs#opentofu --command bash -lc 'tofu destroy'",
+        "nix develop -c bash -lc 'tofu apply'", "sh -ec 'wrangler deploy'",
+        "echo 12345 | xargs gh run rerun", "echo ok && eval 'railway up'", "env TF_VAR_x=1 tofu apply",
+        "find . -name x -exec railway up \\;",
+    ]
+    # plans, dry runs and read commands stay allowed for the agents that prepare infrastructure
+    PLANS = [
+        "tofu plan", "tofu plan -out=tfplan", "tofu -chdir=infra plan", "tofu validate", "tofu fmt -check",
+        "terraform plan", "terraform plan -out=tfplan", "terraform validate", "terraform fmt -check",
+        "wrangler deploy --dry-run", "wrangler deploy --dry-run --outdir dist", "wrangler deploy --env production --dry-run",
+        "railway status", "railway logs", "gh run list", "gh run view 12345 --log-failed", "gh workflow list",
+        "wrangler whoami", "doctl apps list",
+    ]
+    LOOKALIKES = [
+        "grep -rn 'terraform apply' docs", "echo 'run tofu apply yourself'", "cat docs/railway-up-notes.md",
+        "git log --oneline -- infra/", "ls infra",
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = plan_project()
+
+    @staticmethod
+    def forms(cmd):
+        return [f.format(cmd=cmd, pkg=INFRA_PKG[cmd.split()[0]]) for f in InfraChangesNeverRunBySubagents.WRAPPER_FORMS]
+
+    def run_cmd(self, cmd, agent):
+        return bash(cmd, agent=agent, cwd=self.root)
+
+    def test_infra_changes_are_never_run_by_subagents(self):
+        for agent in INFRA_SUBAGENTS:
+            for cmd in self.INFRA:
+                with self.subTest(agent=agent, denied=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+                    self.assertIn(cmd, reason(res), f"{agent}: the reason does not quote the command")
+        for agent in INFRA_WRAP_AGENTS:
+            for cmd in self.WRAPPED:
+                for form in self.forms(cmd):
+                    with self.subTest(agent=agent, denied=form):
+                        self.assertTrue(denied(self.run_cmd(form, agent)), f"{agent}: {form!r} was allowed")
+            for form in self.EXTRA_FORMS:
+                with self.subTest(agent=agent, denied=form):
+                    self.assertTrue(denied(self.run_cmd(form, agent)), f"{agent}: {form!r} was allowed")
+
+    def test_infra_denial_tells_the_agent_to_prepare_the_command_for_the_user(self):
+        for agent in INFRA_EXECUTORS:
+            for cmd in ["tofu apply -auto-approve", "terraform destroy", "railway up", "gh run rerun 12345",
+                        "wrangler deploy", "gcloud run deploy api --image gcr.io/p/api", "doctl apps delete 1111-2222"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+                    text = reason(res).lower()
+                    self.assertIn("prepare", text, "the reason must say the agent prepares the exact command")
+                    self.assertIn("user", text, "the reason must say the user runs it")
+
+    def test_infra_plans_and_dry_runs_stay_allowed_for_executors(self):
+        for agent in ["deploy-engineer", "ci-engineer", "coder"]:
+            for cmd in self.PLANS + self.LOOKALIKES:
+                with self.subTest(agent=agent, allowed=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertFalse(denied(res), f"{agent}: {cmd}: {reason(res)}")
+            for cmd in ["tofu plan", "wrangler deploy --dry-run"]:
+                with self.subTest(agent=agent, allowed_in_nix_shell=cmd):
+                    res = self.run_cmd(f"nix shell nixpkgs#{INFRA_PKG[cmd.split()[0]]} -c {cmd}", agent)
+                    self.assertFalse(denied(res), f"{agent}: {cmd}: {reason(res)}")
+
+    def test_infra_dry_run_flag_does_not_unlock_a_real_deploy(self):
+        for agent in ["deploy-engineer", "ci-engineer", "coder"]:
+            for cmd in ["wrangler deploy --env production", "wrangler deploy && wrangler deploy --dry-run",
+                        "wrangler deploy --dry-run=false", "tofu plan && tofu apply -auto-approve",
+                        "tofu plan -out=tfplan; tofu apply tfplan"]:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd!r} was allowed")
+
+    def test_infra_changes_stay_denied_for_readers_that_already_cannot_run_them(self):
+        for agent in ["deploy-error-reader", "log-collector"]:
+            for cmd in ["tofu apply", "terraform destroy", "railway up", "railway redeploy", "gh run rerun 12345",
+                        "gh workflow run ci.yml", "wrangler deploy", "gcloud run deploy api --image x",
+                        "doctl apps delete 1111-2222"]:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd!r} was allowed")
+
+    def test_infra_rule_does_not_limit_the_main_session(self):
+        for cmd in self.INFRA + self.EXTRA_FORMS + self.WRAPPED:
+            with self.subTest(main_session=cmd):
+                res = self.run_cmd(cmd, None)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for cmd in self.WRAPPED[:4]:
+            for form in self.forms(cmd):
+                with self.subTest(main_session=form):
+                    res = self.run_cmd(form, None)
+                    self.assertFalse(denied(res), f"{form}: {reason(res)}")
+
+
 if __name__ == "__main__":
     unittest.main()
