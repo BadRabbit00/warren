@@ -39,10 +39,40 @@ JS_FORBIDDEN = (
 )
 
 
-def mask_js(text: str) -> str:
+JS_REGEX_BEFORE = "(,=:[!&|?{};"
+
+
+def regex_allowed(out: list[str]) -> bool:
+    """True when a `/` after the masked output `out` starts a regex literal: it follows an operator
+    or `return`, or it is the first thing on its line."""
+    tail = "".join(out).rstrip(" \t")
+    if not tail or tail[-1] == "\n":
+        return True
+    return tail[-1] in JS_REGEX_BEFORE or re.search(r"(?<![\w$.])return$", tail) is not None
+
+
+def regex_end(text: str, start: int) -> int:
+    """Index just past the regex literal opening at start, or -1 when the line ends first."""
+    i, in_class = start + 1, False
+    while i < len(text) and text[i] != "\n":
+        c = text[i]
+        if c == "\\":
+            i += 1
+        elif c == "[":
+            in_class = True
+        elif c == "]":
+            in_class = False
+        elif c == "/" and not in_class:
+            return i + 1
+        i += 1
+    return -1
+
+
+def mask_js(text: str, regexes: list[int] | None = None) -> str:
     """Same-length copy with comments, string contents and template text blanked (newlines and
     quotes kept), so structural regexes cannot match inside them and offsets stay valid. Code
-    inside `${...}` of a template is kept."""
+    inside `${...}` of a template is kept. Regex literals are blanked too; their start offsets are
+    appended to `regexes`."""
     out: list[str] = []
     depths: list[int] = []  # open braces inside each enclosing `${`
     in_template = False
@@ -72,6 +102,14 @@ def mask_js(text: str) -> str:
             out.append(c)
             i += 1
             continue
+        if c == "/" and not text.startswith(("//", "/*"), i) and regex_allowed(out):
+            end = regex_end(text, i)
+            if end > 0:
+                if regexes is not None:
+                    regexes.append(i)
+                out.append("/" + " " * (end - i - 2) + "/")
+                i = end
+                continue
         m = JS_SKIP.match(text, i)
         if m:
             t = m.group(0)
@@ -602,7 +640,10 @@ class Validator:
             text = self.read(p)
             if text is None:
                 continue
-            masked = mask_js(text)
+            regexes: list[int] = []
+            masked = mask_js(text, regexes)
+            for at in regexes:
+                self.err(p, f"line {line_at(text, at)}: regex literal; use new RegExp(...)")
             self.check_workflow_meta(p, text, masked)
             self.check_workflow_agents(p, text, masked, agents)
             self.check_workflow_forbidden(p, text, masked)
