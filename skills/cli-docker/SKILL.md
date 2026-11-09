@@ -63,7 +63,7 @@ nix shell nixpkgs#docker -c docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.St
 nix shell nixpkgs#docker -c docker stats --no-stream --format json
 nix shell nixpkgs#docker -c docker system df
 nix shell nixpkgs#docker -c docker image inspect <image> --format '{{.Id}} {{.Created}}'
-nix shell nixpkgs#docker -c docker info --format '{{.ServerVersion}}'
+nix shell nixpkgs#docker -c docker version --format '{{.Server.Version}}'
 ```
 
 ### Remote image and contexts (E)

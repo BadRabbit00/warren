@@ -21,13 +21,13 @@ Provider specifics (provider source, auth env, state backend, managed services):
 nix shell nixpkgs#opentofu -c tofu fmt -check -diff
 nix shell nixpkgs#opentofu -c tofu init -input=false
 nix shell nixpkgs#opentofu -c tofu validate
-nix shell nixpkgs#opentofu -c tofu plan -input=false -lock-timeout=5m -out=tfplan
+nix shell nixpkgs#opentofu -c tofu plan -input=false -lock-timeout=5m -out=docs/temp/tfplan
 # show the summary to the user; only after «да»:
-nix shell nixpkgs#opentofu -c tofu apply tfplan
+nix shell nixpkgs#opentofu -c tofu apply docs/temp/tfplan
 ```
 
 - Any change to the backend block needs `tofu init -reconfigure` [source](https://opentofu.org/docs/language/settings/backends/s3/).
-- The saved plan holds config and variables in clear text: secret artifact, short retention, never committed, no `.tf` suffix [source](https://developer.hashicorp.com/terraform/cli/commands/plan).
+- The plan file goes to `docs/temp/` (gitignored), never the project root. The binary plan may hold secrets (config, variables, provider values) in clear text: secret artifact, short retention, never committed, no `.tf` suffix [source](https://developer.hashicorp.com/terraform/cli/commands/plan).
 - `TF_IN_AUTOMATION=1`, `TF_INPUT=0`, `TF_VAR_<name>` for CI [source](https://developer.hashicorp.com/terraform/cli/config/environment-variables).
 - Rollback is roll-forward: revert the commit, new plan, review, apply. A broken state is recovered from a bucket object version [source](https://developer.hashicorp.com/terraform/language/backend/gcs).
 - Extra checks available in nixpkgs: `tflint` 0.65.0, `terraform-docs` 0.24.0 (checked with `nix eval`, in the research card).
@@ -68,8 +68,8 @@ tofu apply -auto-approve          # in CI or by an agent
 ```
 Good:
 ```
-tofu plan -input=false -out=tfplan   # CI
-tofu apply tfplan                    # after the user's «да», from the reviewed plan
+tofu plan -input=false -out=docs/temp/tfplan   # CI
+tofu apply docs/temp/tfplan         # after the user's «да», from the reviewed plan
 ```
 
 Bad:
