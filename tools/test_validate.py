@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ REPO = HERE.parent
 PAYLOAD = REPO / "nix" / "payload.py"
 
 COPIED = (
-    "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
+    "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools", "workflows",
     "agent-models.json", "settings.fragment.json",
 )
 
@@ -545,6 +546,132 @@ class ModelTableTest(unittest.TestCase):
                 self.inject_agent(name)
                 found = [e.partition(": ")[2] for e in self.findings_for(name, baseline)]
                 self.assertTrue(any("reserved" in e for e in found), found)
+
+
+class WorkflowTest(unittest.TestCase):
+    """D9: workflows/*.js are structurally checked (meta block first, agent() calls typed and resolvable,
+    no non-deterministic calls). Findings are matched by the file they are reported on."""
+
+    STEM = "demo-flow"  # no digits: tests look for line numbers inside findings
+
+    META = (
+        "export const meta = {\n"
+        "  name: 'demo-flow',\n"
+        "  description: 'Demo workflow for the validator tests',\n"
+        "}\n"
+    )
+    BODY = (
+        "\n"
+        "const plan = await agent(\n"
+        "  'make a plan',\n"
+        "  { agentType: 'researcher', label: 'plan' },\n"
+        ")\n"
+        "const run = await agent('run', { agentType: 'coder', label: 'run' })\n"
+        "const note = 'wrong_reason (import, syntax or fixture error)'\n"
+    )
+    GOOD = "// demo workflow\n" + META + BODY  # BODY starts on line 6; the last line is line 12
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = make_root(self.tmp)
+
+    def findings(self, text: str) -> list[str]:
+        """Writes workflows/<STEM>.js, runs the validator, returns the findings reported on that file."""
+        (self.root / "workflows" / f"{self.STEM}.js").write_text(text, encoding="utf-8")
+        prefix = f"workflows/{self.STEM}.js:"
+        return [e for e in validate.Validator(self.root).run() if e.startswith(prefix)]
+
+    def assert_line(self, found: list[str], line: int) -> None:
+        self.assertTrue(any(re.search(rf"\b{line}\b", e) for e in found), f"no finding names line {line}: {found}")
+
+    def test_good_workflow_has_no_findings(self) -> None:
+        # Positive control: the template the other tests mutate is itself accepted.
+        self.assertEqual(self.findings(self.GOOD), [])
+
+    # AC1: missing or non-first `export const meta` is a finding
+    def test_workflow_meta_first(self) -> None:
+        cases = {
+            "missing": self.BODY,
+            "after a const": "const LIMIT = 3\n\n" + self.META + self.BODY,
+            "after an agent call": "const early = await agent('x', { agentType: 'coder' })\n" + self.META + self.BODY,
+            "not exported": self.META.replace("export ", "", 1) + self.BODY,
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                found = self.findings(text)
+                self.assertTrue(any("meta" in e for e in found), found)
+        with self.subTest(case="leading comments are fine"):
+            self.assertEqual(self.findings("// one\n/* two */\n" + self.META + self.BODY), [])
+
+    # AC2: meta.name must equal the file stem; description must be present
+    def test_workflow_meta_fields(self) -> None:
+        with self.subTest(case="name differs from file stem"):
+            found = self.findings(self.GOOD.replace("name: 'demo-flow'", "name: 'other-flow'"))
+            self.assertTrue(any("name" in e for e in found), found)
+        with self.subTest(case="name missing"):
+            found = self.findings(self.GOOD.replace("  name: 'demo-flow',\n", ""))
+            self.assertTrue(any("name" in e for e in found), found)
+        with self.subTest(case="description missing"):
+            found = self.findings(self.GOOD.replace("  description: 'Demo workflow for the validator tests',\n", ""))
+            self.assertTrue(any("description" in e for e in found), found)
+        with self.subTest(case="double-quoted name matching the stem is fine"):
+            self.assertEqual(self.findings(self.GOOD.replace("name: 'demo-flow'", 'name: "demo-flow"')), [])
+
+    # AC3: an agent( call without agentType: is a finding naming its line
+    def test_workflow_agent_requires_agent_type(self) -> None:
+        bad_line = 13  # the first line appended to GOOD
+        with self.subTest(case="one-line call without options"):
+            found = self.findings(self.GOOD + "const bad = await agent('no type here')\n")
+            self.assert_line(found, bad_line)
+            self.assertFalse(any(re.search(r"\b(7|11)\b", e) for e in found), found)  # the valid calls
+        with self.subTest(case="options object without agentType"):
+            self.assert_line(self.findings(self.GOOD + "const bad = await agent('p', { label: 'x' })\n"), bad_line)
+        with self.subTest(case="multi-line call reports the line of agent("):
+            text = self.GOOD + "const bad = await agent(\n  'p',\n  { label: 'x' },\n)\n"
+            self.assert_line(self.findings(text), bad_line)
+        with self.subTest(case="agentType in a neighbouring call does not excuse this one"):
+            text = (self.GOOD + "const bad = await agent('p', { label: 'x' })\n"
+                    "const ok = await agent('q', { agentType: 'coder' })\n")
+            found = self.findings(text)
+            self.assert_line(found, bad_line)
+            self.assertFalse(any(re.search(r"\b14\b", e) for e in found), found)
+
+    # AC4: agentType naming an agent that is not in agents/ is a finding
+    def test_workflow_agent_type_exists(self) -> None:
+        found = self.findings(self.GOOD + "const bad = await agent('p', { agentType: 'no-such-agent' })\n")
+        self.assertTrue(any("no-such-agent" in e for e in found), found)
+        with self.subTest(case="every shipped agent name resolves"):
+            names = sorted(p.stem for p in (self.root / "agents").glob("*.md"))
+            calls = "".join(f"await agent('p', {{ agentType: '{n}' }})\n" for n in names)
+            self.assertEqual(self.findings(self.GOOD + calls), [])
+        with self.subTest(case="a non-literal agentType cannot be resolved and is not flagged"):
+            text = self.GOOD + "const name = 'coder'\nawait agent('p', { agentType: name, label: 'x' })\n"
+            self.assertEqual(self.findings(text), [])
+        with self.subTest(case="a removed agent stops resolving"):
+            (self.root / "agents" / "coder.md").unlink()
+            found = self.findings(self.GOOD)
+            self.assertTrue(any("coder" in e for e in found), found)
+
+    # AC5: Date.now(, Math.random(, new Date(), import( are findings naming their line
+    def test_workflow_forbidden_calls(self) -> None:
+        cases = {
+            "Date.now(": "const t = Date.now()\n",
+            "Math.random(": "const r = Math.random()\n",
+            "new Date()": "const d = new Date()\n",
+            "import(": "const m = await import('node:fs')\n",
+        }
+        for token, line in cases.items():
+            with self.subTest(token=token):
+                self.assert_line(self.findings(self.GOOD + line), 13)
+        with self.subTest(case="the word import inside a string is not a call"):
+            self.assertEqual(self.findings(self.GOOD + "const s = 'import, then run'\n"), [])
+
+    # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
+    def test_shipped_workflows_are_clean(self) -> None:
+        shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
+        self.assertEqual(shipped, ["br-green.js", "br-red.js", "br-review.js"])
+        self.assertEqual(validate.Validator(self.root).run(), [])
 
 
 if __name__ == "__main__":
