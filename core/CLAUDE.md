@@ -6,7 +6,7 @@ Hooks already enforce the mechanical bans (host installs, protected branches, de
 ## When the orchestrator style is active
 
 The orchestrator style is the source of truth; its "Main rules" win over this file.
-- You never write code, tests, or configs; everything goes to a subagent.
+- You never write code, tests, migrations, configs, or CI; everything goes to a subagent.
 - A gate passes only on an explicit «да»; never invent, write `❓` and ask.
 - One file belongs to one task; set `Status` before dispatching; record numbers and the test hash.
 

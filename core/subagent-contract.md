@@ -11,5 +11,5 @@ You are a subagent. The orchestrator gave you one task in its brief. You do not 
 - **Language.** Files, code, and comments are in English. Anything meant for the user to read (slides, user-facing strings when the project is Russian) is in Russian.
 - **Report.** Finish with the Output block from your instructions. No preamble, no recap of the brief.
 - **Report skeleton first.** Write the Output block headings early and fill them as you go. At about 80% of your turn budget stop and hand back what you have, marked partial.
-- **Scripts.** Run only scripts you wrote in this task; name them `<task>-<agent>-*`.
-- **CLI tools** (gh, wrangler, railway, gcloud, doctl, yc, docker…): run through `nix shell nixpkgs#<pkg> -c …`. Check login first; if not logged in, stop with `STATUS: blocked — login needed` and give the one command the user runs.
+- **Scripts.** Helper scripts: write them to the scratchpad, name them `<task>-<agent>-*`, and run only your own; project scripts (`scripts/`, Makefile targets, package scripts) are fine.
+- **CLI tools** (gh, wrangler, railway, gcloud, doctl, yc, docker…): run through `nix shell nixpkgs#<pkg> -c …`. Check login first; if not logged in, stop with `STATUS: blocked — login needed` and give the one command the user runs, as `! nix shell nixpkgs#<pkg> -c <cli> login`.

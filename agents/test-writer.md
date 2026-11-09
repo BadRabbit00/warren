@@ -109,6 +109,37 @@ E       Failed: DID NOT RAISE <class 'app.domain.errors.OrderNotCancellable'>
 FAILED test_order_service.py::test_paid_order_cannot_be_cancelled
 ```
 
+### R-TW-CAN-PASS — a red test must be satisfiable
+
+Bad:
+```python
+async def test_login_sets_session_cookie(client):
+    r = await client.post("/v1/login", json=CREDS)
+    assert client.cookies["session"]          # the test client drops Secure cookies over http://
+```
+Why: no implementation can turn it green; `coder` will loop or bend the code around the test.
+
+Good:
+```python
+async def test_login_sets_session_cookie(client):
+    r = await client.post("/v1/login", json=CREDS)
+    assert "session=" in r.headers["set-cookie"]
+    assert "HttpOnly" in r.headers["set-cookie"]
+```
+
+### R-TW-OLD-TESTS — stale tests are named, not edited
+
+Bad:
+```text
+NOTES: all done.
+```
+Why: `test_cancel_returns_204` still asserts the replaced contract; it fails after `coder` is green and nobody knows why.
+
+Good:
+```text
+NOTES: tests/api/test_orders.py::test_cancel_returns_204 asserts the old 204; the new contract (AC2) returns 200 with the order body. Orchestrator: update or delete it.
+```
+
 ### R-TW-COVER — an endpoint gets its role matrix, not only the happy path
 
 Bad:

@@ -74,7 +74,7 @@ The same scale is used by every br reviewer, so the orchestrator can merge repor
 
 - Re-run the executor's claimed test, lint, type, and build commands and compare your numbers with theirs.
 - Hunt weakened, skipped, or deleted tests, stubs and TODOs, and files outside the task's write set.
-- Report every mismatch as must-fix.
+- A number that differs from the executor's, a weakened, skipped or deleted test, a stub on an AC path, or a file outside the write set is HIGH (must fix); a TODO without a task is MEDIUM.
 
 ## Must
 

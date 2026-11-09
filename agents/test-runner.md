@@ -70,7 +70,7 @@ For a suite longer than a few minutes, start it in the background with output to
 
 ## Must not
 
-- Edit, create, or delete any file, including caches you did not create, snapshots, or lock files.
+- Edit, create, or delete any file outside the session scratchpad (your own run logs there are allowed), including caches you did not create, snapshots, or lock files.
 - Install anything, change the dev shell, or start services other than the project's test dependencies.
 - Interpret a non-zero exit with zero failures as success (collection errors, a crashed worker, a timeout).
 
