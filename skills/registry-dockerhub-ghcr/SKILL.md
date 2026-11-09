@@ -1,0 +1,83 @@
+---
+name: registry-dockerhub-ghcr
+description: Use when pushing, pulling, pinning or rolling back container images on GHCR (ghcr.io) or Docker Hub - choosing a registry, the login check with skopeo, pushing Nix dockerTools images without a daemon, pinning by digest, retagging for rollback, CI publishing permissions, rate limits and retention.
+---
+
+# Registry: GHCR and Docker Hub
+
+Provider skill for image registries. Build side: `deploy-variants` (variants, publishing), `docker-patterns` (Dockerfile, compose), `nix-packaging`. Tool commands: `cli-docker` (docker, buildx), `cli-gh`. CI jobs: `ci-github-actions`. Secrets: `sops`, `secrets.md`.
+
+## When to choose
+
+| Registry | Choose when | Facts |
+|---|---|---|
+| GHCR `ghcr.io/OWNER/IMAGE` | The code is on GitHub and CI publishes it | CI logs in with `GITHUB_TOKEN` (`packages: write`), no stored secret. A new package is private; a package created by a workflow with `GITHUB_TOKEN` inherits the repository's visibility and permissions [source](https://docs.github.com/en/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions). |
+| Docker Hub `docker.io/USER/IMAGE` | Public images that must be pullable by default Docker configs, or the team already uses it | Needs a stored token (PAT, or organization access token for CI). Pull limits per 6 hours: 100 anonymous (per IPv4 or IPv6 /64), 200 authenticated Personal [source](https://docs.docker.com/docker-hub/usage/). |
+| Cloud-owned (DOCR, Artifact Registry, `cr.yandex`) | The deploy target is that cloud | See `cloud-digitalocean`, `cloud-gcp`, `cloud-yandex`. Spec can also pull GHCR/Docker Hub on DigitalOcean. |
+
+Always write the full name: a reference without a registry host silently becomes `docker.io/library/<name>` [source](https://github.com/containers/image/blob/main/docs/containers-transports.5.md).
+
+## Login check (D3)
+
+Docker has no documented login-state command; use skopeo [source](https://github.com/containers/skopeo/blob/main/docs/skopeo-login.1.md):
+
+```
+nix shell nixpkgs#skopeo -c skopeo login --get-login ghcr.io      # prints the user, errors when not logged in
+nix shell nixpkgs#skopeo -c skopeo login --get-login docker.io
+```
+
+Whether `--get-login` also reads `~/.docker/config.json` is not verified. Reading public images needs no login (`skopeo inspect --no-creds docker://...`).
+
+Not logged in and a push or private pull is needed: stop with `STATUS: blocked — login needed` and give the user one of
+
+- `! nix shell nixpkgs#skopeo -c skopeo login -u <github-user> ghcr.io` (asks for a PAT; classic PAT scopes `read:packages`, `write:packages`, `delete:packages`; create it from `https://github.com/settings/tokens/new?scopes=write:packages` so `repo` is not added)
+- `! nix shell nixpkgs#skopeo -c skopeo login -u <user> docker.io` (PAT or organization access token)
+
+Never run it, never ask for the token in chat, never pass it in argv. In CI: `docker/login-action` with `GITHUB_TOKEN` (ghcr) or `secrets.DOCKERHUB_TOKEN` (Hub). Credentials without a credential store sit base64-encoded in `~/.docker/config.json` (not encrypted): CI jobs log out at the end (`logout: true` is the login-action default) [source](https://docs.docker.com/reference/cli/docker/login/).
+
+## Push
+
+- With a daemon, CI: `docker/build-push-action` with an `id`, then use `steps.<id>.outputs.digest` (see `ci-github-actions`).
+- Nix `dockerTools` image without a daemon [source](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md):
+
+```
+nix shell nixpkgs#skopeo -c skopeo copy docker-archive:./result docker://ghcr.io/OWNER/IMAGE:TAG --digestfile digest.txt
+```
+
+  `streamLayeredImage` output can be piped: `./result | skopeo copy docker-archive:/dev/stdin ...` (neither a gzip `buildLayeredImage` archive nor the stream was run in the research: test once). Keep `created` at the default `1970-01-01T00:00:01Z` for reproducibility.
+- Record the pushed digest (`--digestfile`) and deploy by `@sha256:<digest>`. Use `--preserve-digests` when copying between registries so a digest change fails loudly.
+- Link a GHCR package to its repository: labels `org.opencontainers.image.source=https://github.com/OWNER/REPO`, `.description` (<= 512 chars), `.licenses` (SPDX, <= 256 chars) [source](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry). For multi-arch put the description in manifest `annotations`. The exact `config.Labels` syntax in dockerTools is not verified.
+
+## Pin and read
+
+```
+nix shell nixpkgs#skopeo -c skopeo inspect docker://ghcr.io/OWNER/IMAGE:TAG        # Digest, RepoTags
+nix shell nixpkgs#skopeo -c skopeo list-tags docker://ghcr.io/OWNER/IMAGE
+```
+
+Pull and deploy by `ghcr.io/OWNER/IMAGE@sha256:<digest>`; the `docker://` transport takes `name:tag` or `name@digest`, not both. Tags are mutable pointers; digests are the identity.
+
+## Rollback
+
+Deploys that reference digests roll back by pointing to the previous digest (best option). To move a tag back without rebuilding (user's «да» for a prod tag) [source](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/):
+
+```
+docker buildx imagetools create -t REG/IMAGE:prod REG/IMAGE@sha256:<old>        # --dry-run previews
+nix shell nixpkgs#skopeo -c skopeo copy --all docker://REG/IMAGE@sha256:<old> docker://REG/IMAGE:prod     # daemonless
+```
+
+A deleted GHCR version can be restored within 30 days if the namespace and version are unused: `POST /users/{username}/packages/container/{name}/versions/{id}/restore` (or `/orgs/`), classic PAT with `read:packages` and `write:packages` [source](https://docs.github.com/en/rest/packages/packages).
+
+## IaC and managed services
+
+None found in the research for registries: GHCR visibility is changed in the package settings UI (a REST/CLI command was not verified); Docker Hub tokens and repositories are created in the Hub UI. Do not add Terraform for them without a documented provider and the user's decision. Registry credentials live only in CI secrets or `sops`, never in the repo.
+
+## More
+
+`references/ci-and-retention.md` (CI permissions, attestations, retention, rate-limit check) and `references/pitfalls.md` (Bad/Good with sources).
+
+## Not verified
+
+- Docker Hub PAT / organization token scope names and expiry options; paid-plan limits.
+- Whether `GITHUB_TOKEN` or fine-grained PATs work with the Packages REST API (docs say classic PAT).
+- `skopeo logout` syntax; pinned SHAs of `docker/*` actions (collect them when pinning).
