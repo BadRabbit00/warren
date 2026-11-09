@@ -50,6 +50,10 @@ def mask_js(text: str) -> str:
     return JS_TOKEN.sub(blank, text)
 
 
+def line_at(text: str, pos: int) -> int:
+    return text.count("\n", 0, pos) + 1
+
+
 def closing(masked: str, open_at: int) -> int:
     """Index of the bracket closing the one at open_at (masked text), or len(masked)."""
     depth = 0
@@ -555,39 +559,42 @@ class Validator:
             if text is None:
                 continue
             masked = mask_js(text)
+            self.check_workflow_meta(p, text, masked)
+            self.check_workflow_agents(p, text, masked, agents)
+            self.check_workflow_forbidden(p, text, masked)
 
-            def line(pos: int) -> int:
-                return text.count("\n", 0, pos) + 1
+    def check_workflow_meta(self, p: Path, text: str, masked: str) -> None:
+        m = re.match(r"\s*export\s+const\s+meta\s*=\s*\{", masked)
+        if not m:
+            self.err(p, "'export const meta = {...}' must be the first statement")
+            return
+        body = masked[m.end():closing(masked, m.end() - 1)]
+        name = re.search(r"\bname\s*:\s*(['\"])", body)
+        if not name:
+            self.err(p, "meta.name is missing")
+        else:
+            at = m.end() + name.end()
+            close = text.find(name.group(1), at)
+            if text[at:close] != p.stem:
+                self.err(p, f"meta.name '{text[at:close]}' must equal the file name '{p.stem}'")
+        if not re.search(r"\bdescription\s*:", body):
+            self.err(p, "meta.description is missing")
 
-            m = re.match(r"\s*export\s+const\s+meta\s*=\s*\{", masked)
-            if not m:
-                self.err(p, "'export const meta = {...}' must be the first statement")
-            else:
-                end = closing(masked, m.end() - 1)
-                body = masked[m.end():end]
-                name = re.search(r"\bname\s*:\s*(['\"])", body)
-                if not name:
-                    self.err(p, "meta.name is missing")
-                else:
-                    at = m.end() + name.end()
-                    close = text.find(name.group(1), at)
-                    if text[at:close] != p.stem:
-                        self.err(p, f"meta.name '{text[at:close]}' must equal the file name '{p.stem}'")
-                if not re.search(r"\bdescription\s*:", body):
-                    self.err(p, "meta.description is missing")
-            for call in re.finditer(r"\bagent\s*\(", masked):
-                end = closing(masked, call.end() - 1)
-                args = masked[call.end():end]
-                at = re.search(r"\bagentType\s*:", args)
-                if not at:
-                    self.err(p, f"line {line(call.start())}: agent() call has no agentType")
-                    continue
-                lit = re.compile(r"\s*(['\"])([^'\"\n]*)\1").match(text, call.end() + at.end())
-                if lit and lit.group(2) not in agents:
-                    self.err(p, f"line {line(call.start())}: agentType '{lit.group(2)}' is not in agents/")
-            for pattern, token in JS_FORBIDDEN:
-                for hit in pattern.finditer(masked):
-                    self.err(p, f"line {line(hit.start())}: {token} is not allowed in a workflow script")
+    def check_workflow_agents(self, p: Path, text: str, masked: str, agents: set[str]) -> None:
+        for call in re.finditer(r"\bagent\s*\(", masked):
+            args = masked[call.end():closing(masked, call.end() - 1)]
+            at = re.search(r"\bagentType\s*:", args)
+            if not at:
+                self.err(p, f"line {line_at(text, call.start())}: agent() call has no agentType")
+                continue
+            lit = re.compile(r"\s*(['\"])([^'\"\n]*)\1").match(text, call.end() + at.end())
+            if lit and lit.group(2) not in agents:
+                self.err(p, f"line {line_at(text, call.start())}: agentType '{lit.group(2)}' is not in agents/")
+
+    def check_workflow_forbidden(self, p: Path, text: str, masked: str) -> None:
+        for pattern, token in JS_FORBIDDEN:
+            for hit in pattern.finditer(masked):
+                self.err(p, f"line {line_at(text, hit.start())}: {token} is not allowed in a workflow script")
 
     def check_exemptions(self) -> None:
         """Stale exemptions silently weaken the checks, so every listed name must still exist."""
