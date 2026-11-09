@@ -589,5 +589,262 @@ class ReaderGlobalFlags(unittest.TestCase):
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
 
+BASH_PLAN = """# Plan
+
+### T1 — code, green
+- **Status:** green
+- **Writes (exclusive):** `src/a/app.py`, `src/a/lib/**`, `e2e/dev-stand.yml`, `ruff.toml`, `.github/workflows/ci.yml`
+- **Tests (test-writer):** `src/a/tests/test_a.py`
+
+### T2 — tests, red
+- **Status:** `red`
+- **Writes (exclusive):** `src/b/app.py`
+- **Tests (test-writer):** `src/b/tests/test_b.py`, `src/b/tests/unit/**`
+
+### T3 — cleanup
+- **Status:** refactor
+- **Writes (exclusive):** `src/c/app.py`
+- **Tests (test-writer):** `src/c/tests/test_c.py`
+
+### T4 — not started
+- **Status:** todo
+- **Writes (exclusive):** `src/d/app.py`
+- **Tests (test-writer):** `src/d/tests/test_d.py`
+"""
+
+NO_GREEN_PLAN = """# Plan
+
+### T1 — tests only
+- **Status:** red
+- **Writes (exclusive):** `src/a/app.py`
+- **Tests (test-writer):** `src/a/tests/test_a.py`
+"""
+
+SCRATCHPAD = "/tmp/claude-1000/-home-user-project/0a1b2c3d-0000-4000-8000-000000000000/scratchpad"
+
+# One entry per way a shell command writes a file; {p} is the target.
+WRITE_FORMS = {
+    "redirect": "echo x > {p}",
+    "append": "echo x >> {p}",
+    "tee": "echo x | tee {p}",
+    "tee -a": "echo x | tee -a {p}",
+    "sed -i": "sed -i 's/a/b/' {p}",
+    "perl -i": "nix develop -c perl -pi -e 's/a/b/' {p}",
+    "cp": "cp /tmp/src.txt {p}",
+    "mv": "mv /tmp/src.txt {p}",
+    "install": "install -m 644 /tmp/src.txt {p}",
+    "touch": "touch {p}",
+    "truncate": "truncate -s 0 {p}",
+    "dd": "dd if=/tmp/src.txt of={p}",
+    "heredoc": "cat > {p} <<'EOF'\nx = 1\nEOF",
+    "after &&": "echo ok && echo x > {p}",
+    "nix develop bash -c": "nix develop -c bash -c 'echo x > {p}'",
+}
+SHORT_FORMS = ["redirect", "tee", "sed -i", "cp", "touch", "heredoc"]
+CODE_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer"]
+READERS = ["deploy-error-reader", "log-collector", "web-researcher"]
+
+
+def plan_project(plan: str | None = BASH_PLAN) -> Path:
+    d = Path(tempfile.mkdtemp(prefix="t1r3-proj-"))
+    if plan is not None:
+        (d / ".plan").mkdir()
+        (d / ".plan" / "PLAN.md").write_text(plan)
+    return d
+
+
+class BashWritesFollowWriteSets(unittest.TestCase):
+    """AC11: Bash writes by subagents are checked against the same rules as Write/Edit."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = plan_project()
+
+    def assert_allowed(self, form, path, agent):
+        cmd = WRITE_FORMS[form].format(p=path)
+        res = bash(cmd, agent=agent, cwd=self.root)
+        self.assertFalse(denied(res), f"{agent}: {cmd!r}: {reason(res)}")
+
+    def assert_denied(self, form, path, agent, names=None):
+        cmd = WRITE_FORMS[form].format(p=path)
+        res = bash(cmd, agent=agent, cwd=self.root)
+        self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+        self.assertIn(names or path, reason(res), f"{agent}: {cmd!r}: the reason does not name the target")
+
+    # ---- executors: Writes of the green task, nothing else
+    def test_bash_writes_follow_write_sets(self):
+        # the executor's own Writes: every way of writing is allowed
+        for form in WRITE_FORMS:
+            for path in ["src/a/app.py", "src/a/lib/deep/util.py", "./src/a/app.py"]:
+                with self.subTest(agent="coder", form=form, allowed=path):
+                    self.assert_allowed(form, path, "coder")
+        # outside Writes: every way of writing is denied, and the reason names the target
+        for form in WRITE_FORMS:
+            for path in ["src/z/new.py", "src/b/app.py", "src/d/app.py", "README.md"]:
+                with self.subTest(agent="coder", form=form, denied=path):
+                    self.assert_denied(form, path, "coder")
+
+    def test_bash_writes_new_code_executors_use_their_write_set(self):
+        for agent in CODE_EXECUTORS:
+            for form in SHORT_FORMS:
+                with self.subTest(agent=agent, form=form):
+                    self.assert_allowed(form, "src/a/app.py", agent)
+                    self.assert_denied(form, "src/z/new.py", agent)
+                    self.assert_denied(form, "src/b/app.py", agent)     # Writes of a red task
+
+    def test_bash_writes_absolute_and_dotted_paths_are_resolved(self):
+        # the project itself lives under /tmp: an absolute path inside it is project code, not a temp file
+        for agent in ["coder", "ci-engineer"]:
+            for form in SHORT_FORMS:
+                with self.subTest(agent=agent, form=form):
+                    self.assert_denied(form, f"{self.root}/src/z/new.py", agent, names="src/z/new.py")
+                    self.assert_denied(form, "./src/z/new.py", agent, names="src/z/new.py")
+                    self.assert_denied(form, "src/a/../z/new.py", agent, names="src/z/new.py")
+                    self.assert_allowed(form, f"{self.root}/src/a/app.py", agent)
+                    self.assert_allowed(form, "src/z/../a/app.py", agent)
+
+    def test_bash_writes_explicit_write_beats_test_pattern(self):
+        for agent in ["coder", "python-coder", "deploy-engineer"]:
+            for form in SHORT_FORMS:
+                with self.subTest(agent=agent, form=form):
+                    self.assert_allowed(form, "e2e/dev-stand.yml", agent)       # listed literally in Writes
+                    self.assert_denied(form, "e2e/other.yml", agent)            # same e2e/ folder, not listed
+                    self.assert_denied(form, "src/a/tests/test_a.py", agent)    # a test file, not in Writes
+                    self.assert_denied(form, "conftest.py", agent)
+
+    def test_bash_writes_quality_configs_only_for_ci_engineer(self):
+        for form in SHORT_FORMS:
+            with self.subTest(form=form):
+                self.assert_allowed(form, "ruff.toml", "ci-engineer")           # inside its Writes
+                self.assert_allowed(form, ".github/workflows/ci.yml", "ci-engineer")
+                self.assert_denied(form, ".golangci.yml", "ci-engineer")        # not in its Writes
+                for agent in ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder"]:
+                    self.assert_denied(form, "ruff.toml", agent)                # in Writes, still closed
+
+    def test_bash_writes_refactorer_uses_refactor_tasks(self):
+        for form in SHORT_FORMS:
+            with self.subTest(form=form):
+                self.assert_allowed(form, "src/c/app.py", "refactorer")
+                self.assert_denied(form, "src/a/app.py", "refactorer")
+                self.assert_denied(form, "src/c/tests/test_c.py", "refactorer")
+
+    # ---- test-writer: Tests of red tasks, nothing else
+    def test_bash_writes_test_writer_only_tests_of_red_tasks(self):
+        for form in WRITE_FORMS:
+            for path in ["src/b/tests/test_b.py", "src/b/tests/unit/test_rows.py"]:
+                with self.subTest(form=form, allowed=path):
+                    self.assert_allowed(form, path, "test-writer")
+            for path in ["src/b/app.py",                # production code
+                         "src/a/tests/test_a.py",       # Tests of a green task
+                         "src/d/tests/test_d.py",       # Tests of a todo task
+                         "src/b/tests/test_other.py",   # test file not listed in any red task
+                         "hooks/README.md"]:            # the case seen in T1 round 2
+                with self.subTest(form=form, denied=path):
+                    self.assert_denied(form, path, "test-writer")
+
+    # ---- readers write nothing in the project
+    def test_bash_writes_readers_write_nothing(self):
+        for agent in READERS:
+            for form in WRITE_FORMS:
+                for path in ["src/z/out.txt", "out.log", "src/a/app.py"]:
+                    with self.subTest(agent=agent, form=form, denied=path):
+                        self.assert_denied(form, path, agent)
+
+    def test_bash_writes_reader_log_commands_cannot_save_into_the_project(self):
+        for agent in ["deploy-error-reader", "log-collector"]:
+            for cmd, target in [("docker compose logs api > ci.log", "ci.log"),
+                                ("gh run view 1 --log-failed | tee logs/run.txt", "logs/run.txt"),
+                                ("railway logs >> out/railway.log", "out/railway.log")]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    self.assertTrue(denied(res), cmd)
+                    self.assertIn(target, reason(res))
+
+    # ---- temp dirs and harmless redirections are unaffected
+    def test_bash_writes_temp_and_scratchpad_are_allowed(self):
+        agents = [*CODE_EXECUTORS, "refactorer", "test-writer", *READERS]
+        for agent in agents:
+            for form in SHORT_FORMS:
+                for path in ["/tmp/t1r3/out.txt", "/var/tmp/t1r3/out.txt", f"{SCRATCHPAD}/notes.md"]:
+                    with self.subTest(agent=agent, form=form, p=path):
+                        self.assert_allowed(form, path, agent)
+
+    def test_bash_writes_reading_and_harmless_redirections_are_unaffected(self):
+        cmds = ["cat src/z/other.py", "grep -rn 'x > y' src", "sed -n 1,5p src/z/other.py", "ls src/z > /dev/null",
+                "nix develop -c pytest -q > /dev/null 2>&1", "nix develop -c pytest -q 2>&1 | tail -n 5",
+                "cp src/z/other.py /tmp/t1r3/copy.py", "echo 'a > src/z/new.py'", 'echo "a >> src/z/new.py"',
+                "grep -n '>' src/a/app.py", "git status --short", "git diff --stat > /tmp/t1r3/diff.txt"]
+        for agent in [*CODE_EXECUTORS, "refactorer", "test-writer"]:
+            for cmd in cmds:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for agent in READERS:
+            for cmd in ["cat src/z/other.py", "grep -rn error src", "gh run list 2>/dev/null",
+                        "docker compose logs api 2>&1 | tail -n 20", "gh run view 1 --log-failed > /tmp/t1r3/run.txt",
+                        "railway logs | tee /tmp/t1r3/railway.log", f"docker logs api > {SCRATCHPAD}/api.log"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_bash_writes_heredoc_body_is_data(self):
+        cmd = "cat > src/a/app.py <<'EOF'\necho hi > src/z/forbidden.py\ntee src/z/also.py\nEOF"
+        self.assertFalse(denied(bash(cmd, agent="coder", cwd=self.root)), cmd)
+        cmd = "cat > src/z/new.py <<'EOF'\nx = 1\nEOF"
+        self.assertTrue(denied(bash(cmd, agent="coder", cwd=self.root)), cmd)
+
+    # ---- who is not limited
+    def test_bash_writes_main_session_and_projects_without_a_plan_keep_today(self):
+        for form in SHORT_FORMS:
+            with self.subTest(who="main session", form=form):
+                self.assert_allowed(form, "src/z/new.py", None)
+                self.assert_allowed(form, "src/a/tests/test_a.py", None)
+        plain = plan_project(None)
+        for agent in [None, "coder", "python-coder", "ci-engineer"]:
+            for form in SHORT_FORMS:
+                with self.subTest(who=agent or "main session", form=form, plan=False):
+                    cmd = WRITE_FORMS[form].format(p="src/z/new.py")
+                    res = bash(cmd, agent=agent, cwd=plain)
+                    self.assertFalse(denied(res), f"{cmd!r}: {reason(res)}")
+        for form in SHORT_FORMS:
+            with self.subTest(who="test-writer", form=form, plan=False):
+                cmd = WRITE_FORMS[form].format(p="src/z/tests/test_new.py")
+                self.assertFalse(denied(bash(cmd, agent="test-writer", cwd=plain)), cmd)
+
+    # ---- the reason names the target and the rule
+    def test_bash_writes_denial_names_target_and_rule(self):
+        table = [
+            ("coder", "echo x > src/z/new.py", "src/z/new.py", ("write set", "writes (exclusive)")),
+            ("python-coder", "tee src/d/app.py < /tmp/src.txt", "src/d/app.py", ("write set", "writes (exclusive)")),
+            ("coder", "echo x > src/a/tests/test_a.py", "src/a/tests/test_a.py", ("tests",)),
+            ("coder", "echo x > ruff.toml", "ruff.toml", ("config",)),
+            ("test-writer", "echo x > src/b/app.py", "src/b/app.py", ("test files", "write set")),
+            ("test-writer", "cp /tmp/src.txt src/a/tests/test_a.py", "src/a/tests/test_a.py", ("write set", "tests (test-writer)")),
+            ("deploy-error-reader", "echo x > src/z/out.txt", "src/z/out.txt", ("read-only",)),
+            ("log-collector", "docker compose logs api > ci.log", "ci.log", ("read-only",)),
+            ("web-researcher", "touch notes.md", "notes.md", ("read-only", "no files", "writes nothing")),
+        ]
+        for agent, cmd, target, rules in table:
+            with self.subTest(agent=agent, cmd=cmd):
+                res = bash(cmd, agent=agent, cwd=self.root)
+                self.assertTrue(denied(res), cmd)
+                text = reason(res)
+                self.assertIn(target, text)
+                self.assertTrue(any(r in text.lower() for r in rules), f"no rule {rules} in: {text}")
+
+    def test_bash_writes_executor_without_a_task_for_its_step_is_denied(self):
+        root = plan_project(NO_GREEN_PLAN)
+        for agent in ["coder", "python-coder", "ci-engineer"]:
+            for form in SHORT_FORMS:
+                with self.subTest(agent=agent, form=form):
+                    cmd = WRITE_FORMS[form].format(p="src/a/app.py")
+                    res = bash(cmd, agent=agent, cwd=root)
+                    self.assertTrue(denied(res), cmd)
+                    self.assertIn("src/a/app.py", reason(res))
+                    self.assertIn("green", reason(res))
+        # the red task is still writable for test-writer through the same commands
+        self.assertFalse(denied(bash("echo x > src/a/tests/test_a.py", agent="test-writer", cwd=root)))
+
+
 if __name__ == "__main__":
     unittest.main()
