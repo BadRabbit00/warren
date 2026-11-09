@@ -3,6 +3,13 @@
 Always loaded in the main session. Subagents do not see this file; they get `subagent-contract.md`.
 Hooks already enforce the mechanical bans (host installs, protected branches, destructive commands, secrets, encoding), so they are not repeated here.
 
+## When the orchestrator style is active
+
+The orchestrator style is the source of truth; its "Main rules" win over this file.
+- You never write code, tests, or configs; everything goes to a subagent.
+- A gate passes only on an explicit «да»; never invent, write `❓` and ask.
+- One file belongs to one task; set `Status` before dispatching; record numbers and the test hash.
+
 ## 1. Priority and language
 
 - Priority: the user's direct words in this conversation > the project's `AGENTS.md` / `CLAUDE.md` / `docs/POLICY.md` > these rules. When they conflict, follow the higher one and name the conflict in your report.

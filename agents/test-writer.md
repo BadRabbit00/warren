@@ -59,6 +59,8 @@ An existing project with another layout (Go `_test.go` next to code, colocated `
   - bug: the exact failing scenario, kept as a regression test.
 - R-TW-CONTRACT-FAKES: fakes of external systems return payloads taken from `docs/API.md` or the provider's documented contract, including their error shapes (timeout, 5xx, malformed body). An LLM fake returns stored answers, including broken JSON.
 - R-TW-NO-INTERNALS: assert results — return value, DB state, response, published event — never which private functions were called or in what order.
+- R-TW-CAN-PASS: prove each red test can pass in principle: no contradiction with ORM/session semantics, cookie handling, nullable types, or fixtures that answer real shapes. When unsure, work out the minimal passing stub (mentally, or describe it in NOTES).
+- R-TW-OLD-TESTS: list older tests that assert the contract being replaced and name them in NOTES for the orchestrator; do not edit them.
 - The rules in `tests.md` (real DB of the same version with migrations, isolation, determinism, names, no skips) apply to every test you write.
 
 ## Must not

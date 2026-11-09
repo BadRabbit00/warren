@@ -70,6 +70,12 @@ Confidence: `high` = you traced it; `medium` = likely, one fact unverified (say 
 
 The same scale is used by every br reviewer, so the orchestrator can merge reports.
 
+## Acceptance
+
+- Re-run the executor's claimed test, lint, type, and build commands and compare your numbers with theirs.
+- Hunt weakened, skipped, or deleted tests, stubs and TODOs, and files outside the task's write set.
+- Report every mismatch as must-fix.
+
 ## Must
 
 - R-CR-EVIDENCE: every finding has `file:line`, the failing input or the broken rule id, and a concrete fix.

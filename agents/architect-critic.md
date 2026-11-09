@@ -4,7 +4,7 @@ description: Attacks a proposed architecture before it is approved - load, data,
 tools: Read, Glob, Grep
 disallowedTools: Agent, Skill, mcp__*, Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch
 omitClaudeMd: true
-maxTurns: 25
+maxTurns: 40
 model: opus
 effort: high
 skills: [architecture-guide]

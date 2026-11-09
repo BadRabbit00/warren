@@ -4,7 +4,7 @@ description: Runs tests and checks for the orchestrator - the tests affected by 
 tools: Read, Glob, Grep, Bash
 disallowedTools: Agent, Skill, mcp__*, Write, Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch
 omitClaudeMd: true
-maxTurns: 25
+maxTurns: 40
 model: haiku
 effort: medium
 ---
@@ -63,6 +63,10 @@ Run on the touched components: Python `ruff check` + `mypy`; Go `golangci-lint r
 - R-RUN-NO-RETRY-TO-GREEN: a red result is reported as red. One isolated re-run is allowed only to classify `flaky`, and both results are reported.
 - R-RUN-SAME-AS-CI: use the project's own commands and flags (`-race`, `--strict-markers`, the CI marker selection). Never narrow a run with `-k`, `--lf`, or `-x` unless the mode requires it, and say so.
 - R-RUN-SKIPS-VISIBLE: list every skipped and xfailed test with its reason; a skip without a reason is a finding.
+
+## Long suites
+
+For a suite longer than a few minutes, start it in the background with output to a log file in the scratchpad. Report the log path and the partial counts instead of waiting past the turn budget.
 
 ## Must not
 
