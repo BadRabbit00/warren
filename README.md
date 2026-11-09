@@ -149,11 +149,11 @@ asks before any code whether to use them or to dispatch agents by hand, and reco
 | Command | What runs, per task |
 |---|---|
 | `/br-red` | `test-writer` → `test-runner`: the new tests fail for the right reason; returns the tests hash |
-| `/br-green` | `coder` → `test-runner` → `refactorer` → `test-runner`; stops a task when a test fails, is skipped, or the tests hash changed |
+| `/br-green` | per task by Status: `green` → `coder` → `test-runner`; `refactor` → `refactorer` → `test-runner`. Run it at Status green, then again at Status refactor (the write hook lets `refactorer` write only under `refactor`). Stops a task when a test fails, is skipped, or the tests hash changed |
 | `/br-review` | `code-reviewer`, the language reviewers picked by file extension, `security-reviewer` when the task is flagged; each must-fix is checked by three refuters and kept when two of them cannot refute it |
 
 Each workflow first reads `.plan/PLAN.md` through `researcher`. It takes `args = { tasks: ["T3"] }`, or
-every task whose Status matches the step (`red`, `green`, `review`). Every agent runs by `agentType`, so the
+every task whose Status matches the step (`red`; `green` or `refactor`; `review`). Every agent runs by `agentType`, so the
 agent's model pin, the subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too
 (checked live: a workflow `test-writer` writing outside tests is denied by `br-hook`). Workflows never commit
 and never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
