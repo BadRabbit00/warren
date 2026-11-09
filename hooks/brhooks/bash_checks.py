@@ -114,11 +114,11 @@ def expand(cmd: str) -> list[str]:
 # ---------------------------------------------------------------- host installs
 
 HOST_INSTALL = [
-    (re.compile(r"^(pip3?|python3?(\.\d+)?\s+-m\s+pip|uv\s+pip)\s+install\b"), "pip install"),
+    (re.compile(r"^(pip[\d.]*|python\s+-m\s+pip|uv\s+pip)\s+install\b"), "pip install"),
     (re.compile(r"^pipx\s+(install|run)\b"), "pipx"),
-    (re.compile(r"^uv\s+(sync|venv|add|tool\s+install)\b"), "uv sync/venv/add"),
-    (re.compile(r"^(python3?(\.\d+)?\s+-m\s+venv|virtualenv)\b"), "virtualenv"),
-    (re.compile(r"^(npm|pnpm)\s+(i|install|add)\b.*\s(-g|--global)\b"), "global npm/pnpm install"),
+    (re.compile(r"^uv\s+(venv|tool\s+install)\b"), "uv venv/tool install"),
+    (re.compile(r"^(python\s+-m\s+venv|virtualenv)\b"), "virtual environment creation"),
+    (re.compile(r"^(npm|pnpm|bun)\s+(i|install|add)\s+-g\b"), "global npm/pnpm/bun install"),
     (re.compile(r"^yarn\s+global\b"), "yarn global"),
     (re.compile(r"^go\s+install\b"), "go install"),
     (re.compile(r"^cargo\s+install\b"), "cargo install"),
@@ -128,9 +128,55 @@ HOST_INSTALL = [
     (re.compile(r"^(apt|apt-get|dnf|yum|zypper|apk)\s+(install|add)\b"), "system package manager"),
     (re.compile(r"^pacman\s+-S"), "pacman"),
     (re.compile(r"^(brew|snap|flatpak|choco|winget|scoop)\s+install\b"), "system package manager"),
-    (re.compile(r"^python3?(\.\d+)?\s+-c\b"), "inline python (python -c)"),
-    (re.compile(r"^node\s+(-e|--eval|-p)\b"), "inline node (node -e)"),
+    (re.compile(r"^python\s+-c\b"), "inline python (python -c)"),
+    (re.compile(r"^node\s+(-e|--eval|-p|--print)\b"), "inline node (node -e)"),
 ]
+GLOBAL_FLAGS = {"-g", "--global"}
+INSTALL_WORDS = {"i", "install", "add"}
+PYTHON_NAME = re.compile(r"(?:python|pypy)[\d.]*")
+VARIABLE_HEAD = re.compile(r"\$(?:(\w+)|\{(\w+)(?::?[-=][^}]*)?\})")
+
+
+def _assignments(seg: str, assigned: dict[str, str]) -> None:
+    w = split_words(seg)
+    while w and w[0] in DECLARATIONS:
+        w = w[1:]
+    for word in w:
+        m = re.fullmatch(r"(\w+)=(.*)", word)
+        if not m:
+            break
+        assigned[m.group(1)] = m.group(2)
+
+
+def _canonical(w: list[str], assigned: dict[str, str]) -> str:
+    """The command with the head reduced to its basename, interpreter flags folded away
+    (`/usr/bin/python3 -Im pip install x` -> `python -m pip install x`), a variable head resolved."""
+    if not w:
+        return ""
+    head, args = w[0], w[1:]
+    m = VARIABLE_HEAD.fullmatch(head)
+    if m:
+        head = assigned.get(m.group(1) or m.group(2), "")
+        if not head:                                   # unknown variable: judge by the arguments
+            head = "python" if ("-c" in args or "-m" in args) else "$"
+    name = Path(head).name
+    if PYTHON_NAME.fullmatch(name):
+        i = 0
+        while i < len(args) and args[i].startswith("-") and not args[i].startswith("--") and len(args[i]) > 1:
+            flag = args[i]
+            if flag.endswith("c"):
+                return "python -c"
+            if flag.endswith("m") and i + 1 < len(args):
+                return " ".join(["python", "-m", *args[i + 1:]])
+            i += 1
+        return " ".join(["python", *args[i:]])
+    if name == "nodejs":
+        name = "node"
+    if name in {"npm", "pnpm", "bun"} and GLOBAL_FLAGS & set(args):
+        positional = [a for a in args if not a.startswith("-")]
+        if positional and positional[0] in INSTALL_WORDS:
+            return f"{name} {positional[0]} -g"
+    return " ".join([name, *args])
 CURL_PIPE_SH = re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b")
 
 
@@ -142,8 +188,10 @@ def check_host_install(ev: Event, cmd: str) -> str | None:
     if CURL_PIPE_SH.search(cmd):
         return ("Piping a download into a shell installs software on the host. The main session installs "
                 "tools following requirements.md.")
+    assigned: dict[str, str] = {}
     for seg in expand(cmd):
-        line = " ".join(words(seg))
+        _assignments(seg, assigned)
+        line = _canonical(words(seg), assigned)
         for rx, what in HOST_INSTALL:
             if rx.search(line):
                 if what.startswith("inline"):

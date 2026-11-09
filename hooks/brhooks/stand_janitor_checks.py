@@ -40,6 +40,22 @@ def _stand_targets(root: Path) -> set[str]:
     return bases | {n + "-down" for n in bases}
 
 
+def _stand_commands(root: Path) -> set[tuple[str, ...]]:
+    """Backticked commands on `- **Stand:**` lines, as word tuples; they run exactly as written."""
+    try:
+        text = (root / ".plan" / "PLAN.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    found: set[tuple[str, ...]] = set()
+    for line in STAND_LINE.findall(text):
+        for span in re.findall(r"`([^`]+)`", line):
+            try:
+                found.add(tuple(split_words(span, comments=False)))
+            except ValueError:
+                continue
+    return found
+
+
 def _skip_global_flags(args: list[str], seen: list[tuple[str, str]] | None = None) -> int | None:
     """Index of the first positional word; global flags are skipped. None if a flag is unknown (fail closed).
     Every skipped value flag is appended to `seen` as (flag, value)."""
@@ -73,6 +89,7 @@ class _Gate:
         self.dynamic = re.search(r"[$`]", cmd) is not None     # a name or path may come from a variable or substitution
         self.cwd = str(ev.cwd)
         self.targets = set() if self.janitor else _stand_targets(self.root)
+        self.commands = set() if self.janitor else _stand_commands(self.root)
 
     def deny(self, shown: str, why: str) -> str:
         return f"`{self.agent}`: `{shown[:200]}` is refused. {why}"
@@ -98,6 +115,8 @@ class _Gate:
     def words(self, raw: list[str], depth: int) -> str | None:
         if any(DOCKER_ENV.search(" " + w) for w in raw):
             return self.deny(" ".join(raw[:6]), "The docker host and context are fixed; do not set DOCKER_HOST or DOCKER_CONTEXT.")
+        if self.commands and tuple(raw) in self.commands:
+            return None                                         # a stand command named in the plan, exactly as written
         outer = _strip_redirections(strip_env_and_wrappers(raw))
         if (self.targets and len(outer) == 3 and Path(outer[0]).name == "nix" and outer[1] == "run"
                 and (m := re.fullmatch(r"\.#([\w.-]+)", outer[2])) and m.group(1) in self.targets):
