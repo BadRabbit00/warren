@@ -38,22 +38,25 @@ const VERDICT_SCHEMA = {
 
 const CHECKPOINT_SCHEMA = {
   type: 'object',
-  required: ['tasks', 'paths', 'risky', 'db', 'migrations', 'problems'],
+  required: ['tasks', 'paths', 'risky', 'risky_files', 'db', 'migrations', 'problems'],
   properties: {
     tasks: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['id', 'name', 'acceptance'],
+        required: ['id', 'name', 'acceptance', 'writes', 'tests'],
         properties: {
           id: { type: 'string' },
           name: { type: 'string' },
           acceptance: { type: 'array', items: { type: 'string' } },
+          writes: { type: 'array', items: { type: 'string' }, description: 'Writes paths of this task' },
+          tests: { type: 'array', items: { type: 'string' }, description: 'Tests paths of this task' },
         },
       },
     },
     paths: { type: 'array', items: { type: 'string' }, description: 'Writes and Tests paths of the covered tasks' },
     risky: { type: 'array', items: { type: 'string' }, description: 'risky areas listed in the checkpoint (paths)' },
+    risky_files: { type: 'array', items: { type: 'string' }, description: 'files found under risky entries that are directories (real paths, one per file)' },
     db: { type: 'boolean', description: 'checkpoint says DB work accumulated' },
     migrations: { type: 'array', items: { type: 'string' }, description: 'migration paths listed in the checkpoint' },
     problems: { type: 'array', items: { type: 'string' }, description: 'checkpoint or requested task ids missing' },
@@ -66,6 +69,8 @@ const BY_EXTENSION = {
   rs: 'rust-reviewer',
   ts: 'ts-react-reviewer',
   tsx: 'ts-react-reviewer',
+  js: 'ts-react-reviewer',
+  jsx: 'ts-react-reviewer',
   dart: 'flutter-dart-reviewer',
   nix: 'nix-reviewer',
 }
@@ -113,12 +118,12 @@ async function readCheckpoint() {
   const ids = strings(args && args.tasks)
   if (args && Array.isArray(args.risky) && typeof args.db === 'boolean') {
     log('plan read skipped: args carry risky and db')
-    return { tasks: [], paths: [], risky, db: args.db, migrations, problems: [] }
+    return { tasks: [], paths: [], risky, risky_files: [], db: args.db, migrations, problems: [] }
   }
   const cp = await agent(
     `Read .plan/PLAN.md only. Find the heading "## Checkpoint ${args && args.checkpoint}". Return: the tasks it covers` +
       (ids.length > 0 ? ` (restrict to ${ids.join(', ')})` : '') +
-      ' with id, name and acceptance criteria; the union of their Writes and Tests paths; the risky areas; whether DB work accumulated (db); the migration paths. ' +
+      ' with id, name and acceptance criteria; the union of their Writes and Tests paths, and per task its own Writes and Tests paths; the risky areas; for every risky entry that is a directory, the real files under it (list them with ls or git ls-files, risky_files); whether DB work accumulated (db); the migration paths. ' +
       'Copy verbatim; do not invent anything. If the checkpoint is missing, say so in problems.',
     { agentType: 'researcher', label: 'checkpoint', phase: 'Plan', schema: CHECKPOINT_SCHEMA },
   )
@@ -126,6 +131,7 @@ async function readCheckpoint() {
   return {
     ...cp,
     risky: risky.length > 0 ? risky : cp.risky,
+    risky_files: strings(cp.risky_files),
     migrations: migrations.length > 0 ? migrations : cp.migrations,
     db: args && typeof args.db === 'boolean' ? args.db : cp.db,
   }
@@ -164,8 +170,21 @@ async function refute(f) {
   return { ...f, verdict, verdicts: got }
 }
 
+function covers(entry, file) {
+  const dir = entry.endsWith('/') ? entry : entry + '/'
+  return file === entry || file.startsWith(dir)
+}
+
+// Owning task and step per file: test files go to fix-tests, everything else to fix-code.
+function ownerOf(tasks, file) {
+  const test = tasks.find((t) => strings(t.tests).some((e) => covers(e, file)))
+  if (test) return { task: test.id, step: 'fix-tests' }
+  const code = tasks.find((t) => strings(t.writes).some((e) => covers(e, file)))
+  return { task: code ? code.id : '', step: 'fix-code' }
+}
+
 // One fix item per file, so parts of the next wave never share files.
-function fixItems(sections) {
+function fixItems(tasks, sections) {
   const byFile = {}
   for (const [section, list] of Object.entries(sections)) {
     list.forEach((f) => {
@@ -175,8 +194,7 @@ function fixItems(sections) {
   }
   return Object.keys(byFile).map((file, i) => ({
     id: `F${i + 1}`,
-    task: '',
-    step: 'fix-code',
+    ...ownerOf(tasks, file),
     files: [file],
     brief: byFile[file].join('\n'),
     after: [],
@@ -203,7 +221,8 @@ const riskyChunks = chunks(cp.risky, MAX_PER_REVIEWER)
 if (riskyChunks.length === 0) log('deep pass skipped: no risky paths in the checkpoint')
 riskyChunks.forEach((paths, i) => {
   const part = riskyChunks.length > 1 ? ` part ${i + 1}/${riskyChunks.length}` : ''
-  const deep = ['code-reviewer', 'security-reviewer', ...languageReviewers(paths)]
+  const real = paths.concat(cp.risky_files.filter((f) => paths.some((p) => covers(p, f))))
+  const deep = ['code-reviewer', 'security-reviewer', ...languageReviewers(real)]
   if (deep.length === 2) log(`deep${part}: no language reviewer for these paths`)
   deep.forEach((name) =>
     specs.push({
@@ -266,7 +285,7 @@ return {
   migrations: sections.migrations,
   refuted: dropped,
   unverified,
-  fix_items: fixItems({
+  fix_items: fixItems(cp.tasks, {
     deep: mustFix(sections.deep),
     broad: mustFix(sections.broad),
     db: mustFix(sections.db),

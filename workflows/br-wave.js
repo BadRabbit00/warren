@@ -18,20 +18,16 @@ const WORK_SCHEMA = {
   properties: {
     status: { type: 'string', enum: ['done', 'blocked'] },
     files: strArr,
-    tests: { type: 'array', items: { type: 'object', required: ['name', 'ac'], properties: { name: { type: 'string' }, ac: { type: 'string' } } } },
+    tests: { type: 'array', items: { type: 'object', required: ['name', 'ac'], properties: { name: { type: 'string' }, ac: { type: 'string' }, expect_green: { type: 'boolean', description: 'true when this test must pass already (code-first or characterisation); omit otherwise' } } } },
     notes: { type: 'string' },
   },
 }
 
 const RUN_SCHEMA = {
   type: 'object',
-  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'files_hashed', 'command', 'changes'],
+  required: ['ran', 'passed', 'failed', 'errors', 'skipped', 'per_test', 'tests_hash', 'files_hashed', 'command', 'check_ok'],
   properties: {
-    changes: {
-      type: 'array',
-      description: 'one entry per item listed in the diff check: changed is true when git diff --stat or git ls-files --others shows anything for its files',
-      items: { type: 'object', required: ['id', 'changed'], properties: { id: { type: 'string' }, changed: { type: 'boolean' } } },
-    },
+    check_ok: { type: 'boolean', description: 'true when there is no check brief, or the check brief was carried out and passed; false when it failed' },
     ran: { type: 'integer' }, passed: { type: 'integer' }, failed: { type: 'integer' }, errors: { type: 'integer' }, skipped: { type: 'integer' },
     per_test: {
       type: 'array',
@@ -49,6 +45,14 @@ const RUN_SCHEMA = {
     tests_hash: { type: 'string' },
     files_hashed: { type: 'integer' },
     command: { type: 'string' },
+  },
+}
+
+const HASHES_SCHEMA = {
+  type: 'object',
+  required: ['hashes'],
+  properties: {
+    hashes: { type: 'array', items: { type: 'object', required: ['id', 'hash'], properties: { id: { type: 'string' }, hash: { type: 'string' } } } },
   },
 }
 
@@ -105,10 +109,40 @@ function countCommand(paths) {
   return `${listFiles(paths)} | tr -cd '\\0' | wc -c`
 }
 
-// A runner name matches a writer name when equal, qualified by `.` or `::`, or a subtest (`name ` / `name(`).
+// A runner name matches a writer name when equal, qualified by `.`, `::` or `/`, or followed by a subtest or
+// parameter tail: `name `, `name(`, `name[...]` (pytest ids), `name/sub` (Go subtests).
 function nameMatches(runner, writer) {
-  return runner === writer || runner.endsWith('.' + writer) || runner.endsWith('::' + writer) ||
-    runner.startsWith(writer + ' ') || runner.startsWith(writer + '(')
+  const heads = ['.', '::', '/']
+  const tails = [' ', '(', '[', '/']
+  return runner === writer || heads.some((h) => runner.endsWith(h + writer)) ||
+    tails.some((t) => runner.startsWith(writer + t) || heads.some((h) => runner.includes(h + writer + t)))
+}
+
+// Glob match for plan paths: `**` matches anything, `*` anything but `/`; a plain path also covers what is below it.
+function globMatch(pat, str) {
+  if (pat === '') return str === ''
+  if (pat.startsWith('**')) {
+    const rest = pat.slice(2)
+    for (let k = 0; k <= str.length; k++) if (globMatch(rest, str.slice(k))) return true
+    return false
+  }
+  if (pat[0] === '*') {
+    const rest = pat.slice(1)
+    for (let k = 0; k <= str.length; k++) {
+      if (globMatch(rest, str.slice(k))) return true
+      if (str[k] === '/') break
+    }
+    return false
+  }
+  return str[0] === pat[0] && globMatch(pat.slice(1), str.slice(1))
+}
+
+function covers(patterns, file) {
+  return patterns.some((raw) => {
+    const p = raw.split('`').join('').trim().replace('./', '')
+    const dir = p.endsWith('/') ? p.slice(0, -1) : p
+    return dir !== '' && (globMatch(dir, file) || file.startsWith(dir + '/'))
+  })
 }
 
 function extOf(f) {
@@ -168,10 +202,18 @@ function validate(items, tasks) {
   tasks.forEach((t) => {
     const need = [...new Set(items.filter((i) => i.task === t.id).map((i) => neededStatus(i.step)).filter(Boolean))]
     if (need.length > 1) bad.push(`task ${t.id} cannot be ${need.join(' and ')} in the same run`)
-    else if (need.length === 1 && t.status.toLowerCase() !== need[0]) bad.push(`task ${t.id} has Status ${t.status}, its items need ${need[0]}`)
+    else if (need.length === 1 && t.status.trim().toLowerCase().split(' ')[0] !== need[0]) bad.push(`task ${t.id} has Status ${t.status}, its items need ${need[0]}`)
+  })
+  items.filter((i) => i.step !== 'check' && tasks.some((t) => t.id === i.task)).forEach((i) => {
+    const task = tasks.find((t) => t.id === i.task)
+    const testSide = i.step === 'red' || i.step === 'fix-tests'
+    const allowed = testSide ? task.tests : task.writes
+    i.files.filter((f) => !covers(allowed, f)).forEach((f) => bad.push(`${i.id}: file ${f} is outside the task's ${testSide ? 'Tests' : 'Writes'}`))
   })
   const runners = new Set(items.map((i) => i.task)).size
-  const total = items.filter((i) => i.step !== 'check').length + runners
+  const writing = items.filter((i) => i.step !== 'check' && i.files.length > 0).length
+  // work agents + one hash check per writing item + the snapshot + one test-runner per task
+  const total = items.filter((i) => i.step !== 'check').length + writing + (writing > 0 ? 1 : 0) + runners
   if (total > MAX_AGENTS) bad.push(`${total} agents needed, the cap is ${MAX_AGENTS}: split the wave`)
   return bad
 }
@@ -220,6 +262,26 @@ async function preflight(items) {
   return missing.length > 0 ? { stopped: true, problems: ['login needed'], login_needed: missing.map((l) => ({ cli: l.cli, user_command: l.user_command })) } : null
 }
 
+// One agent hashes the files of each listed item (the same command before and after the work), so staged edits count and
+// pre-existing dirt does not.
+async function hashItems(items, label, phase) {
+  const lines = items.map((i) => `- ${i.id}: ${hashCommand(i.files)}`)
+  return agent(
+    `Mode: file-hash. Do not edit files and do not run tests. For each item run its command and return hashes {id, hash}; hash is the first field of the output.\n${lines.join('\n')}`,
+    { agentType: 'test-runner', phase, label, schema: HASHES_SCHEMA },
+  )
+}
+
+const before = {}
+async function snapshot(items) {
+  const w = items.filter((i) => i.step !== 'check' && i.files.length > 0)
+  if (w.length === 0) return null
+  const got = await hashItems(w, 'snapshot', 'Preflight')
+  if (!got || !w.every((i) => got.hashes.some((h) => h.id === i.id))) return { stopped: true, problems: ['file snapshot returned nothing'] }
+  w.forEach((i) => { before[i.id] = got.hashes.find((h) => h.id === i.id).hash })
+  return null
+}
+
 function workBrief(task, item) {
   const skills = task.skills.map((s) => `~/.claude/skills/${s}/SKILL.md`).join(', ')
   return [
@@ -232,7 +294,7 @@ function workBrief(task, item) {
     `Part brief: ${item.brief}`,
     'Rules: do not commit, do not edit .plan/PLAN.md; the orchestrator does both. The write hook scopes by the plan Status of the task, which the orchestrator already set.',
     item.step === 'red' || item.step === 'fix-tests'
-      ? 'Return {status: done|blocked, files, tests: [{name, ac}], notes}; tests only, no production code; report test names as the bare test function name.'
+      ? 'Return {status: done|blocked, files, tests: [{name, ac, expect_green?}], notes}; tests only, no production code; report test names as the bare test function name; set expect_green: true on a test that must pass already.'
       : 'Return {status: done|blocked, files, tests: [], notes}. Behaviour of the tests must not change; do not touch the tests.',
     'Stop and report instead of guessing if: a contract looks wrong, a file outside the write set is needed, an AC is unclear.',
   ].join('\n')
@@ -244,7 +306,17 @@ async function runItem(item, task) {
   const result = await agent(workBrief(task, item), { agentType: name, phase: 'Work', label: `${item.id} ${name}`, schema: WORK_SCHEMA })
   const status = !result ? 'failed' : result.status === 'blocked' ? 'blocked' : 'done'
   if (status !== 'done') log(`${item.id} ${status}: ${result ? result.notes : name + ' returned nothing'}`)
-  return { id: item.id, task: item.task, step: item.step, agent: name, result, status }
+  const out = { id: item.id, task: item.task, step: item.step, agent: name, result, status }
+  if (status === 'done' && item.files.length > 0) {
+    const got = await hashItems([item], `${item.id} diff check`, 'Check')
+    const now = got ? got.hashes.find((h) => h.id === item.id) : null
+    if (!now || now.hash === before[item.id]) {
+      out.status = 'failed'
+      out.reason = now ? 'agent reported done but its files did not change' : 'diff check returned nothing'
+      log(`${item.id} failed: ${out.reason}`)
+    }
+  }
+  return out
 }
 
 async function checkTask(task, own, done) {
@@ -259,48 +331,34 @@ async function checkTask(task, own, done) {
   const notDone = done.filter((d) => d.status !== 'done')
   if (notDone.length > 0) return finish(false, `items not done: ${notDone.map((d) => d.id).join(', ')}`)
   const noTests = task.tests.length === 0
-  const writers = done.filter((d) => d.step !== 'check' && d.agent !== 'test-runner' && own.find((i) => i.id === d.id).files.length > 0)
-  if (noTests && writers.length === 0) return finish(true, 'no Tests: run skipped')
-  if (!noTests && !red && !fixTests && task.recorded_hash === '') return finish(false, 'no recorded tests hash')
   const checks = own.filter((i) => i.step === 'check' && i.brief !== '').map((i) => i.brief)
-  const diffLines = writers.map((d) => {
-    const files = own.find((i) => i.id === d.id).files.map(shellQuote).join(' ')
-    return `- ${d.id}: git diff --stat -- ${files} ; git ls-files --others --exclude-standard -- ${files}`
-  })
+  if (noTests && checks.length === 0) return finish(true, 'no Tests: run skipped')
+  if (!noTests && !red && !fixTests && task.recorded_hash === '') return finish(false, 'no recorded tests hash')
   const run = await agent(
     `Mode: ${noTests ? 'diff-only' : red ? 'red' : 'affected'}. Task ${task.id} — ${task.name}. Do not edit files.\n` +
-      (checks.length > 0 ? `Check brief: ${checks.join(' | ')}\n` : '') +
+      (checks.length > 0 ? `Check brief (carry it out, set check_ok false if it fails): ${checks.join(' | ')}\n` : 'No check brief: check_ok is true.\n') +
       (noTests
-        ? 'This task has no Tests: do not run tests; return ran, passed, failed, errors, skipped, files_hashed as 0, per_test [], tests_hash "", command "". '
+        ? 'This task has no Tests: do not run tests, only carry out the check brief; return ran, passed, failed, errors, skipped, files_hashed as 0, per_test [], tests_hash "", command "". '
         : `Tests: ${task.tests.join(', ')}\n` +
           'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. Report test names as the bare test function name. ' +
           (red ? 'For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or wrong_reason (import, syntax or fixture error); n/a for tests that do not fail. ' : '') +
           `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
-          `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}\n`) +
-      (diffLines.length > 0
-        ? `Diff check: for each item run both commands and return changes {id, changed}; changed is true when either prints anything.\n${diffLines.join('\n')}`
-        : 'Diff check: nothing to check, return changes [].'),
+          `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}\n`),
     { agentType: 'test-runner', phase: 'Check', label: `${task.id} test-runner`, schema: RUN_SCHEMA },
   )
   if (!run) return finish(false, 'test-runner returned nothing')
   out.run = run
   out.hash = run.tests_hash
   out.files_hashed = run.files_hashed
-  const unchanged = writers.filter((d) => run.changes.some((c) => c.id === d.id && !c.changed) || !run.changes.some((c) => c.id === d.id))
-  unchanged.forEach((d) => {
-    d.status = 'failed'
-    d.reason = 'agent reported done but its files did not change'
-    log(`${d.id} failed: ${d.reason}`)
-  })
-  if (unchanged.length > 0) return finish(false, `items without file changes: ${unchanged.map((d) => d.id).join(', ')}`)
+  if (!run.check_ok) return finish(false, 'check brief failed')
   if (noTests) return finish(true, 'no Tests: run skipped')
   if (run.files_hashed === 0) return finish(false, 'tests hash covers no files')
   if (red) {
     const written = done.flatMap((d) => (d.result ? d.result.tests : []))
-    const expect = own.flatMap((i) => i.expect_green)
+    const expect = [...own.flatMap((i) => i.expect_green), ...written.filter((w) => w.expect_green).map((w) => w.name)]
     const failing = run.per_test.filter((t) => t.outcome === 'fail' || t.outcome === 'error')
     const isExpected = (n) => expect.some((e) => nameMatches(n, e))
-    const ok = run.errors === 0 && run.failed > 0 && failing.every((t) => t.verdict === 'right_reason') &&
+    const ok = run.errors === 0 && (run.failed > 0 || written.every((w) => isExpected(w.name))) && failing.every((t) => t.verdict === 'right_reason') &&
       written.length > 0 &&
       written.every((w) => (isExpected(w.name) ? true : failing.some((t) => nameMatches(t.name, w.name)))) &&
       expect.every((e) => !failing.some((t) => nameMatches(t.name, e)))
@@ -318,6 +376,11 @@ if (wave.stopped) {
 }
 const login = await preflight(wave.items)
 if (login) return login
+const snap = await snapshot(wave.items)
+if (snap) {
+  snap.problems.forEach((p) => log(`stopped: ${p}`))
+  return snap
+}
 
 const started = {}
 function start(item) {
