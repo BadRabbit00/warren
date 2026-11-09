@@ -1,4 +1,6 @@
 import os
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -476,7 +478,7 @@ class DeployErrorReader(unittest.TestCase):
             "gh run view 12345 --log-failed", "gh run view 12345 --job 678 --log-failed",
             "railway whoami", "railway logs", "gcloud auth list",
             "gcloud logging read 'severity>=ERROR' --limit 50", "doctl account get",
-            "doctl apps logs 1111-2222 --type run", "yc config list", "yc logging read --group-name default",
+            "doctl apps logs 1111-2222 --type run", "yc iam whoami", "yc logging read --group-name default",
             "wrangler whoami", "wrangler tail my-worker", "docker compose ps", "docker compose logs --tail 100 api",
             "docker logs --tail 50 api"]
     MUTATING = ["gh run rerun 12345", "gh run rerun 12345 --failed", "gh workflow run ci.yml", "railway up",
@@ -1111,6 +1113,310 @@ class BashWritesGluedRedirections(unittest.TestCase):
             for cmd in ["echo x > $TMPDIR/out.txt", "echo x > \"$OUT\"", "echo x > ~/t1r4-out.txt"]:
                 with self.subTest(agent=agent, cmd=cmd):
                     self.assert_allowed_cmd(cmd, agent)
+
+
+ALL_READERS = ["deploy-error-reader", "log-collector", "stand-operator", "janitor"]
+NIX_PKG = {"gh": "gh", "railway": "railway", "gcloud": "google-cloud-sdk", "doctl": "doctl", "yc": "yandex-cloud",
+           "wrangler": "wrangler", "docker": "docker"}
+
+
+def in_nix_shell(cmd):
+    return f"nix shell nixpkgs#{NIX_PKG[cmd.split()[0]]} -c {cmd}"
+
+
+class ReadersNeverPrintSecrets(unittest.TestCase):
+    """AC15: no reader prints a secret; the reader allowlist follows the R marks of skills/cli-*."""
+    SECRET = ["yc config list", "yc iam create-token", "gh auth status --show-token", "gh auth token",
+              "railway variable list", "railway variable list --json", "railway variable list -s api -e prod --kv",
+              "doctl auth token", "doctl databases connection 1111-2222", "doctl databases connection 1111 --format URI",
+              "yc config get token"]
+    ENV_DUMPS = ["printenv", "printenv HOME", "printenv | grep -i token", "env", "env | sort"]
+    # the R marks of skills/cli-*: allowed for every reader
+    NEW_READ = ["yc iam whoami", "yc config get folder-id", "yc config get cloud-id", "railway status",
+                "railway status --json", "railway deployment list -s api -e prod --limit 5 --json",
+                "doctl apps list --format ID,Spec.Name,ActiveDeployment.ID --no-header",
+                "doctl apps get 1111-2222 --format ID,Spec.Name --no-header",
+                "doctl apps list-deployments 1111-2222 --format ID,Cause,Phase --no-header",
+                "doctl apps get-deployment 1111-2222 3333-4444 -o json",
+                "gcloud run services logs read api --region europe-west1 --project p1 --limit=100",
+                "yc logging group list --folder-id b1g0000 --limit 20",
+                "docker version", "docker version --format '{{.Server.Version}}'"]
+    # next to the R marks but not on them: stay denied
+    STILL_DENIED = ["yc config set folder-id b1g0000", "yc config profile list",
+                    "railway variable set A=1", "railway variables", "railway deployment redeploy",
+                    "doctl apps create --spec app.yaml", "doctl apps delete 1111-2222",
+                    "gcloud run services delete api", "gcloud run services update api --image x",
+                    "yc logging group delete --name g", "docker version && docker system prune -af"]
+
+    def test_readers_never_print_secrets_and_follow_skill_marks(self):
+        for agent in ALL_READERS:
+            for cmd in self.SECRET + self.ENV_DUMPS:
+                forms = [cmd] + ([in_nix_shell(cmd)] if cmd.split()[0] in NIX_PKG else [])
+                forms += [f"bash -c '{cmd}'", f"echo \"$({cmd})\"", f"{cmd} | head -n 1"]
+                for form in forms:
+                    with self.subTest(agent=agent, denied=form):
+                        res = bash(form, agent=agent)
+                        self.assertTrue(denied(res), form)
+                        self.assertIn(cmd.split(" | ")[0], reason(res), f"{form}: the reason does not quote the command")
+            for cmd in self.NEW_READ:
+                for form in (cmd, in_nix_shell(cmd), f"{cmd} | tail -n 20"):
+                    with self.subTest(agent=agent, allowed=form):
+                        res = bash(form, agent=agent)
+                        self.assertFalse(denied(res), f"{form}: {reason(res)}")
+            for cmd in self.STILL_DENIED:
+                with self.subTest(agent=agent, still_denied=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
+
+    def test_stand_operator_and_janitor_may_run_reader_commands(self):
+        for agent in ["stand-operator", "janitor"]:
+            for cmd in ["gh run list", "gh run view 12345 --log-failed", "railway whoami", "railway logs",
+                        "docker logs --tail 50 shop-api-1", "docker version", "git status", "git log --oneline",
+                        "cat logs/run.txt", "grep -rn error logs", "ls -la docs/temp",
+                        "docker logs shop-api-1 | grep -i error"]:
+                with self.subTest(agent=agent, allowed=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_stand_operator_and_janitor_are_gated_like_readers(self):
+        for agent in ["stand-operator", "janitor"]:
+            for cmd in ["gh run rerun 12345", "railway up", "wrangler deploy", "kubectl apply -f k8s/",
+                        "terraform apply -auto-approve", "git push origin feature/x", "curl -X POST https://example.com/hook",
+                        "python3 script.py", "gh run list && gh run rerun 1", "bash -lc 'railway redeploy'"]:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
+
+    def test_secret_denials_do_not_limit_other_agents(self):
+        for agent in [None, "coder", "deploy-engineer", "ci-engineer"]:
+            for cmd in ["yc config list", "gh auth token", "doctl auth token"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+STAND_PLAN = """# Plan
+
+### T1 — stand
+- **Goal:** bring the dev stand up with `nix run .#dev-stand`; take it down with `nix run .#dev-stand-down`.
+- **Status:** todo
+- **Writes (exclusive):** `src/a/app.py`
+- **Tests (test-writer):** `src/a/tests/test_a.py`
+"""
+
+
+class StandOperatorCommands(unittest.TestCase):
+    """AC16: stand-operator runs reader commands plus the documented stand commands, always with -p."""
+    AGENT = "stand-operator"
+    ALLOWED = [
+        "docker compose -p shop up -d",
+        "docker compose -p shop -f docker-compose.dev.yaml up -d",
+        "docker compose -f docker-compose.dev.yaml -p shop up -d",
+        "docker compose -p shop up --wait",
+        "docker compose -f docker-compose.dev.yaml -p shop up --wait",
+        "docker compose -p shop restart api",
+        "docker compose -f docker-compose.dev.yaml -p shop restart api",
+        "docker compose -p shop down",
+        "docker compose -f docker-compose.dev.yaml -p shop down",
+        "docker compose -p shop ps --format json",
+        "docker compose -f docker-compose.dev.yaml -p shop ps -a",
+        "docker compose -f docker-compose.dev.yaml -p shop logs --tail 200 api",
+        "docker version --format '{{.Server.Version}}'",
+        "docker logs --tail 50 shop-api-1",
+        "docker compose -p shop up -d && docker compose -p shop ps --format json",
+    ]
+    DENIED = [
+        "docker system prune", "docker system prune -af", "docker system prune --volumes",
+        "docker volume rm shop_pgdata", "docker volume prune", "docker volume prune -f",
+        "docker rm shop-api-1", "docker rm -f shop-api-1", "docker container rm shop-api-1", "docker stop shop-api-1",
+        "docker kill shop-api-1", "docker rmi postgres:16", "docker inspect shop-api-1",
+        "docker compose up -d", "docker compose -f docker-compose.dev.yaml up -d", "docker compose up --wait",
+        "docker compose restart api", "docker compose down", "docker compose -f docker-compose.dev.yaml down",
+        "docker compose ps", "docker compose -f docker-compose.dev.yaml logs --tail 200 api",
+        "docker compose -p shop down -v", "docker compose -p shop down --volumes",
+        "docker compose -p shop -f docker-compose.dev.yaml down -v",
+        "docker compose -f docker-compose.dev.yaml -p shop down --volumes",
+        "docker compose -p shop down --rmi all", "docker compose -p shop down --rmi local",
+        "docker compose -p shop down --rmi=all", "docker compose -p shop down --remove-orphans -v",
+        "docker compose -p shop rm -sf", "docker compose -p shop kill", "docker compose -p shop stop",
+        "docker compose -p shop exec api sh", "docker compose -p shop run --rm api sh", "docker compose -p shop config",
+        "docker compose -p shop up -d && docker compose down",
+        "docker compose -p shop ps; docker system prune -af",
+        "docker-compose -p shop up -d", "bash -c 'docker compose down'",
+        "bash -lc 'docker volume rm shop_pgdata'",
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = plan_project(STAND_PLAN)
+
+    def run_cmd(self, cmd):
+        return bash(cmd, agent=self.AGENT, cwd=self.root)
+
+    def test_stand_operator_runs_only_stand_commands(self):
+        for cmd in self.ALLOWED:
+            forms = [cmd] if "&&" in cmd else [cmd, in_nix_shell(cmd)]
+            for form in forms:
+                with self.subTest(allowed=form):
+                    res = self.run_cmd(form)
+                    self.assertFalse(denied(res), f"{form}: {reason(res)}")
+        for cmd in self.DENIED:
+            simple = cmd.startswith("docker ") and not re.search(r"[;&|]", cmd)
+            for form in ([cmd, in_nix_shell(cmd)] if simple else [cmd]):
+                with self.subTest(denied=form):
+                    res = self.run_cmd(form)
+                    self.assertTrue(denied(res), form)
+                    if simple:
+                        self.assertIn(cmd, reason(res), f"{form}: the reason does not quote the command")
+
+    def test_stand_operator_runs_the_nix_run_stand_targets_of_the_plan(self):
+        for cmd in ["nix run .#dev-stand", "nix run .#dev-stand-down"]:
+            with self.subTest(allowed=cmd):
+                res = self.run_cmd(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        for cmd in ["nix run nixpkgs#hello", "nix run github:someone/else#stand", "nix run .#dev-stand; rm -rf docs",
+                    "nix run nixpkgs#docker -- system prune -af", "nix develop -c docker system prune -af"]:
+            with self.subTest(denied=cmd):
+                self.assertTrue(denied(self.run_cmd(cmd)), cmd)
+
+    def test_stand_operator_health_wait_loop_of_its_contract_is_allowed(self):
+        loop = ("timeout 120 nix shell nixpkgs#docker -c sh -c 'until docker compose -f f.yaml -p shop ps --format json "
+                "| grep -q \"\\\"Health\\\":\\\"healthy\\\"\"; do sleep 2; done'")
+        for cmd in [loop, "timeout 120 nix shell nixpkgs#docker -c docker compose -f f.yaml -p shop up --wait"]:
+            with self.subTest(allowed=cmd):
+                res = self.run_cmd(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        with self.subTest(denied="loop with a compose command without -p"):
+            self.assertTrue(denied(self.run_cmd(loop.replace("-p shop ", ""))))
+
+    def test_stand_operator_writes_no_files_through_bash(self):
+        for cmd in ["docker compose -p shop logs api > out.log", "echo x > notes.md", "tee out.txt < /dev/null",
+                    "docker logs shop-api-1 > src/a/app.py"]:
+            with self.subTest(denied=cmd):
+                res = self.run_cmd(cmd)
+                self.assertTrue(denied(res), cmd)
+        for cmd in ["docker compose -p shop logs api > /tmp/t1r5/api.log", "echo x > /dev/null"]:
+            with self.subTest(allowed=cmd):
+                res = self.run_cmd(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_stand_commands_do_not_limit_other_agents(self):
+        for agent in [None, "deploy-engineer", "ci-engineer", "coder"]:
+            for cmd in ["docker compose up -d", "docker system prune -af", "docker compose restart api"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+def janitor_project() -> Path:
+    """A git repo with tracked files and untracked leftovers; the branch is a feature branch."""
+    d = git_repo("feature/t1r5-janitor")
+    for name, text in {"scripts/seed.sh": "echo seed\n", "notes.md": "notes\n", "docs/temp/tracked.txt": "t\n"}.items():
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(text)
+    for name in ["docs/temp/curl-out.json", "docs/temp/trace-1.log", "docs/temp/trace-2.log", "scripts/new-helper.sh",
+                 "result-1.txt"]:
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text("x\n")
+    run = lambda *a: subprocess.run(["git", *a], cwd=d, check=True, capture_output=True)  # noqa: E731
+    run("add", "scripts/seed.sh", "notes.md", "docs/temp/tracked.txt")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "tracked files")
+    return d
+
+
+class JanitorDeletes(unittest.TestCase):
+    """AC17: janitor deletes only explicit, untracked files and named docker items, never in bulk."""
+    AGENT = "janitor"
+    ALLOWED = [
+        "rm docs/temp/curl-out.json",
+        "rm docs/temp/trace-1.log docs/temp/trace-2.log",
+        "rm scripts/new-helper.sh",
+        "cd docs/temp && rm trace-1.log",
+        "docker rm shop-api-1",
+        "docker volume rm shop_pgdata",
+        "docker compose -p shop down",
+        "docker compose -f docker-compose.dev.yaml -p shop down",
+        "docker compose -p shop ps -a",
+        "docker rm shop-api-1 && docker volume rm shop_pgdata",
+        "rm docs/temp/curl-out.json && docker rm shop-api-1",
+    ]
+    DENIED = [
+        "rm -rf docs/temp", "rm -r docs/temp", "rm -R docs/temp", "rm -fr docs/temp", "rm -rf docs/temp/*",
+        "rm --recursive docs/temp", "rm -f -r docs/temp", "rm docs/temp/curl-out.json -r",
+        "rm docs/temp/*", "rm docs/temp/*.log", "rm docs/temp/trace-?.log", "rm docs/temp/trace-[12].log",
+        "rm result-*", "rm",
+        "rm scripts/seed.sh", "rm notes.md", "rm docs/temp/tracked.txt", "rm docs/temp/trace-1.log scripts/seed.sh",
+        "rm scripts/seed.sh docs/temp/trace-1.log", "cd scripts && rm seed.sh", "rm ./scripts/seed.sh",
+        "rm -- scripts/seed.sh",
+        "rm /etc/hosts", "rm ../outside.txt", "rm ~/old.log", "rm $HOME/old.log", "rm $FILE", "rm $(ls docs/temp)",
+        "rm `ls docs/temp`", "rm docs/temp/trace-1.log /etc/hosts",
+        "find docs/temp -delete", "find . -name '*.log' -delete", "find docs/temp -name '*.log' -exec rm {} \\;",
+        "ls docs/temp | xargs rm", "echo docs/temp/trace-1.log | xargs rm",
+        "git clean -fdx", "git clean -fd", "git clean -f docs/temp", "git rm scripts/seed.sh", "git rm --cached notes.md",
+        "git rm -r docs", "unlink scripts/new-helper.sh", "shred -u docs/temp/trace-1.log", "mv scripts/new-helper.sh /dev/null",
+        "docker system prune", "docker system prune -af", "docker system prune --volumes", "docker volume prune",
+        "docker volume prune -f", "docker image prune -a", "docker container prune", "docker network prune",
+        "docker rm -f $(docker ps -aq)", "docker rm $(docker ps -aq)", "docker volume rm $(docker volume ls -q)",
+        "docker volume ls -q | xargs docker volume rm", "docker ps -aq | xargs docker rm",
+        "docker rm `docker ps -aq`", "docker volume rm", "docker rm",
+        "docker compose -p shop down -v", "docker compose -p shop down --volumes",
+        "docker compose -f docker-compose.dev.yaml -p shop down -v",
+        "docker compose down", "docker compose -f docker-compose.dev.yaml down",
+        "docker compose -p shop up -d", "docker compose -p shop restart api", "docker stop shop-api-1",
+        "bash -lc 'rm -rf docs/temp'", "bash -c 'rm scripts/seed.sh'", "sh -c 'git clean -fdx'",
+        "nix develop -c rm -rf docs/temp", "echo ok && rm -rf docs/temp",
+        "rm docs/temp/trace-1.log; rm -rf docs", "eval 'rm -rf docs/temp'",
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = janitor_project()
+
+    def run_cmd(self, cmd):
+        return bash(cmd, agent=self.AGENT, cwd=self.root)
+
+    def test_janitor_deletes_only_listed_untracked_files(self):
+        for cmd in self.ALLOWED:
+            forms = [cmd] + ([in_nix_shell(cmd)] if cmd.startswith("docker ") and "&&" not in cmd else [])
+            for form in forms:
+                with self.subTest(allowed=form):
+                    res = self.run_cmd(form)
+                    self.assertFalse(denied(res), f"{form}: {reason(res)}")
+        for cmd in self.DENIED:
+            forms = [cmd] + ([in_nix_shell(cmd)] if cmd.startswith("docker ") and not re.search(r"[|;&$`]", cmd) else [])
+            for form in forms:
+                with self.subTest(denied=form):
+                    res = self.run_cmd(form)
+                    self.assertTrue(denied(res), form)
+
+    def test_janitor_denial_of_a_tracked_file_names_the_file(self):
+        res = self.run_cmd("rm scripts/seed.sh")
+        self.assertTrue(denied(res))
+        self.assertIn("scripts/seed.sh", reason(res))
+        self.assertIn("tracked", reason(res))
+        res = self.run_cmd("rm -rf docs/temp")
+        self.assertTrue(denied(res))
+        self.assertIn("rm -rf docs/temp", reason(res))
+
+    def test_janitor_may_ask_git_whether_a_file_is_tracked(self):
+        for cmd in ["git ls-files --error-unmatch scripts/seed.sh", "git ls-files docs/temp", "git status --short"]:
+            with self.subTest(allowed=cmd):
+                res = self.run_cmd(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_janitor_writes_no_files_through_bash(self):
+        for cmd in ["echo x > .plan/PLAN.md", "echo x > notes.md", "tee out.txt < /dev/null", "touch docs/temp/new.txt"]:
+            with self.subTest(denied=cmd):
+                self.assertTrue(denied(self.run_cmd(cmd)), cmd)
+        for cmd in ["docker compose -p shop ps -a > /tmp/t1r5/ps.txt", "echo x > /dev/null"]:
+            with self.subTest(allowed=cmd):
+                res = self.run_cmd(cmd)
+                self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_janitor_limits_do_not_apply_to_other_agents(self):
+        for agent in [None, "deploy-engineer", "ci-engineer"]:
+            for cmd in ["rm docs/temp/trace-1.log", "docker system prune -af", "git clean -fd"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
 
 if __name__ == "__main__":

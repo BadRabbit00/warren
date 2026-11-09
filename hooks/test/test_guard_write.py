@@ -426,5 +426,30 @@ class TestLogCollector(unittest.TestCase):
                                  denied(write(target, "deploy-error-reader", r)))
 
 
+class TestStandOperatorAndJanitor(unittest.TestCase):
+    """AC16/AC17: stand-operator and janitor have no Write/Edit anywhere in the project."""
+    AGENTS = ["stand-operator", "janitor"]
+    PATHS = ["src/orders/app/services/order_service.py", "src/orders/test/services/test_order_service.py",
+             "docs/API.md", "docs/temp/note.md", ".plan/PLAN.md", "README.md", "flake.nix",
+             "docker-compose.dev.yaml", "notes.md"]
+
+    def test_stand_operator_and_janitor_cannot_write(self):
+        for plan in (PLAN, None):
+            r = project(plan)
+            for agent in self.AGENTS:
+                for p in self.PATHS:
+                    for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+                        with self.subTest(plan=plan is not None, agent=agent, p=p, tool=tool):
+                            res = write(r / p, agent, r, tool=tool)
+                            self.assertTrue(denied(res), f"{agent} {p} {tool}")
+                            self.assertIn(p, reason(res))
+
+    def test_stand_operator_and_janitor_are_denied_outside_the_project_too(self):
+        r = project()
+        for agent in self.AGENTS:
+            with self.subTest(agent=agent):
+                self.assertTrue(denied(write("/etc/hosts", agent, r)))
+
+
 if __name__ == "__main__":
     unittest.main()
