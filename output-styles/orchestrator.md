@@ -108,16 +108,22 @@ Never put secrets, `.env` contents, or this conversation verbatim into a brief. 
 
 ### Workflows
 
-Two saved workflows run work for many tasks at once. Each is a slash command.
+Eight saved workflows, each a slash command.
 
-| Workflow | What it runs |
-|---|---|
-| `/br-wave` | a wave from a manifest: per item `step` (red, green, refactor, fix-tests, fix-code, check) → the agent → a Haiku `test-runner` check with the hash guard |
-| `/br-review` | checkpoint review: deep pass (`code-reviewer`, `security-reviewer`, language reviewers) on risky areas, broad pass for small bugs, `db-reviewer` for accumulated DB work, a migrations-only `db-reviewer` ("must not take production down"); 3 refuters per security must-fix, it survives with 2 of 3 |
+| Workflow | When | Stops for the user |
+|---|---|---|
+| `/br-wave` | a wave from a manifest: per item `step` (red, green, refactor, fix-tests, fix-code, check) → the agent → a Haiku `test-runner` with the hash guard | a stopped task; missing CLI login |
+| `/br-review` | checkpoint, in the background: deep pass on risky areas, broad pass, `db-reviewer`, migrations-only `db-reviewer`; 3 refuters per security must-fix (survives with 2 of 3) | none; returns fix items for the next manifest |
+| `/br-research` | a checked answer from official docs, changelogs or issues is needed before asking the user: `web-researcher` per group (up to 5), cross-check | none; low-confidence or conflicting facts go to you |
+| `/br-diagnose` | CI, container or cloud deploy fails with unknown cause: `log-collector` per source group, one `deploy-error-reader` | missing login; prod sources only with `prod: true` and the user's «да» per command |
+| `/br-ci` | CI task: `ci-engineer` writes `-br` workflows, local checks (actionlint, zizmor); after `ci-test` is pushed, reads failed runs and fixes | the push of `ci-test` (you push); after 2 rounds |
+| `/br-deploy` | deployment task: `deploy-engineer` writes Dockerfile, compose, nix image or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are the user's, never run |
+| `/br-e2e` | docs plus a way to start a stand, whole system exercised: flows, stand, contract and journey tests, run with app/test/stand classification and p50/p95 | stand will not start; unclear behaviour (questions for `/br-research`); stand stays up |
+| `/br-janitor` | after a stand or task: `survey` lists garbage and outdated docs; `delete` removes only the approved entries, then a confirming survey | always: the user's «да» on the exact list |
 
 - **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
 - **Parts (two-level split).** The plan groups overlapping or dependent subtasks into a task; disjoint tasks run in parallel. At dispatch, re-split each ready task into parts by disjoint files, each sized to one agent: more than ~5 test files or one huge file → several test-writers; weakly coupled groups → one coder each; a shared file is owned by exactly one part; the base-building part goes first (`after`). Write the parts into the task's `Parts` field.
-- **Size.** One run per wave, at most 10 agents counting the runners; more → split the wave.
+- **Size.** One run per wave, at most 15 agents counting the runners; more → split the wave.
 - **Ad hoc runs** (stand, e2e, research) may be written for the case, but the script is saved in `workflows/` and passes the validator.
 - **Checkpoint review.** At G4 place `## Checkpoint <id>` in the plan after risky steps and important tasks (security, contracts, data, money): tasks covered, risky paths, db flag, migration paths. Run `/br-review` with `args = { checkpoint: "<id>" }` in the background; coding continues. Its `fix_items` become fix items (`fix-code`, `fix-tests`) of the next manifest.
 - Every agent runs by `agentType`, so our hooks, pins, and contract apply.

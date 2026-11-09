@@ -6,7 +6,8 @@ export const meta = {
   phases: ['Preflight', 'Write', 'Check', 'Collect', 'Analyse', 'Fix'],
 }
 
-const MAX_AGENTS = 10
+// Per-run cap (D23). Worst case: preflight 1 + write 1 + checks 2, then two full fix rounds of collect + analyse + fix + checks 2 = 5 each: 14.
+const MAX_AGENTS = 15
 const MAX_ROUNDS = 2
 const TARGETS = ['local', 'railway', 'gcp', 'digitalocean', 'yandex', 'cloudflare']
 const CLI_OF = { railway: 'railway', gcp: 'gcloud', digitalocean: 'doctl', yandex: 'yc', cloudflare: 'wrangler' }
@@ -41,7 +42,7 @@ const WORK_SCHEMA = {
 
 const CHECK_SCHEMA = {
   type: 'object',
-  required: ['ok', 'checks', 'plan_path', 'diff_summary'],
+  required: ['ok', 'checks', 'plan_text', 'diff_summary'],
   properties: {
     ok: { type: 'boolean' },
     checks: {
@@ -52,26 +53,26 @@ const CHECK_SCHEMA = {
         properties: { command: { type: 'string' }, ok: { type: 'boolean' }, output: { type: 'string', description: 'bounded excerpt of the failure, empty when ok' } },
       },
     },
-    plan_path: { type: 'string', description: 'file in docs/temp with the tofu plan, or "" if there is no IaC' },
+    plan_text: { type: 'string', description: 'bounded text of the tofu plan, or "" if there is no IaC' },
     diff_summary: { type: 'string' },
   },
 }
 
 const SMOKE_SCHEMA = {
   type: 'object',
-  required: ['ok', 'services', 'logs_path', 'notes'],
+  required: ['ok', 'services', 'logs', 'notes'],
   properties: {
     ok: { type: 'boolean' },
     services: { type: 'array', items: { type: 'object', required: ['name', 'healthy'], properties: { name: { type: 'string' }, healthy: { type: 'boolean' } } } },
-    logs_path: { type: 'string' },
+    logs: { type: 'string', description: 'bounded logs of failing services, empty when ok' },
     notes: { type: 'string' },
   },
 }
 
 const COLLECT_SCHEMA = {
   type: 'object',
-  required: ['excerpt_paths', 'summary'],
-  properties: { excerpt_paths: strArr, summary: { type: 'string' } },
+  required: ['excerpts', 'summary'],
+  properties: { excerpts: { type: 'string', description: 'bounded raw excerpts, returned as text' }, summary: { type: 'string' } },
 }
 
 const ANALYSIS_SCHEMA = {
@@ -106,7 +107,6 @@ const a = args || {}
 const target = typeof a.target === 'string' ? a.target : ''
 const files = Array.isArray(a.files) ? a.files.filter((f) => typeof f === 'string' && f !== '') : []
 const brief = typeof a.brief === 'string' ? a.brief : ''
-const dir = `docs/temp/br-deploy-${safeId(a.id || target)}`
 const stack = `br-deploy-${safeId(a.id || target)}`
 
 const problems = []
@@ -164,8 +164,8 @@ async function checks() {
   if (!take('static checks')) return out
   out.static = await agent(
     `Do not edit source files. Check these deploy files: ${files.join(', ')}. Run what applies: \`docker compose config --quiet\` for compose files, the image build (docker build or the nix image build), ` +
-      `and \`tofu plan\` (never apply) with the plan text written to ${dir}/plan.txt, through \`nix develop -c\` or \`nix shell nixpkgs#<pkg> -c\`. ` +
-      'Return every command with ok and a bounded excerpt of the failure output, plan_path ("" without IaC) and diff_summary (`git diff --stat` of these files). ok is true only when every check passed.',
+      `and \`tofu plan\` (never apply) with the plan text returned in plan_text (you cannot write files), through \`nix develop -c\` or \`nix shell nixpkgs#<pkg> -c\`. ` +
+      'Return every command with ok and a bounded excerpt of the failure output, plan_text ("" without IaC) and diff_summary (`git diff --stat` of these files). ok is true only when every check passed.',
     { agentType: 'test-runner', phase: 'Check', label: 'static checks', schema: CHECK_SCHEMA },
   )
   const hasCompose = files.some((f) => f.includes('compose'))
@@ -173,7 +173,7 @@ async function checks() {
     if (take('smoke')) {
       out.smoke = await agent(
         `Bring up the local stand from ${files.filter((f) => f.includes('compose')).join(', ')} with \`docker compose -p ${stack} -f <file> up -d\`, wait for the healthchecks of all services, ` +
-          `then take it down again with \`docker compose -p ${stack} down\` (keep the volumes unless the brief says otherwise). Write bounded logs of any failing service to ${dir}/. Run nothing against any cloud.`,
+          `then take it down again with \`docker compose -p ${stack} down\` (keep the volumes unless the brief says otherwise). Return bounded logs of any failing service in logs (you cannot write files). Run nothing against any cloud.`,
         { agentType: 'stand-operator', phase: 'Check', label: 'smoke stand', schema: SMOKE_SCHEMA },
       )
     }
@@ -186,7 +186,7 @@ function failureText(res) {
   const parts = []
   if (!res.static) parts.push('static checks returned nothing')
   else res.static.checks.filter((c) => !c.ok).forEach((c) => parts.push(`${c.command}\n${c.output}`))
-  if (res.smoke && !res.smoke.ok) parts.push(`smoke failed: ${res.smoke.notes}; logs: ${res.smoke.logs_path}`)
+  if (res.smoke && !res.smoke.ok) parts.push(`smoke failed: ${res.smoke.notes}; logs:\n${res.smoke.logs}`)
   return parts.join('\n---\n')
 }
 
@@ -197,13 +197,13 @@ while (!res.ok && rounds < MAX_ROUNDS) {
   rounds += 1
   if (!take(`collect round ${rounds}`)) break
   const got = await agent(
-    `Read-only. Collect bounded raw excerpts (no reasoning) of the failures of the deploy checks into ${dir}/. Failures:\n${failureText(res)}\nReturn excerpt_paths and a short summary.`,
+    `Read-only. Collect bounded raw excerpts (no reasoning) of the failures of the deploy checks; you cannot write files, return them as text in excerpts. Failures:\n${failureText(res)}\nReturn excerpts and a short summary.`,
     { agentType: 'log-collector', phase: 'Collect', label: `collect ${rounds}`, schema: COLLECT_SCHEMA },
   )
   if (!got) { log('stopped: log collector returned nothing'); break }
   if (!take(`analyse round ${rounds}`)) break
   const analysis = await agent(
-    `Analyse the failed deploy checks. Excerpts: ${got.excerpt_paths.join(', ')}. You may run read-only commands. Files under repair: ${files.join(', ')}. ` +
+    `Analyse the failed deploy checks. Excerpts:\n${got.excerpts}\nYou may run read-only commands. Files under repair: ${files.join(', ')}. ` +
       'Return cause, evidence (quoted lines with source), fix as a task proposal {agent, files, steps}, confidence, and what else to collect if unsure.',
     { agentType: 'deploy-error-reader', phase: 'Analyse', label: `analyse ${rounds}`, schema: ANALYSIS_SCHEMA },
   )
@@ -211,7 +211,7 @@ while (!res.ok && rounds < MAX_ROUNDS) {
   analyses.push(analysis)
   if (!take(`fix round ${rounds}`)) break
   const fixed = await agent(
-    engineerBrief(`Checks failed (round ${rounds}). Cause: ${analysis.cause}\nProposed steps: ${analysis.fix.steps.join('; ')}\nExcerpts: ${got.excerpt_paths.join(', ')}`),
+    engineerBrief(`Checks failed (round ${rounds}). Cause: ${analysis.cause}\nProposed steps: ${analysis.fix.steps.join('; ')}\nExcerpts:\n${got.excerpts}`),
     { agentType: 'deploy-engineer', phase: 'Fix', label: `fix ${rounds}`, schema: WORK_SCHEMA },
   )
   if (!fixed || fixed.status !== 'done') {
@@ -230,7 +230,7 @@ return {
   target,
   rounds,
   files: work.files,
-  plan_path: res.static ? res.static.plan_path : '',
+  plan_text: res.static ? res.static.plan_text : '',
   diff_summary: res.static ? res.static.diff_summary : '',
   checks: res.static ? res.static.checks : [],
   smoke: res.smoke,

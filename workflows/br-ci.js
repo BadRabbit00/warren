@@ -6,7 +6,7 @@ export const meta = {
   phases: ['Preflight', 'Write', 'Check', 'Collect', 'Analyse', 'Fix'],
 }
 
-const MAX_AGENTS = 10
+const MAX_AGENTS = 15
 const HARD_ROUNDS = 2
 const strArr = { type: 'array', items: { type: 'string' } }
 
@@ -53,10 +53,10 @@ const LOGIN_SCHEMA = {
 
 const COLLECT_SCHEMA = {
   type: 'object',
-  required: ['failed_runs', 'excerpt_paths', 'summary'],
+  required: ['failed_runs', 'excerpts', 'summary'],
   properties: {
     failed_runs: { type: 'array', items: { type: 'object', required: ['id', 'workflow', 'conclusion'], properties: { id: { type: 'string' }, workflow: { type: 'string' }, conclusion: { type: 'string' } } } },
-    excerpt_paths: strArr,
+    excerpts: { type: 'string', description: 'bounded raw excerpts of the failed runs, returned as text' },
     summary: { type: 'string' },
   },
 }
@@ -75,13 +75,6 @@ const ANALYSIS_SCHEMA = {
 
 function shellQuote(s) {
   return "'" + String(s).split("'").join("'\\''") + "'"
-}
-
-// Run id for docs/temp: letters, digits, - and _ only.
-function safeId(s) {
-  const ok = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'
-  const out = String(s).split('').map((c) => (ok.includes(c) ? c : '-')).join('')
-  return out === '' ? 'run' : out.slice(0, 40)
 }
 
 function stemOf(f) {
@@ -106,7 +99,6 @@ const brief = typeof a.brief === 'string' ? a.brief : ''
 const task = typeof a.task === 'string' ? a.task : ''
 const afterPush = a.after_push === true
 const maxRounds = Math.min(Number.isInteger(a.max_rounds) && a.max_rounds > 0 ? a.max_rounds : HARD_ROUNDS, HARD_ROUNDS)
-const dir = `docs/temp/br-ci-${safeId(a.id || task || 'run')}`
 
 const problems = []
 if (files.length === 0) problems.push('args.files is missing or empty')
@@ -210,7 +202,7 @@ if (missing.length > 0) {
 if (!take('collect failed runs')) return { stopped: true, problems: ['agent cap reached'] }
 const got = await agent(
   `Read-only. List runs of the ci-test branch (\`gh run list --branch ci-test\`) and for each failed one take \`gh run view <id> --log-failed\`. ` +
-    `Write bounded raw excerpts (no reasoning) to ${dir}/ and return failed_runs, excerpt_paths and a short summary. If no run failed, return empty lists.`,
+    `Return bounded raw excerpts (no reasoning) as text in excerpts (you cannot write files), failed_runs and a short summary. If no run failed, return an empty list and empty excerpts.`,
   { agentType: 'log-collector', phase: 'Collect', label: 'failed runs', schema: COLLECT_SCHEMA },
 )
 if (!got) return { stopped: true, problems: ['log collector returned nothing'] }
@@ -221,15 +213,15 @@ if (got.failed_runs.length === 0) {
 
 if (!take('analyse')) return { stopped: true, problems: ['agent cap reached'] }
 const analysis = await agent(
-  `Analyse the failed CI runs. Excerpts: ${got.excerpt_paths.join(', ')}. You may run read-only commands. Files under repair: ${files.join(', ')}. ` +
+  `Analyse the failed CI runs. Excerpts:\n${got.excerpts}\nYou may run read-only commands. Files under repair: ${files.join(', ')}. ` +
     'Return cause, evidence (quoted lines with source), fix as a task proposal {agent, files, steps}, confidence, and what else to collect if unsure.',
   { agentType: 'deploy-error-reader', phase: 'Analyse', label: 'failure analysis', schema: ANALYSIS_SCHEMA },
 )
-if (!analysis) return { stopped: true, problems: ['analyst returned nothing'], excerpt_paths: got.excerpt_paths }
+if (!analysis) return { stopped: true, problems: ['analyst returned nothing'], excerpts: got.excerpts }
 
 if (!take('ci-engineer fix')) return { stopped: true, problems: ['agent cap reached'], analysis }
 const fix = await agent(
-  engineerBrief(`The ci-test run failed (round ${round}). Cause: ${analysis.cause}\nProposed steps: ${analysis.fix.steps.join('; ')}\nExcerpts: ${got.excerpt_paths.join(', ')}`),
+  engineerBrief(`The ci-test run failed (round ${round}). Cause: ${analysis.cause}\nProposed steps: ${analysis.fix.steps.join('; ')}\nExcerpts:\n${got.excerpts}`),
   { agentType: 'ci-engineer', phase: 'Fix', label: `ci-engineer fix ${round}`, schema: WORK_SCHEMA },
 )
 if (!fix || fix.status !== 'done') {
@@ -242,7 +234,7 @@ return {
   next_round: round + 1,
   analysis,
   work: fix,
-  excerpt_paths: got.excerpt_paths,
+  excerpts: got.excerpts,
   user_commands: pushCommands,
   next: round >= maxRounds ? 'This was the last round: if ci-test still fails, stop for the user' : 'After the push run /br-ci again with after_push: true and round: ' + (round + 1),
 }

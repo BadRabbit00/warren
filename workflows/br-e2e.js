@@ -6,7 +6,7 @@ export const meta = {
   phases: ['Preflight', 'Flows', 'Stand', 'Harness', 'Tests', 'Run'],
 }
 
-const MAX_AGENTS = 10
+const MAX_AGENTS = 15
 const MAX_WRITERS = 6
 const MAX_ENDPOINTS_PER_WRITER = 15
 const strArr = { type: 'array', items: { type: 'string' } }
@@ -29,9 +29,8 @@ const LOGIN_SCHEMA = {
 
 const FLOWS_SCHEMA = {
   type: 'object',
-  required: ['flows_path', 'flows', 'endpoints', 'notes'],
+  required: ['flows', 'endpoints', 'notes'],
   properties: {
-    flows_path: { type: 'string' },
     flows: {
       type: 'array',
       items: {
@@ -70,8 +69,8 @@ const STAND_SCHEMA = {
 
 const LOGS_SCHEMA = {
   type: 'object',
-  required: ['excerpts_path', 'summary'],
-  properties: { excerpts_path: { type: 'string' }, summary: { type: 'string' } },
+  required: ['excerpts', 'summary'],
+  properties: { excerpts: { type: 'string', description: 'bounded raw excerpts, returned as text' }, summary: { type: 'string' } },
 }
 
 const ERROR_SCHEMA = {
@@ -94,7 +93,7 @@ const WRITER_SCHEMA = {
 
 const RUN_SCHEMA = {
   type: 'object',
-  required: ['ran', 'passed', 'failed', 'per_test', 'timings', 'report_paths', 'questions', 'summary'],
+  required: ['ran', 'passed', 'failed', 'per_test', 'timings', 'questions', 'summary'],
   properties: {
     ran: { type: 'integer' }, passed: { type: 'integer' }, failed: { type: 'integer' },
     per_test: {
@@ -118,7 +117,6 @@ const RUN_SCHEMA = {
         properties: { step: { type: 'string' }, p50_ms: { type: 'number' }, p95_ms: { type: 'number' }, budget_ms: { type: 'number', description: '0 when docs/POLICY.md has no budget' }, over_budget: { type: 'boolean' } },
       },
     },
-    report_paths: strArr,
     questions: { ...strArr, description: 'where the expected behaviour is unclear from the docs: questions for /br-research' },
     summary: { type: 'string' },
   },
@@ -189,7 +187,7 @@ const pre = await agent(
   'Preflight, read-only. Check: ' +
     `the docker daemon (run \`docker version\`), free ports and subnets for the compose files of the stand (${stand === 'nix' ? 'the nix stand target' : 'docker-compose*.yaml'}), nix develop works` +
     (target === 'dev-stand' ? ', and the Railway login (`railway status`, through `nix shell nixpkgs#railway -c railway status`)' : '') +
-    '. Also create the directory docs/temp/e2e-<id>/ with <id> = the output of `date +%Y%m%d-%H%M%S` and return its name in problems as "dir: docs/temp/e2e-<id>" as the FIRST entry. ' +
+    '. Also run `date +%Y%m%d-%H%M%S` (create nothing, you cannot write files) and return "dir: docs/temp/e2e-<id>" with <id> = that output in problems as the FIRST entry. ' +
     'For each CLI that is not logged in return user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`. Any other missing tool or busy port goes into problems.',
   { agentType: 'log-collector', label: 'preflight', phase: 'Preflight', schema: LOGIN_SCHEMA },
 )
@@ -213,11 +211,12 @@ if (missing.length > 0 || blockers.length > 0 || !dir.startsWith('docs/temp/e2e-
 }
 
 used += 1
+const flowsPath = `${dir}/flows.md`
 const flows = await agent(
   `Read the skill ~/.claude/skills/user-flows/SKILL.md first. Then read docs/ (the GENERAL processes, API docs / OpenAPI, SPECIFICATION${flowsDoc !== '' ? `, and ${flowsDoc}` : ''}) and the UI routes of the app. ` +
     'Return ALL user flows: business-critical ones first (for example open the app, search a product, pick a merchant, ..., order received), then assemble the remaining interactions into meaningful flows that also probe navigation (the back button returns to the previous page, not home or 404), roles, and errors. ' +
     'Each flow: id, name, priority, steps with action, expect, db_checks (rows to assert after the step) and timing (budget from docs/POLICY.md if any). ' +
-    `Write the flows as markdown to ${dir}/flows.md and return that path as flows_path. Also return endpoints [{method, path, group}] from the API docs / OpenAPI. Do not edit anything else.`,
+    'Return the flows through the schema; you cannot write files. Also return endpoints [{method, path, group}] from the API docs / OpenAPI.',
   { agentType: 'researcher', label: 'flows', phase: 'Flows', schema: FLOWS_SCHEMA },
 )
 if (!flows || flows.flows.length === 0) {
@@ -228,18 +227,18 @@ if (!flows || flows.flows.length === 0) {
 async function standFailure(what, detail) {
   used += 1
   const logs = await agent(
-    `The e2e stand failed (${what}). Collect bounded raw excerpts (no reasoning): \`docker compose -p <project> ps\`, \`logs --tail 200\` per failing service, the compose file or nix stand target. Write them to ${dir}/stand-logs.txt and return the path.`,
+    `The e2e stand failed (${what}). Collect bounded raw excerpts (no reasoning): \`docker compose -p <project> ps\`, \`logs --tail 200\` per failing service, the compose file or nix stand target. Return them as text in excerpts; you cannot write files.`,
     { agentType: 'log-collector', label: 'stand logs', phase: 'Stand', schema: LOGS_SCHEMA },
   )
   used += logs ? 1 : 0
   const why = logs
     ? await agent(
-      `Analyse the stand failure from ${logs.excerpts_path}. Detail from the operator: ${detail}. You may run read-only commands. Return cause, evidence (quoted lines with source), fix as a short proposal, confidence.`,
+      `Analyse the stand failure from these excerpts:\n${logs.excerpts}\nDetail from the operator: ${detail}. You may run read-only commands. Return cause, evidence (quoted lines with source), fix as a short proposal, confidence.`,
       { agentType: 'deploy-error-reader', label: 'stand error', phase: 'Stand', schema: ERROR_SCHEMA },
     )
     : null
   log(`stopped: stand did not come up (${what})`)
-  return { stopped: true, problems: [`stand did not come up: ${what}`], stand_error: why, logs_path: logs ? logs.excerpts_path : '', flows_path: flows.flows_path, report_dir: dir }
+  return { stopped: true, problems: [`stand did not come up: ${what}`], stand_error: why, stand_logs: logs ? logs.excerpts : '', flows_path: flowsPath, report_dir: dir }
 }
 
 let standInfo = null
@@ -269,17 +268,18 @@ const standLine = `Stand: project ${standInfo.project_name}, base URL ${standInf
 
 used += 1
 const harness = await agent(
-  `Read the skill ~/.claude/skills/e2e-testing/SKILL.md first. ${standLine} Flows: ${flows.flows_path}. ` +
-    'Write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures using the browsers from nixpkgs. No tests of your own beyond a smoke check that the harness imports and reaches the stand. ' +
+  `Read the skill ~/.claude/skills/e2e-testing/SKILL.md first. ${standLine} ` +
+    `First create the directory ${dir}/ and write the user flows below as markdown to ${flowsPath} (the researcher cannot write files). Flows:\n${JSON.stringify(flows.flows, null, 1)}\n` +
+    'Then write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures using the browsers from nixpkgs. No tests of your own beyond a smoke check that the harness imports and reaches the stand. ' +
     'Return {status: done|blocked, files, tests: [], app_failures: [], notes}.',
   { agentType: 'test-writer', label: 'harness', phase: 'Harness', schema: WRITER_SCHEMA },
 )
 if (!harness || harness.status !== 'done') {
   log(`stopped: harness ${harness ? 'blocked: ' + harness.notes : 'returned nothing'}`)
-  return { stopped: true, problems: ['e2e harness was not written'], harness, flows_path: flows.flows_path, report_dir: dir }
+  return { stopped: true, problems: ['e2e harness was not written'], harness, flows_path: flowsPath, report_dir: dir }
 }
 
-// Agents so far are in `used`; one is kept for the final test-runner.
+// Agents so far are in `used`; one is kept for the final test-runner. A normal run leaves up to MAX_WRITERS (6) parallel test-writers.
 const slots = Math.min(MAX_WRITERS, MAX_AGENTS - used - 1)
 const plan = allocate(flows.endpoints, flows.flows, slots)
 const contract = plan.c > 0 ? contractChunks(flows.endpoints, plan.c) : []
@@ -288,7 +288,7 @@ if (contract.some((c) => c.length > MAX_ENDPOINTS_PER_WRITER)) log(`contract gro
 if (contract.length + journeys.length === 0) log('no endpoints and no flows to write tests for')
 
 const commonRules =
-  `${standLine} Harness files: ${harness.files.join(', ')}. Flows: ${flows.flows_path}. Write only your own test files next to the harness; do not edit the harness or other writers' files. ` +
+  `${standLine} Harness files: ${harness.files.join(', ')}. Flows: ${flowsPath}. Write only your own test files next to the harness; do not edit the harness or other writers' files. ` +
   'Run your tests against the stand. Fix errors in the tests themselves (collection, fixtures, selectors, wrong assumptions). A failure caused by the application stays: do not weaken the test, and list it in app_failures {test, message}. ' +
   'Return {status: done|blocked, files, tests (bare names), app_failures, notes}.'
 
@@ -317,7 +317,7 @@ written.forEach((w, k) => {
 const okWriters = written.filter((w) => w && w.status === 'done')
 if (okWriters.length === 0) {
   log('stopped: no test writer finished')
-  return { stopped: true, problems: ['no test writer finished'], report_dir: dir, flows_path: flows.flows_path }
+  return { stopped: true, problems: ['no test writer finished'], report_dir: dir, flows_path: flowsPath }
 }
 
 const testFiles = [...harness.files, ...okWriters.flatMap((w) => w.files)]
@@ -325,12 +325,12 @@ used += 1
 const run = await agent(
   `${standLine} Do not edit files. Run ALL e2e phases in order: api (contract), access (role matrix), journeys, with the project's commands through \`nix develop -c\`. Test files: ${testFiles.map(shellQuote).join(' ')}. ` +
     'Return every test with pass/fail/error/skip and, for a non-pass, a classification: app (the application is wrong), test (the test is wrong: collection, fixture, selector, bad assumption), stand (the stand or environment broke) and the file the fix belongs in (application source for app). ' +
-    `Return a timings table of p50 and p95 per step against the budgets in docs/POLICY.md (over_budget is reported, not a failure). Write the full reports to ${dir}/ and return their paths in report_paths. Put in questions every place where the expected behaviour is unclear from the docs.`,
+    `Return a timings table of p50 and p95 per step against the budgets in docs/POLICY.md (over_budget is reported, not a failure). You cannot write files: put the full report in summary. Put in questions every place where the expected behaviour is unclear from the docs.`,
   { agentType: 'test-runner', label: 'final run', phase: 'Run', schema: RUN_SCHEMA },
 )
 if (!run) {
   log('stopped: final run returned nothing')
-  return { stopped: true, problems: ['final test-runner returned nothing'], report_dir: dir, flows_path: flows.flows_path }
+  return { stopped: true, problems: ['final test-runner returned nothing'], report_dir: dir, flows_path: flowsPath }
 }
 
 // fix_items in the /br-wave manifest-item shape; the agent follows the file extension, the task is filled by the orchestrator.
@@ -356,11 +356,11 @@ const others = run.per_test.filter((t) => (t.outcome === 'fail' || t.outcome ===
 return {
   stand: { project: standInfo.project_name, base_url: standInfo.base_url, left_up: true },
   report_dir: dir,
-  flows_path: flows.flows_path,
+  flows_path: flowsPath,
   flows: flows.flows.length,
   endpoints: flows.endpoints.length,
   writers: written.map((w, k) => ({ label: jobs[k].label, status: w ? w.status : 'failed', files: w ? w.files : [], app_failures: w ? w.app_failures : [] })),
-  run: { ran: run.ran, passed: run.passed, failed: run.failed, report_paths: run.report_paths, summary: run.summary },
+  run: { ran: run.ran, passed: run.passed, failed: run.failed, summary: run.summary },
   timings: run.timings,
   non_app_failures: others,
   fix_items: fixItems,
