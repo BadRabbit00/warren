@@ -374,7 +374,7 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
-    src = sorted(p.name for p in (br / "workflows").glob("*.js"))
+    src = sorted(p.name for p in (br / "workflows").glob("*.js") if p.is_file())
     inst = claude / "workflows"
     dst = sorted(p.name for p in inst.iterdir()) if inst.is_dir() else []
     if not src:
@@ -383,14 +383,21 @@ def main() -> int:
         if name not in src:
             fail(f"claude/workflows/{name}: not a source workflow")
     for name in src:
+        path = inst / name
         if name not in dst:
             fail(f"claude/workflows/{name}: missing")
-        elif (br / "workflows" / name).read_bytes() != (claude / "workflows" / name).read_bytes():
+        elif not path.is_file():
+            fail(f"claude/workflows/{name}: not a regular file")
+        elif (br / "workflows" / name).read_bytes() != path.read_bytes():
             fail(f"claude/workflows/{name}: differs from workflows/{name}")
-    for name in dst:
-        text = (claude / "workflows" / name).read_text(encoding="utf-8")
-        if name.endswith(".js") and not META_RE.match(first_statement(text)):
-            fail(f"claude/workflows/{name}: first statement must be export const meta = {{…}}")
+        else:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                fail(f"claude/workflows/{name}: not valid UTF-8")
+                continue
+            if not META_RE.match(first_statement(text)):
+                fail(f"claude/workflows/{name}: first statement must be export const meta = {{…}}")
 
     n_codex, n_prompts = export_codex_agy(out, br, models)
 

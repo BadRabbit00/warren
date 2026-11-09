@@ -144,7 +144,7 @@ function redCheck(plan) {
     const failing = run ? run.per_test.filter((t) => t.outcome === 'fail' || t.outcome === 'error') : []
     const red_ok = Boolean(run) && run.errors === 0 && run.failed > 0 &&
       failing.every((t) => t.verdict === 'right_reason') &&
-      run.per_test.every((t) => t.outcome === 'fail')
+      writer.tests.every((w) => failing.some((t) => t.name === w.name))
     log(`${task.id} red: ${run ? `${run.failed} failed, ${run.errors} errors, ${run.passed} passed` : 'no run'} -> ${red_ok ? 'ok' : 'NOT ok'}`)
     return { id: task.id, writer, run, red_ok }
   }

@@ -30,7 +30,7 @@ BLOCK_KEY = re.compile(r"([A-Za-z_][\w-]*):\s*$")
 
 # ---------------------------------------------------------------- workflow scripts
 
-JS_TOKEN = re.compile(r"//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`", re.S)
+JS_SKIP = re.compile(r"//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"", re.S)
 JS_FORBIDDEN = (
     (re.compile(r"\bDate\.now\s*\("), "Date.now("),
     (re.compile(r"\bMath\.random\s*\("), "Math.random("),
@@ -40,14 +40,58 @@ JS_FORBIDDEN = (
 
 
 def mask_js(text: str) -> str:
-    """Same-length copy with comments and string contents blanked (newlines and quotes kept), so
-    structural regexes cannot match inside them and offsets stay valid in the original."""
-    def blank(m: re.Match[str]) -> str:
-        t = m.group(0)
-        if t.startswith(("//", "/*")):
-            return re.sub(r"[^\n]", " ", t)
-        return t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1]
-    return JS_TOKEN.sub(blank, text)
+    """Same-length copy with comments, string contents and template text blanked (newlines and
+    quotes kept), so structural regexes cannot match inside them and offsets stay valid. Code
+    inside `${...}` of a template is kept."""
+    out: list[str] = []
+    depths: list[int] = []  # open braces inside each enclosing `${`
+    in_template = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_template:
+            if c == "\\":
+                out.append(re.sub(r"[^\n]", " ", text[i:i + 2]))
+                i += 2
+                continue
+            if c == "$" and text.startswith("${", i):
+                out.append("${")
+                depths.append(0)
+                in_template = False
+                i += 2
+                continue
+            if c == "`":
+                in_template = False
+                out.append(c)
+            else:
+                out.append(c if c == "\n" else " ")
+            i += 1
+            continue
+        if c == "`":
+            in_template = True
+            out.append(c)
+            i += 1
+            continue
+        m = JS_SKIP.match(text, i)
+        if m:
+            t = m.group(0)
+            if t[0] in "'\"":
+                out.append(t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1])
+            else:
+                out.append(re.sub(r"[^\n]", " ", t))
+            i = m.end()
+            continue
+        if depths and c == "{":
+            depths[-1] += 1
+        elif depths and c == "}":
+            if depths[-1] == 0:
+                depths.pop()
+                in_template = True
+            else:
+                depths[-1] -= 1
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def line_at(text: str, pos: int) -> int:

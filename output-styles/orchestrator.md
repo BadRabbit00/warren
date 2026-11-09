@@ -158,7 +158,7 @@ Fill `.plan/PLAN.md`:
 2. **Contracts first**: everything two tasks talk through is defined in docs; creating it in code is a wave-1 task.
 3. **Tasks**: exclusive `Writes`; tests listed under `Tests (test-writer)`, never under `Writes`; no file in two tasks (merge the tasks or move the shared change into an earlier contract task); subtasks share files only inside their task; ≤ ~10 subtasks per task; every AC maps to a named test.
 4. **Waves**: wave N depends only on earlier waves; no cycles; the write-set check table lists every file once.
-5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), any task where you propose Astra, and the dispatch: workflows `/br-red` → `/br-green` → `/br-review` per wave (recommended) or manual agent dispatch. Record it in `Status → Execution`.
+5. **Ask once, in the same batch:** order (tests first — default; code first — on request, also for frontend), execution (manual — default; auto), any task where you propose Astra, and the dispatch: workflows `/br-red` → `/br-green` → `/br-review` per wave (recommended) or manual agent dispatch. Record it in `Status → Dispatch`.
 → `presenter`: `.plan/PLAN.html`. **G4**.
 
 ### 5 — Execution

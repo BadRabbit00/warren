@@ -122,6 +122,8 @@ function isGreen(run) {
 // Runs the task's tests and applies the green + hash rule; `phaseTitle` is the meta phase.
 async function check(plan, state, phaseTitle) {
   const task = state.task
+  if (task.tests.length === 0) return { run: null, ok: true, hashOk: true }
+  if (task.recorded_hash === '') return { run: null, ok: false, hashOk: false, noHash: true }
   const run = await agent(
     `Mode: affected. Task ${task.id} — ${task.name}. Do not edit files.\n` +
       `Tests: ${task.tests.join(', ')}\n` +
@@ -129,7 +131,7 @@ async function check(plan, state, phaseTitle) {
       `Compute tests_hash with: ${plan.hash_command}`,
     { agentType: 'test-runner', phase: phaseTitle, label: `${task.id} test-runner`, schema: RUN_SCHEMA },
   )
-  const hashOk = Boolean(run) && (task.recorded_hash === '' || run.tests_hash === task.recorded_hash)
+  const hashOk = Boolean(run) && run.tests_hash === task.recorded_hash
   return { run, ok: isGreen(run) && hashOk, hashOk }
 }
 
@@ -159,7 +161,8 @@ function verify(plan) {
     if (!state.worker || state.worker.status === 'blocked') {
       return stop(state, state.worker ? `${who} blocked: ${state.worker.notes}` : `${who} returned nothing`)
     }
-    const { run, ok, hashOk } = await check(plan, state, 'Check')
+    const { run, ok, hashOk, noHash } = await check(plan, state, 'Check')
+    if (noHash) return stop(state, 'no recorded tests hash')
     const after = state.step === 'refactor' ? ' after refactor' : ''
     if (!ok) return stop({ ...state, run }, run ? (hashOk ? `tests not green${after}` : `tests hash changed${after}`) : 'test-runner returned nothing')
     log(`${state.task.id} done`)
