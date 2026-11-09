@@ -177,18 +177,20 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         granted = set(as_list(get(fm, "tools"))) - set(as_list(get(fm, "disallowedTools")))
         sandbox = "workspace-write" if WRITE_TOOLS & granted else "read-only"
         quoted = json.dumps(desc, ensure_ascii=False)
+        body_trim = body.strip("\n")
+        body_lead = body.lstrip("\n")
         (codex_agents / f"{name}.toml").write_text(
             f"name = {json.dumps(name)}\n"
             f"description = {quoted}\n"
             f"model = {json.dumps(cmodel)}\n"
             f"model_reasoning_effort = {json.dumps(ceffort)}\n"
             f"sandbox_mode = {json.dumps(sandbox)}\n"
-            f"developer_instructions = '''\n{body.strip("\n")}\n'''\n",
+            f"developer_instructions = '''\n{body_trim}\n'''\n",
             encoding="utf-8",
         )
         entries.append(f'[agents.{name.replace("-", "_")}]\nconfig_file = "agents/{name}.toml"\ndescription = {quoted}\n')
         (agy_agents / f"{name}.md").write_text(
-            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\ninheritMcp: false\n---\n\n{body.lstrip("\n")}",
+            f"---\nname: {name}\ndescription: {quoted}\nmodel: {tier}\nsubagent: true\nmainAgent: true\ninheritMcp: false\n---\n\n{body_lead}",
             encoding="utf-8",
         )
         subagents.append(f"- `{name}` — {desc} (codex: {cmodel}/{ceffort}; agy: {tier})")
