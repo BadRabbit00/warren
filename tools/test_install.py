@@ -229,6 +229,245 @@ class InstallTest(InstallCase):
         self.assertIn("settings.json", again.stdout)
 
 
+def chmod_tree_writable(path: Path) -> None:
+    """Undo the read-only modes of a test so the scratch directory can be removed."""
+    if not path.exists():
+        return
+    for p in [path, *path.rglob("*")]:
+        if not p.is_symlink():
+            p.chmod(0o755 if p.is_dir() else 0o644)
+
+
+def posix(text: str) -> str:
+    return text.replace("\\\\", "/").replace("\\", "/")
+
+
+class InstallSafetyTest(InstallCase):
+    """AC6-AC10 (checkpoint C1): old layouts, manifest, backups, malformed settings, hook commands."""
+
+    def make_store(self) -> Path:
+        """A read-only 'store' like the one home-manager links into: files 0444, directories 0555."""
+        store = self.tmp / "store"
+        (store / "agents").mkdir(parents=True)
+        (store / "rules-br").mkdir()
+        (store / "CLAUDE.md").write_text("old store CLAUDE.md\n", encoding="utf-8")
+        (store / "agents" / "coder.md").write_text("old store coder\n", encoding="utf-8")
+        (store / "rules-br" / "python.md").write_text("old store rule\n", encoding="utf-8")
+        for p in sorted(store.rglob("*"), reverse=True):
+            p.chmod(0o555 if p.is_dir() else 0o444)
+        store.chmod(0o555)
+        self.addCleanup(chmod_tree_writable, store)
+        return store
+
+    # AC6: symlinks into a read-only store are replaced by regular files, the store is not touched
+    def test_install_over_readonly_symlinks(self) -> None:
+        store = self.make_store()
+        before_store = files_of(store)
+        (self.claude / "agents").mkdir(parents=True)
+        (self.claude / "rules").mkdir()
+        (self.claude / "CLAUDE.md").symlink_to(store / "CLAUDE.md")
+        (self.claude / "agents" / "coder.md").symlink_to(store / "agents" / "coder.md")
+        (self.claude / "rules" / "br").symlink_to(store / "rules-br", target_is_directory=True)
+
+        self.install_ok()
+
+        self.assertFalse((self.claude / "CLAUDE.md").is_symlink())
+        self.assertEqual((self.claude / "CLAUDE.md").read_bytes(), (REPO / "core" / "CLAUDE.md").read_bytes())
+        self.assertFalse((self.claude / "agents" / "coder.md").is_symlink())
+        self.assertIn(CONTRACT_HEADING, (self.claude / "agents" / "coder.md").read_text(encoding="utf-8"))
+        self.assertFalse((self.claude / "rules" / "br").is_symlink())
+        self.assertTrue((self.claude / "rules" / "br").is_dir())
+        self.assertEqual(
+            files_of(self.claude / "rules" / "br"), {p.name: p.read_bytes() for p in (REPO / "rules").glob("*.md")},
+        )
+        self.assertEqual(files_of(store), before_store, "the read-only store was modified")
+        self.assert_nothing_outside_dest()
+
+    # AC6: a target that cannot be replaced stops the run before anything is deleted
+    @unittest.skipIf(
+        hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores read-only modes, so the blocker cannot be built",
+    )
+    def test_install_preflight_stops_before_deleting(self) -> None:
+        user = self.write_user_settings()
+        for rel, text in (
+            ("agents/coder.md", "old coder\n"),
+            ("agents/mine.md", "my agent\n"),
+            ("rules/br/old-rule.md", "old rule\n"),
+            ("br/templates/old.md", "old template\n"),
+        ):
+            path = self.claude / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        # br/hooks must become a directory, but it is a regular file inside a read-only parent.
+        (self.claude / "br" / "hooks").write_text("not a directory\n", encoding="utf-8")
+        (self.claude / "br").chmod(0o555)
+        self.addCleanup(chmod_tree_writable, self.claude)
+        before = files_of(self.dest)
+
+        proc = self.install("--dest", str(self.dest))
+
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn(str(self.claude / "br"), proc.stderr, "the message does not name the blocking path")
+        self.assertEqual(files_of(self.dest), before, "the run changed or deleted files before stopping")
+        self.assertEqual(
+            json.loads((self.claude / "settings.json").read_text(encoding="utf-8")), user, "settings.json changed",
+        )
+        self.assert_nothing_outside_dest()
+
+    def copy_tree(self, name: str) -> Path:
+        """A copy of the repo's payload sources (no tests) whose install.py can run on its own."""
+        root = self.tmp / name
+        root.mkdir()
+        for sub in (
+            "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools", "workflows",
+        ):
+            shutil.copytree(REPO / sub, root / sub, symlinks=True, ignore=CACHES, copy_function=shutil.copyfile)
+        for sub in ("agent-models.json", "settings.fragment.json", "LICENSE"):
+            shutil.copyfile(REPO / sub, root / sub)
+        for old in (root / "tools").glob("test_*.py"):
+            old.unlink()
+        shutil.rmtree(root / "hooks" / "test", ignore_errors=True)
+        return root
+
+    # AC7: the manifest drives removal of files br installed before and the payload dropped
+    def test_install_removes_files_it_installed_before(self) -> None:
+        root = self.copy_tree("tree")
+        script = root / "tools" / "install.py"
+        proc = self.install("--dest", str(self.dest), script=script)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        manifest_path = self.claude / "br" / "manifest.json"
+        self.assertTrue(manifest_path.is_file(), "no manifest at ~/.claude/br/manifest.json")
+        manifest_text = posix(manifest_path.read_text(encoding="utf-8"))
+        json.loads(manifest_text)  # valid JSON
+        self.assertIn("commands/optimize.md", manifest_text)
+        self.assertIn("workflows/br-research.js", manifest_text)
+
+        (self.claude / "agents" / "my-own-agent.md").write_text("mine\n", encoding="utf-8")
+        (self.claude / "commands" / "my-own.md").write_text("mine\n", encoding="utf-8")
+        self.assertTrue((self.claude / "commands" / "optimize.md").is_file())
+        self.assertTrue((self.claude / "workflows" / "br-research.js").is_file())
+        self.assertTrue((self.dest / ".codex" / "prompts" / "optimize.md").is_file())
+
+        (root / "commands" / "optimize.md").unlink()
+        (root / "workflows" / "br-research.js").unlink()
+        proc = self.install("--dest", str(self.dest), script=script)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+        self.assertFalse((self.claude / "commands" / "optimize.md").exists(), "dropped command still installed")
+        self.assertFalse((self.claude / "workflows" / "br-research.js").exists(), "dropped workflow still installed")
+        self.assertFalse((self.dest / ".codex" / "prompts" / "optimize.md").exists(), "dropped codex prompt still there")
+        self.assertEqual((self.claude / "agents" / "my-own-agent.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertEqual((self.claude / "commands" / "my-own.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertTrue((self.claude / "commands" / "policy-review.md").is_file())  # shipped files stay
+        manifest_text = posix(manifest_path.read_text(encoding="utf-8"))
+        self.assertNotIn("commands/optimize.md", manifest_text)
+        self.assertIn("commands/policy-review.md", manifest_text)
+        self.assertNotIn("my-own", manifest_text, "the manifest lists a user's own file")
+
+    # AC8: a different user file is kept as <name>.bak-<timestamp>; an identical one is not
+    def test_install_backs_up_replaced_user_files(self) -> None:
+        targets = [
+            self.claude / "CLAUDE.md",
+            self.dest / ".codex" / "AGENTS.md",
+            self.dest / ".gemini" / "config" / "AGENTS.md",
+        ]
+        for path in targets:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"my own notes in {path.parent.name}\n", encoding="utf-8")
+
+        self.install_ok()
+
+        for path in targets:
+            backups = sorted(path.parent.glob(f"{path.name}.bak-*"))
+            self.assertEqual(len(backups), 1, f"{path}: backups {[b.name for b in backups]}")
+            self.assertGreater(len(backups[0].name), len(f"{path.name}.bak-"), "empty timestamp")
+            self.assertEqual(backups[0].read_text(encoding="utf-8"), f"my own notes in {path.parent.name}\n")
+            self.assertNotEqual(path.read_text(encoding="utf-8"), backups[0].read_text(encoding="utf-8"))
+        self.assertEqual((self.claude / "CLAUDE.md").read_bytes(), (REPO / "core" / "CLAUDE.md").read_bytes())
+
+        # Second run: the files are br's own now, so no new backups appear.
+        self.install_ok()
+        for path in targets:
+            self.assertEqual(len(list(path.parent.glob(f"{path.name}.bak-*"))), 1, f"{path}: a second backup appeared")
+
+    # AC8: nothing to back up on a fresh home
+    def test_install_makes_no_backup_when_nothing_was_there(self) -> None:
+        self.install_ok()
+        self.assertEqual(list(self.dest.rglob("*.bak-*")), [])
+
+    # AC9: a malformed settings.json stops the run before anything is written
+    def test_install_rejects_malformed_settings(self) -> None:
+        cases = {
+            "invalid json": "{not json",
+            "empty file": "",
+            "top level not an object": "[]",
+            "hooks not an object": json.dumps({"model": "opus", "hooks": []}),
+            "event value not a list": json.dumps({"hooks": {"PreToolUse": {"matcher": "Bash"}}}),
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                shutil.rmtree(self.dest, ignore_errors=True)
+                self.claude.mkdir(parents=True)
+                (self.claude / "settings.json").write_text(text, encoding="utf-8")
+                before = files_of(self.dest)
+
+                proc = self.install("--dest", str(self.dest))
+
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertIn("settings.json:", proc.stderr)
+                self.assertEqual(files_of(self.dest), before, "files were written despite the bad settings.json")
+                self.assert_nothing_outside_dest()
+
+    # AC9: settings are written atomically: no temporary file is left behind
+    def test_install_leaves_no_temporary_settings_file(self) -> None:
+        self.write_user_settings()
+        self.install_ok()
+        self.install_ok()
+        leftovers = [str(p) for p in self.dest.rglob("*") if ".tmp" in p.name]
+        self.assertEqual(leftovers, [])
+
+    # AC10: the hook commands in settings.json are the built hooks.json commands, one substitution
+    def test_install_hook_commands_match_build(self) -> None:
+        built = self.tmp / "built"
+        proc = subprocess.run(
+            [sys.executable, "-B", str(REPO / "tools" / "build.py"), str(built), str(REPO), sys.executable],
+            capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        built_hooks = json.loads((built / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+
+        self.write_user_settings()
+        self.install_ok()
+        settings = json.loads((self.claude / "settings.json").read_text(encoding="utf-8"))
+
+        count = 0
+        for event, entries in built_hooks.items():
+            installed = {e["id"]: e for e in settings["hooks"][event] if "id" in e}
+            for entry in entries:
+                got = [h["command"] for h in installed[entry["id"]]["hooks"]]
+                want = [h["command"].replace(f"{built}/claude", str(self.claude)) for h in entry["hooks"]]
+                self.assertEqual(got, want, entry["id"])
+                count += len(want)
+        self.assertGreater(count, 0)
+
+    # AC10: a hook python in a temporary path is warned about (the installed hooks would break)
+    def test_install_warns_when_hook_python_is_temporary(self) -> None:
+        link = self.tmp / "venv-like" / "bin" / "python"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(sys.executable)
+        env = {**os.environ, "HOME": str(self.home), "USERPROFILE": str(self.home)}
+        proc = subprocess.run(
+            [str(link), "-B", str(INSTALL), "--dest", str(self.dest)],
+            capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT, env=env, cwd=self.tmp,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("warning", (proc.stdout + proc.stderr).lower())
+
+
 class InstallCheckTest(InstallCase):
     """--check runs the validator, the tools tests and the hooks tests of the tree install.py sits in.
 
