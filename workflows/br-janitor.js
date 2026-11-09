@@ -48,7 +48,7 @@ const mode = args && typeof args.mode === 'string' ? args.mode : 'survey'
 const approved = args && Array.isArray(args.approved) ? args.approved.filter((a) => typeof a === 'string' && a.trim() !== '') : []
 
 const SURVEY_BRIEF =
-  'Mode: survey. Change nothing. Find: dev containers and volumes of finished stands (by compose project name, `docker compose -p <project>`), networks of finished stands,result and result-* symlinks, ' +
+  'Mode: survey. Change nothing. Find: dev containers and volumes of finished stands (by compose project name, `docker compose -p <project>`), networks of finished stands, result and result-* symlinks, ' +
   'leftovers in docs/temp/, untracked junk files, helper scripts of finished tasks, stale or duplicated lines in .plan/PLAN.md (plan_lines, report only), ' +
   'and specs or docs that no longer match the code (stale_docs, report only). For each item give name, kind, reason, size, age, tracked (git ls-files) and proposed. ' +
   'Tracked files get proposed report-only. Use only read-only commands: `docker ps -a`, `docker volume ls`, `docker network ls`, `docker compose ls`.'

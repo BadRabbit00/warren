@@ -2,7 +2,7 @@
 export const meta = {
   name: 'br-e2e',
   description: 'End-to-end testing of a stand: user flows from the docs, stand up, harness, contract and journey tests in parallel, one final run with app/test/stand classification and p50/p95 timings',
-  whenToUse: 'When the app has docs and a way to start a stand and you want the whole system exercised; args = { stand: "docker"|"nix", target: "local"|"dev-stand", flows_doc?, new_stand? }. No deploys; the stand stays up. The e2e test directory must be listed in the Tests of a task in red (the write hook lets test-writer write only there). The result carries flows_md: the orchestrator saves it to flows_path (docs/temp/e2e-<id>/flows.md).',
+  whenToUse: 'When the app has docs and a way to start a stand and you want the whole system exercised; args = { stand: "docker"|"nix", target: "local"|"dev-stand", flows_doc?, new_stand? }. No deploys; the stand stays up. `tests/e2e/**` must be in the Tests of a task in red (the write hook lets test-writer write only there). The result carries flows_md: the orchestrator saves it to flows_path (docs/temp/e2e-<id>/flows.md).',
   phases: ['Preflight', 'Flows', 'Stand', 'Harness', 'Tests', 'Run'],
 }
 
@@ -269,13 +269,13 @@ if (!standInfo || !standInfo.up || standInfo.services.some((s) => !s.healthy)) {
   return standFailure('stand-operator reported not up', standInfo ? standInfo.notes : 'returned nothing')
 }
 const flowsInline = JSON.stringify(flows.flows, null, 1)
-const standLine =`Stand: project ${standInfo.project_name}, base URL ${standInfo.base_url}, services ${standInfo.services.map((s) => s.name).join(', ')}; target ${target}.`
+const standLine = `Stand: project ${standInfo.project_name}, base URL ${standInfo.base_url}, services ${standInfo.services.map((s) => s.name).join(', ')}; target ${target}.`
 
 used += 1
 const harness = await agent(
   `Read the skill ~/.claude/skills/e2e-testing/SKILL.md first. ${standLine} ` +
     `User flows (inline, for reference):\n${flowsInline}\n` +
-    'Write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures using the browsers from nixpkgs. No tests of your own beyond a smoke check that the harness imports and reaches the stand. ' +
+    'Write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures using the browsers from nixpkgs. No tests of your own beyond a smoke check that the harness imports and reaches the stand. Put all files under the root tests/e2e/, the harness in tests/e2e/harness/. ' +
     'Return {status: done|blocked, files, tests: [], app_failures: [], notes}.',
   { agentType: 'test-writer', label: 'harness', phase: 'Harness', schema: WRITER_SCHEMA },
 )
@@ -293,7 +293,7 @@ if (contract.some((c) => c.length > MAX_ENDPOINTS_PER_WRITER)) log(`contract gro
 if (contract.length + journeys.length === 0) log('no endpoints and no flows to write tests for')
 
 const commonRules =
-  `${standLine} Harness files: ${harness.files.join(', ')}. Flows (inline):\n${flowsInline}\nWrite only your own test files next to the harness; do not edit the harness or other writers' files. ` +
+  `${standLine} Harness files: ${harness.files.join(', ')}. Flows (inline):\n${flowsInline}\nWrite only your own test files under the root tests/e2e/ (contract tests in tests/e2e/contract/, journeys in tests/e2e/journeys/); do not edit the harness or other writers' files. ` +
   'Run your tests against the stand. Fix errors in the tests themselves (collection, fixtures, selectors, wrong assumptions). A failure caused by the application stays: do not weaken the test, and list it in app_failures {test, message}. ' +
   'Return {status: done|blocked, files, tests (bare names), app_failures, notes}.'
 
