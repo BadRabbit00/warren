@@ -28,6 +28,132 @@ YAML_ESCAPES = re.compile(r"'.*''.*'|\".*\\.*\"")
 BLOCK_KEY = re.compile(r"([A-Za-z_][\w-]*):\s*$")
 
 
+# ---------------------------------------------------------------- workflow scripts
+
+JS_SKIP = re.compile(r"//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"", re.S)
+JS_FORBIDDEN = (
+    (re.compile(r"\bDate\.now\s*\("), "Date.now("),
+    (re.compile(r"\bMath\.random\s*\("), "Math.random("),
+    (re.compile(r"\bnew\s+Date\s*\("), "new Date("),
+    (re.compile(r"\bimport\s*\("), "import("),
+)
+
+
+JS_REGEX_BEFORE = "(,=:[!&|?{};+-*%<>~^"
+JS_REGEX_KEYWORDS = re.compile(
+    r"(?<![\w$.])(return|typeof|case|void|delete|throw|in|of|instanceof|new|await|yield)$"
+)
+
+
+def regex_allowed(out: list[str]) -> bool:
+    """True when a `/` after the masked output `out` starts a regex literal: it follows an operator
+    or `return`, or it is the first thing on its line."""
+    tail = "".join(out).rstrip(" \t")
+    if not tail or tail[-1] == "\n":
+        return True
+    if tail.endswith(("++", "--")):  # postfix operator: what follows is a division
+        return False
+    return tail[-1] in JS_REGEX_BEFORE or JS_REGEX_KEYWORDS.search(tail) is not None
+
+
+def regex_end(text: str, start: int) -> int:
+    """Index just past the regex literal opening at start, or -1 when the line ends first."""
+    i, in_class = start + 1, False
+    while i < len(text) and text[i] != "\n":
+        c = text[i]
+        if c == "\\":
+            i += 1
+        elif c == "[":
+            in_class = True
+        elif c == "]":
+            in_class = False
+        elif c == "/" and not in_class:
+            return i + 1
+        i += 1
+    return -1
+
+
+def mask_js(text: str, regexes: list[int] | None = None) -> str:
+    """Same-length copy with comments, string contents and template text blanked (newlines and
+    quotes kept), so structural regexes cannot match inside them and offsets stay valid. Code
+    inside `${...}` of a template is kept. Regex literals are blanked too; their start offsets are
+    appended to `regexes`."""
+    out: list[str] = []
+    depths: list[int] = []  # open braces inside each enclosing `${`
+    in_template = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_template:
+            if c == "\\":
+                out.append(re.sub(r"[^\n]", " ", text[i:i + 2]))
+                i += 2
+                continue
+            if c == "$" and text.startswith("${", i):
+                out.append("${")
+                depths.append(0)
+                in_template = False
+                i += 2
+                continue
+            if c == "`":
+                in_template = False
+                out.append(c)
+            else:
+                out.append(c if c == "\n" else " ")
+            i += 1
+            continue
+        if c == "`":
+            in_template = True
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and not text.startswith(("//", "/*"), i) and regex_allowed(out):
+            end = regex_end(text, i)
+            if end > 0:
+                if regexes is not None:
+                    regexes.append(i)
+                out.append("/" + " " * (end - i - 2) + "/")
+                i = end
+                continue
+        m = JS_SKIP.match(text, i)
+        if m:
+            t = m.group(0)
+            if t[0] in "'\"":
+                out.append(t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1])
+            else:
+                out.append(re.sub(r"[^\n]", " ", t))
+            i = m.end()
+            continue
+        if depths and c == "{":
+            depths[-1] += 1
+        elif depths and c == "}":
+            if depths[-1] == 0:
+                depths.pop()
+                in_template = True
+            else:
+                depths[-1] -= 1
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def line_at(text: str, pos: int) -> int:
+    return text.count("\n", 0, pos) + 1
+
+
+def closing(masked: str, open_at: int) -> int:
+    """Index of the bracket closing the one at open_at (masked text), or len(masked)."""
+    depth = 0
+    for i in range(open_at, len(masked)):
+        if masked[i] in "({[":
+            depth += 1
+        elif masked[i] in ")}]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(masked)
+
+
 # ---------------------------------------------------------------- frontmatter
 
 def raw_frontmatter(text: str) -> tuple[str, str] | None:
@@ -513,6 +639,53 @@ class Validator:
                 if skill not in available:
                     self.err(p, f"preloaded skill '{skill}' is not in skills/")
 
+    def check_workflows(self) -> None:
+        agents = {p.stem for p in (self.root / "agents").glob("*.md")}
+        for p in sorted((self.root / "workflows").glob("*.js")):
+            text = self.read(p)
+            if text is None:
+                continue
+            regexes: list[int] = []
+            masked = mask_js(text, regexes)
+            for at in regexes:
+                self.err(p, f"line {line_at(text, at)}: regex literal; use new RegExp(...)")
+            self.check_workflow_meta(p, text, masked)
+            self.check_workflow_agents(p, text, masked, agents)
+            self.check_workflow_forbidden(p, text, masked)
+
+    def check_workflow_meta(self, p: Path, text: str, masked: str) -> None:
+        m = re.match(r"\s*export\s+const\s+meta\s*=\s*\{", masked)
+        if not m:
+            self.err(p, "'export const meta = {...}' must be the first statement")
+            return
+        body = masked[m.end():closing(masked, m.end() - 1)]
+        name = re.search(r"\bname\s*:\s*(['\"])", body)
+        if not name:
+            self.err(p, "meta.name is missing")
+        else:
+            at = m.end() + name.end()
+            close = text.find(name.group(1), at)
+            if text[at:close] != p.stem:
+                self.err(p, f"meta.name '{text[at:close]}' must equal the file name '{p.stem}'")
+        if not re.search(r"\bdescription\s*:", body):
+            self.err(p, "meta.description is missing")
+
+    def check_workflow_agents(self, p: Path, text: str, masked: str, agents: set[str]) -> None:
+        for call in re.finditer(r"\bagent\s*\(", masked):
+            args = masked[call.end():closing(masked, call.end() - 1)]
+            at = re.search(r"\bagentType\s*:", args)
+            if not at:
+                self.err(p, f"line {line_at(text, call.start())}: agent() call has no agentType")
+                continue
+            lit = re.compile(r"\s*(['\"])([^'\"\n]*)\1").match(text, call.end() + at.end())
+            if lit and lit.group(2) not in agents:
+                self.err(p, f"line {line_at(text, call.start())}: agentType '{lit.group(2)}' is not in agents/")
+
+    def check_workflow_forbidden(self, p: Path, text: str, masked: str) -> None:
+        for pattern, token in JS_FORBIDDEN:
+            for hit in pattern.finditer(masked):
+                self.err(p, f"line {line_at(text, hit.start())}: {token} is not allowed in a workflow script")
+
     def check_exemptions(self) -> None:
         """Stale exemptions silently weaken the checks, so every listed name must still exist."""
         cfg_path = self.root / "tools" / "validate.json"
@@ -554,6 +727,7 @@ class Validator:
         self.check_templates()
         self.check_commands()
         self.check_agent_skills()
+        self.check_workflows()
         self.check_exemptions()
         return self.errors
 

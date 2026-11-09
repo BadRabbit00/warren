@@ -22,6 +22,7 @@ COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
+WORKFLOWS = ("br-red.js", "br-green.js", "br-review.js")
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 AGENTS_MD_LIMIT = 24_000
@@ -67,20 +68,35 @@ def make_tree(tmp: Path) -> Path:
             )
         else:
             shutil.copyfile(src, root / name)
+    # workflows/*.js; a tree without workflows/ gets an empty directory, so a missing source fails an assertion.
+    (root / "workflows").mkdir()
+    for script in sorted((REPO / "workflows").glob("*.js")):
+        shutil.copyfile(script, root / "workflows" / script.name)
     return root
 
 
-def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
-    """Lays out the Claude tree like nix/payload.nix installPhase, then runs payload.py on it."""
+def run_exporter(
+    root: Path, out: Path, between: Callable[[Path], None] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Lays out the Claude tree like nix/payload.nix installPhase, then runs payload.py on it.
+
+    `between` gets the finished claude dir after the copies and before payload.py runs, so a test can
+    break the installed tree the way a wrong installPhase would.
+    """
     claude = out / "claude"
     for src, dst in (
         ("agents", "agents"), ("skills", "skills"), ("rules", "rules/br"), ("commands", "commands"),
         ("output-styles", "output-styles"), ("templates", "br/templates"),
     ):
         shutil.copytree(root / src, claude / dst, copy_function=shutil.copyfile)
+    (claude / "workflows").mkdir()
+    for script in sorted((root / "workflows").glob("*.js")):
+        shutil.copyfile(script, claude / "workflows" / script.name)
     shutil.copyfile(root / "core" / "CLAUDE.md", claude / "CLAUDE.md")
     shutil.copyfile(root / "LICENSE", out / "LICENSE")
     shutil.copyfile(root / "settings.fragment.json", out / "settings.fragment.json")
+    if between is not None:
+        between(claude)
     return subprocess.run(
         [sys.executable, "-I", "-B", str(PAYLOAD), str(out), str(root), "/x/br-hook"],
         capture_output=True, text=True, check=False, timeout=EXPORTER_TIMEOUT,
@@ -297,6 +313,13 @@ class ExportTest(unittest.TestCase):
             self.assertEqual(fm["mainAgent"], "true", name)
             self.assertEqual(body.strip(), self.claude_agent(name)[1].strip(), name)
 
+    def test_workflows_installed(self) -> None:
+        installed = self.out / "claude" / "workflows"
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
+        self.assertEqual(sorted(p.name for p in installed.iterdir()), sorted(WORKFLOWS))
+        for name in WORKFLOWS:
+            self.assertEqual((installed / name).read_bytes(), (self.root / "workflows" / name).read_bytes(), name)
+
     def test_codex_prompts(self) -> None:
         commands = sorted(p.stem for p in (self.root / "commands").glob("*.md"))
         self.assertTrue(set(commands) >= SKIPPED_PROMPTS)
@@ -383,6 +406,97 @@ class ExportFailureTest(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, proc.stdout)
                 self.assertIn(probe.name, proc.stderr)
                 self.assertNotIn("Traceback", proc.stderr)
+
+
+class ExportWorkflowFailureTest(unittest.TestCase):
+    def test_payload_rejects_workflow_without_meta(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        bad = root / "workflows" / "bad.js"
+        bad.write_text(
+            "const x = 1\nexport const meta = {name: 'bad', description: 'x'}\n", encoding="utf-8",
+        )
+        proc = run_exporter(root, tmp / "out")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("bad.js", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+
+class ExportInstalledWorkflowsTest(unittest.TestCase):
+    """payload.py runs inside the real installPhase, so it must verify what was actually installed."""
+
+    def run_broken(self, break_installed: Callable[[Path], None]) -> subprocess.CompletedProcess[str]:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        return run_exporter(root, tmp / "out", between=break_installed)
+
+    def assert_rejected(self, proc: subprocess.CompletedProcess[str], name: str) -> None:
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn(name, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_payload_rejects_missing_installed_workflow(self) -> None:
+        proc = self.run_broken(lambda claude: (claude / "workflows" / "br-green.js").unlink())
+        self.assert_rejected(proc, "br-green.js")
+
+    def test_payload_rejects_modified_installed_workflow(self) -> None:
+        def modify(claude: Path) -> None:
+            path = claude / "workflows" / "br-green.js"
+            path.write_bytes(path.read_bytes() + b" ")
+
+        self.assert_rejected(self.run_broken(modify), "br-green.js")
+
+    def test_payload_rejects_extra_installed_file(self) -> None:
+        def add(claude: Path) -> None:
+            (claude / "workflows" / "notes.txt").write_text("stray\n", encoding="utf-8")
+
+        self.assert_rejected(self.run_broken(add), "notes.txt")
+
+    # AC3: stray entries that are not readable text must be named in the failure, without a traceback
+    def test_payload_rejects_binary_or_dir_installed_entry(self) -> None:
+        def stray_binary_js(claude: Path) -> None:
+            (claude / "workflows" / "blob.js").write_bytes(b"\xff\xfe\x00\x80 not utf-8")
+
+        def stray_binary_other_ext(claude: Path) -> None:
+            (claude / "workflows" / "blob.bin").write_bytes(b"\xff\xfe\x00\x80")
+
+        def stray_dir(claude: Path) -> None:
+            (claude / "workflows" / "subdir").mkdir()
+
+        def stray_dir_named_js(claude: Path) -> None:
+            (claude / "workflows" / "folder.js").mkdir()
+
+        def source_replaced_by_binary(claude: Path) -> None:
+            (claude / "workflows" / "br-green.js").write_bytes(b"\xff\xfe\x00\x80")
+
+        def source_replaced_by_dir(claude: Path) -> None:
+            path = claude / "workflows" / "br-green.js"
+            path.unlink()
+            path.mkdir()
+
+        cases = (
+            ("blob.js", stray_binary_js),
+            ("blob.bin", stray_binary_other_ext),
+            ("subdir", stray_dir),
+            ("folder.js", stray_dir_named_js),
+            ("br-green.js", source_replaced_by_binary),
+            ("br-green.js", source_replaced_by_dir),
+        )
+        for name, break_installed in cases:
+            with self.subTest(case=break_installed.__name__):
+                self.assert_rejected(self.run_broken(break_installed), name)
+
+    def test_payload_accepts_block_comment_before_meta(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = make_tree(tmp)
+        (root / "workflows" / "ok.js").write_text(
+            "/* licence */\n// note\nexport const meta={name:'ok',description:'x'}\n", encoding="utf-8",
+        )
+        proc = run_exporter(root, tmp / "out")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 class ExportQuotedDescriptionTest(unittest.TestCase):

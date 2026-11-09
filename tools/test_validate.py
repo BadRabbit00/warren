@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ REPO = HERE.parent
 PAYLOAD = REPO / "nix" / "payload.py"
 
 COPIED = (
-    "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
+    "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools", "workflows",
     "agent-models.json", "settings.fragment.json",
 )
 
@@ -545,6 +546,291 @@ class ModelTableTest(unittest.TestCase):
                 self.inject_agent(name)
                 found = [e.partition(": ")[2] for e in self.findings_for(name, baseline)]
                 self.assertTrue(any("reserved" in e for e in found), found)
+
+
+class WorkflowTest(unittest.TestCase):
+    """D9: workflows/*.js are structurally checked (meta block first, agent() calls typed and resolvable,
+    no non-deterministic calls). Findings are matched by the file they are reported on."""
+
+    STEM = "demo-flow"  # no digits: tests look for line numbers inside findings
+
+    META = (
+        "export const meta = {\n"
+        "  name: 'demo-flow',\n"
+        "  description: 'Demo workflow for the validator tests',\n"
+        "}\n"
+    )
+    BODY = (
+        "\n"
+        "const plan = await agent(\n"
+        "  'make a plan',\n"
+        "  { agentType: 'researcher', label: 'plan' },\n"
+        ")\n"
+        "const run = await agent('run', { agentType: 'coder', label: 'run' })\n"
+        "const note = 'wrong_reason (import, syntax or fixture error)'\n"
+    )
+    GOOD = "// demo workflow\n" + META + BODY  # BODY starts on line 6; the last line is line 12
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = make_root(self.tmp)
+
+    def findings(self, text: str) -> list[str]:
+        """Writes workflows/<STEM>.js, runs the validator, returns the findings reported on that file."""
+        (self.root / "workflows" / f"{self.STEM}.js").write_text(text, encoding="utf-8")
+        prefix = f"workflows/{self.STEM}.js:"
+        return [e for e in validate.Validator(self.root).run() if e.startswith(prefix)]
+
+    def assert_line(self, found: list[str], line: int) -> None:
+        self.assertTrue(any(re.search(rf"\b{line}\b", e) for e in found), f"no finding names line {line}: {found}")
+
+    def test_good_workflow_has_no_findings(self) -> None:
+        # Positive control: the template the other tests mutate is itself accepted.
+        self.assertEqual(self.findings(self.GOOD), [])
+
+    # AC1: missing or non-first `export const meta` is a finding
+    def test_workflow_meta_first(self) -> None:
+        cases = {
+            "missing": self.BODY,
+            "after a const": "const LIMIT = 3\n\n" + self.META + self.BODY,
+            "after an agent call": "const early = await agent('x', { agentType: 'coder' })\n" + self.META + self.BODY,
+            "not exported": self.META.replace("export ", "", 1) + self.BODY,
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                found = self.findings(text)
+                self.assertTrue(any("meta" in e for e in found), found)
+        with self.subTest(case="leading comments are fine"):
+            self.assertEqual(self.findings("// one\n/* two */\n" + self.META + self.BODY), [])
+
+    # AC2: meta.name must equal the file stem; description must be present
+    def test_workflow_meta_fields(self) -> None:
+        with self.subTest(case="name differs from file stem"):
+            found = self.findings(self.GOOD.replace("name: 'demo-flow'", "name: 'other-flow'"))
+            self.assertTrue(any("name" in e for e in found), found)
+        with self.subTest(case="name missing"):
+            found = self.findings(self.GOOD.replace("  name: 'demo-flow',\n", ""))
+            self.assertTrue(any("name" in e for e in found), found)
+        with self.subTest(case="description missing"):
+            found = self.findings(self.GOOD.replace("  description: 'Demo workflow for the validator tests',\n", ""))
+            self.assertTrue(any("description" in e for e in found), found)
+        with self.subTest(case="double-quoted name matching the stem is fine"):
+            self.assertEqual(self.findings(self.GOOD.replace("name: 'demo-flow'", 'name: "demo-flow"')), [])
+
+    # AC3: an agent( call without agentType: is a finding naming its line
+    def test_workflow_agent_requires_agent_type(self) -> None:
+        bad_line = 13  # the first line appended to GOOD
+        with self.subTest(case="one-line call without options"):
+            found = self.findings(self.GOOD + "const bad = await agent('no type here')\n")
+            self.assert_line(found, bad_line)
+            self.assertFalse(any(re.search(r"\b(7|11)\b", e) for e in found), found)  # the valid calls
+        with self.subTest(case="options object without agentType"):
+            self.assert_line(self.findings(self.GOOD + "const bad = await agent('p', { label: 'x' })\n"), bad_line)
+        with self.subTest(case="multi-line call reports the line of agent("):
+            text = self.GOOD + "const bad = await agent(\n  'p',\n  { label: 'x' },\n)\n"
+            self.assert_line(self.findings(text), bad_line)
+        with self.subTest(case="agentType in a neighbouring call does not excuse this one"):
+            text = (self.GOOD + "const bad = await agent('p', { label: 'x' })\n"
+                    "const ok = await agent('q', { agentType: 'coder' })\n")
+            found = self.findings(text)
+            self.assert_line(found, bad_line)
+            self.assertFalse(any(re.search(r"\b14\b", e) for e in found), found)
+
+    # AC4: agentType naming an agent that is not in agents/ is a finding
+    def test_workflow_agent_type_exists(self) -> None:
+        found = self.findings(self.GOOD + "const bad = await agent('p', { agentType: 'no-such-agent' })\n")
+        self.assertTrue(any("no-such-agent" in e for e in found), found)
+        with self.subTest(case="every shipped agent name resolves"):
+            names = sorted(p.stem for p in (self.root / "agents").glob("*.md"))
+            calls = "".join(f"await agent('p', {{ agentType: '{n}' }})\n" for n in names)
+            self.assertEqual(self.findings(self.GOOD + calls), [])
+        with self.subTest(case="a non-literal agentType cannot be resolved and is not flagged"):
+            text = self.GOOD + "const name = 'coder'\nawait agent('p', { agentType: name, label: 'x' })\n"
+            self.assertEqual(self.findings(text), [])
+        with self.subTest(case="a removed agent stops resolving"):
+            (self.root / "agents" / "coder.md").unlink()
+            found = self.findings(self.GOOD)
+            self.assertTrue(any("coder" in e for e in found), found)
+
+    # AC5: Date.now(, Math.random(, new Date(), import( are findings naming their line
+    def test_workflow_forbidden_calls(self) -> None:
+        cases = {
+            "Date.now(": "const t = Date.now()\n",
+            "Math.random(": "const r = Math.random()\n",
+            "new Date()": "const d = new Date()\n",
+            "import(": "const m = await import('node:fs')\n",
+        }
+        for token, line in cases.items():
+            with self.subTest(token=token):
+                self.assert_line(self.findings(self.GOOD + line), 13)
+        with self.subTest(case="the word import inside a string is not a call"):
+            self.assertEqual(self.findings(self.GOOD + "const s = 'import, then run'\n"), [])
+
+    # AC7: code inside ${...} of a template literal is checked like any other code; template text is not
+    def test_workflow_template_interpolation(self) -> None:
+        with self.subTest(case="forbidden call inside ${...} is a finding on its line"):
+            found = self.findings(self.GOOD + "const s = `${Date.now()}`\n")
+            self.assertTrue(any("Date.now(" in e for e in found), found)
+            self.assert_line(found, 13)
+        with self.subTest(case="untyped agent() inside ${...} is a finding on its line"):
+            found = self.findings(self.GOOD + "const s = `${await agent('p')}`\n")
+            self.assertTrue(any("agentType" in e for e in found), found)
+            self.assert_line(found, 13)
+        with self.subTest(case="interpolation on a later line of a multi-line template names that line"):
+            found = self.findings(self.GOOD + "const s = `first\nsecond ${Math.random()}\nthird`\n")
+            self.assertTrue(any("Math.random(" in e for e in found), found)
+            self.assert_line(found, 14)
+        with self.subTest(case="text inside a nested template is not code"):
+            self.assertEqual(self.findings(self.GOOD + "const s = `a ${x ? `import(y)` : ''}`\n"), [])
+        with self.subTest(case="plain template text is not code"):
+            self.assertEqual(self.findings(self.GOOD + "const s = `call Date.now() and agent('p') later`\n"), [])
+        with self.subTest(case="code after a template on the same line is still checked"):
+            found = self.findings(self.GOOD + "const s = `${x}` + Date.now()\n")
+            self.assert_line(found, 13)
+
+    # AC8 (D13): a regex literal in expression position is a finding on its line; division, comments,
+    # strings and template text are not; the rest of the file is still checked afterwards
+    def assert_regex_finding(self, found: list[str], line: int) -> None:
+        self.assertTrue(
+            any("regex" in e and re.search(rf"\b{line}\b", e) for e in found),
+            f"no regex finding names line {line}: {found}",
+        )
+
+    def test_workflow_regex_literal(self) -> None:
+        positions = {
+            "after (": "const t = check(/ab+c/)\n",
+            "after ,": "const t = [1, /ab+c/]\n",
+            "after =": "const re = /ab+c/g\n",
+            "after :": "const o = { re: /ab+c/ }\n",
+            "after [": "const l = [/ab+c/]\n",
+            "after !": "const n = !/ab+c/.test(s)\n",
+            "after &": "const b = ok && /ab+c/.test(s)\n",
+            "after |": "const b = ok || /ab+c/.test(s)\n",
+            "after ?": "const b = ok ? /ab+c/ : null\n",
+            "after {": "if (ok) { /ab+c/.test(s) }\n",
+            "after }": "if (ok) {} /ab+c/.test(s)\n",
+            "after ;": "go(); /ab+c/.test(s)\n",
+            "after return": "function f(s) { return /ab+c/.test(s) }\n",
+            "at line start": "/ab+c/.test(s)\n",
+            "with an escaped slash": "const re = /a\\/b/\n",
+        }
+        for label, line in positions.items():
+            with self.subTest(position=label):
+                self.assert_regex_finding(self.findings(self.GOOD + line), 13)
+        with self.subTest(case="the finding says to use new RegExp"):
+            found = self.findings(self.GOOD + "const re = /ab+c/\n")
+            self.assertTrue(any("new RegExp" in e for e in found), found)
+        with self.subTest(case="a regex holding quote characters does not hide the rest of the file"):
+            text = self.GOOD + "const re = /['\"]/g\nconst k = 1\nconst bad = await agent('p')\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 13)
+            self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        with self.subTest(case="an untyped agent() two lines after a regex is still reported"):
+            text = self.GOOD + "const re = /ab+c/\nconst k = 1\nconst bad = await agent('p')\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 13)
+            self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        with self.subTest(case="a forbidden call after a regex on the same line is still reported"):
+            found = self.findings(self.GOOD + "const t = /ab+c/.test(String(Date.now()))\n")
+            self.assertTrue(any("Date.now(" in e for e in found), found)
+            self.assert_regex_finding(found, 13)
+        with self.subTest(case="only the regex line is reported among division and comments"):
+            text = self.GOOD + "const h = x/2\n// see /ab+c/ here\n/* and /ab+c/ here */\nconst re = /y/\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 16)
+            self.assertFalse(any(re.search(r"\b1[345]\b", e) for e in found), found)
+        not_regex = {
+            "division with spaces": "const q = a / b\n",
+            "division without spaces": "const h = x/2\n",
+            "chained division": "const d = a/b/c\n",
+            "line comment": "// matches /ab+c/ here\n",
+            "line comment after code": "const k = 1 // then /ab+c/\n",
+            "block comment": "/* matches /ab+c/ here */\n",
+            "multi-line block comment": "/*\n * matches /ab+c/ here\n */\n",
+            "slashes in a single-quoted string": "const s = 'a/b/c'\n",
+            "regex-looking double-quoted string": 'const s = "/ab+c/"\n',
+            "url in a string": "const u = 'https://example.test/x'\n",
+            "slashes in template text": "const s = `/ab+c/ and a/b`\n",
+            "slashes in a template next to interpolation": "const s = `a/${x}/b`\n",
+        }
+        for label, line in not_regex.items():
+            with self.subTest(case=label):
+                self.assertEqual(self.findings(self.GOOD + line), [])
+
+    # AC9: a regex literal is also recognised after `=>`, operator characters and keywords; quote or backtick
+    # characters inside it do not hide the rest of the file; division after `)`, `]`, an identifier or a number stays
+    def test_workflow_regex_literal_after_operators(self) -> None:
+        positions = {
+            "after =>": "const f = (s) => /ab+c/.test(s)\n",
+            "after => without parens": "const f = s =>/ab+c/.test(s)\n",
+            "after +": "const r = a + /ab+c/.source\n",
+            "after -": "const r = a - /ab+c/.source\n",
+            "after *": "const r = a * /ab+c/.source\n",
+            "after %": "const r = a % /ab+c/.source\n",
+            "after <": "const r = a < /ab+c/.source\n",
+            "after >": "const r = a > /ab+c/.source\n",
+            "after ~": "const r = ~/ab+c/.exec(s)\n",
+            "after ^": "const r = a ^ /ab+c/.source\n",
+            "after return": "function f(s) { return /ab+c/.test(s) }\n",
+            "after typeof": "const r = typeof /ab+c/\n",
+            "after case": "switch (k) { case /ab+c/: break }\n",
+            "after void": "const r = void /ab+c/\n",
+            "after delete": "const r = delete /ab+c/.x\n",
+            "after throw": "function f() { throw /ab+c/ }\n",
+            "after in": "const r = k in /ab+c/\n",
+            "after of": "for (const m of /ab+c/g) { go(m) }\n",
+            "after instanceof": "const r = k instanceof /ab+c/\n",
+            "after new": "const r = new /ab+c/\n",
+            "after await": "const r = await /ab+c/\n",
+            "after yield": "function* g() { yield /ab+c/ }\n",
+        }
+        for label, line in positions.items():
+            with self.subTest(position=label):
+                self.assert_regex_finding(self.findings(self.GOOD + line), 13)
+        tails = "const t = Date.now()\nconst bad = await agent('p')\n"
+        hiding = {
+            "backtick after =>": "const f = s => /[`]/.test(s)\n",
+            "single quote after =>": "const f = s => /[']/.test(s)\n",
+            "double quote after =>": 'const f = s => /["]/.test(s)\n',
+            "backtick after +": "const r = a + /[`]/.source\n",
+            "single quote after -": "const r = a - /[']/.source\n",
+            "double quote after <": 'const r = a < /["]/.source\n',
+            "backtick after ~": "const r = ~/[`]/.exec(s)\n",
+            "quote after return": "function f(s) { return /['\"]/.test(s) }\n",
+            "backtick after typeof": "const r = typeof /[`]/\n",
+            "quote after case": "switch (k) { case /[']/: break }\n",
+            "backtick after await": "const r = await /[`]/\n",
+        }
+        for label, line in hiding.items():
+            with self.subTest(hidden=label):
+                found = self.findings(self.GOOD + line + tails)
+                self.assert_regex_finding(found, 13)
+                self.assertTrue(any("Date.now(" in e and re.search(r"\b14\b", e) for e in found), found)
+                self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        division = {
+            "after an identifier, past a >": "const r = a > b / 2\n",
+            "after an identifier, past a -": "const r = a - b / 2\n",
+            "after a closing paren": "const r = (a + b) / 2\n",
+            "after a closing paren, chained": "const r = (a + b) / 2 / c\n",
+            "after a closing bracket": "const r = arr[0] / 2\n",
+            "after a number": "const r = 3 / 4\n",
+            "after a number, chained": "const r = 3 / 4 / 5\n",
+            "after an identifier, chained": "const r = x > y / 2 / z\n",
+            "after an identifier ending in a keyword (of)": "const r = proof / 2 / 3\n",
+            "after an identifier ending in a keyword (in)": "const r = margin / 2 / 3\n",
+            "after an identifier starting with a keyword": "const r = returned / 2 / 3\n",
+            "after an identifier containing new": "const r = renew / 2 / 3\n",
+        }
+        for label, line in division.items():
+            with self.subTest(division=label):
+                self.assertEqual(self.findings(self.GOOD + line), [])
+
+    # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
+    def test_shipped_workflows_are_clean(self) -> None:
+        shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
+        self.assertEqual(shipped, ["br-green.js", "br-red.js", "br-review.js"])
+        self.assertEqual(validate.Validator(self.root).run(), [])
 
 
 if __name__ == "__main__":

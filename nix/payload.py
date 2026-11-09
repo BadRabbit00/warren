@@ -232,6 +232,16 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
     return len(subagents), prompts
 
 
+META_RE = re.compile(r"export\s+const\s+meta\s*=\s*\{")
+_SKIP_RE = re.compile(r"(?:\s+|//[^\n]*|/\*.*?\*/)*", re.S)
+
+
+def first_statement(text: str) -> str:
+    """Text after leading blank lines, // comments and /* */ comments."""
+    m = _SKIP_RE.match(text)
+    return text[m.end():] if m else text
+
+
 def main() -> int:
     out, br, hook_exe = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
     claude = out / "claude"
@@ -364,6 +374,31 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
+    src = sorted(p.name for p in (br / "workflows").glob("*.js") if p.is_file())
+    inst = claude / "workflows"
+    dst = sorted(p.name for p in inst.iterdir()) if inst.is_dir() else []
+    if not src:
+        fail("workflows: no *.js files")
+    for name in dst:
+        if name not in src:
+            fail(f"claude/workflows/{name}: not a source workflow")
+    for name in src:
+        path = inst / name
+        if name not in dst:
+            fail(f"claude/workflows/{name}: missing")
+        elif not path.is_file():
+            fail(f"claude/workflows/{name}: not a regular file")
+        elif (br / "workflows" / name).read_bytes() != path.read_bytes():
+            fail(f"claude/workflows/{name}: differs from workflows/{name}")
+        else:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                fail(f"claude/workflows/{name}: not valid UTF-8")
+                continue
+            if not META_RE.match(first_statement(text)):
+                fail(f"claude/workflows/{name}: first statement must be export const meta = {{…}}")
+
     n_codex, n_prompts = export_codex_agy(out, br, models)
 
     if errors:
@@ -375,6 +410,7 @@ def main() -> int:
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
           f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
+          f"{len(src)} workflows, "
           f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 

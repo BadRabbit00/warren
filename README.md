@@ -21,6 +21,7 @@ style and in the subagent contract.
 ├── rules/                       # 16 path-scoped rules → ~/.claude/rules/br/
 ├── skills/                      # 37 skills → ~/.claude/skills/
 ├── commands/                    # 23 slash commands → ~/.claude/commands/
+├── workflows/                   # 3 saved workflows (br-red, br-green, br-review) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
 ├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests
 ├── tools/                       # validate.py (structure checks), measure_tokens.py, tests
@@ -139,6 +140,27 @@ makes agy drop the agent. The build fails when an agent lacks these fields, when
 block scalar, when a description or body contains a control character or `'''`, or when a generated TOML file does
 not parse back with the expected keys. Agent names must match `[a-z][a-z0-9-]*` and must not collide with a codex
 `[agents]` field after `-` becomes `_`.
+## Workflows
+
+Three saved Claude Code workflows run one plan step for every task of a wave in parallel. The orchestrator
+asks before any code whether to use them or to dispatch agents by hand, and records the answer in
+`.plan/PLAN.md` → Status.
+
+| Command | What runs, per task |
+|---|---|
+| `/br-red` | `test-writer` → `test-runner`: the new tests fail for the right reason; returns the tests hash |
+| `/br-green` | per task by Status: `green` → `coder` → `test-runner`; `refactor` → `refactorer` → `test-runner`. Run it at Status green, then again at Status refactor (the write hook lets `refactorer` write only under `refactor`). Stops a task when a test fails, is skipped, or the tests hash changed |
+| `/br-review` | `code-reviewer`, the language reviewers picked by file extension, `security-reviewer` when the task is flagged; each must-fix is checked by three refuters and kept when two of them cannot refute it |
+
+Each workflow first reads `.plan/PLAN.md` through `researcher`. It takes `args = { tasks: ["T3"] }`, or
+every task whose Status matches the step (`red`; `green` or `refactor`; `review`). Every agent runs by `agentType`, so the
+agent's model pin, the subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too
+(checked live: a workflow `test-writer` writing outside tests is denied by `br-hook`). Workflows never commit
+and never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
+
+A workflow agent without `agentType` would see the user `CLAUDE.md` and no subagent contract, so the
+validator rejects any `agent(` call in `workflows/*.js` without one.
+
 ## Adding something
 
 1. Copy the matching file from `_templates/` and fill it in.
@@ -150,7 +172,7 @@ not parse back with the expected keys. Agent names must match `[a-z][a-z0-9-]*` 
 
 | Output | What |
 |---|---|
-| `packages.br-payload` | `$out/claude/{CLAUDE.md,agents,skills,commands,rules/br,output-styles,br/templates}`, `$out/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `$out/agy/{agents,AGENTS.md}`, `$out/settings.fragment.json`, `$out/hooks.json`, `$out/LICENSE`. The validator and the Python test suites run in `checkPhase`; `installCheckPhase` runs `br-hook` once the way Claude Code does. |
+| `packages.br-payload` | `$out/claude/{CLAUDE.md,agents,skills,commands,workflows,rules/br,output-styles,br/templates}`, `$out/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `$out/agy/{agents,AGENTS.md}`, `$out/settings.fragment.json`, `$out/hooks.json`, `$out/LICENSE`. The validator and the Python test suites run in `checkPhase`; `installCheckPhase` runs `br-hook` once the way Claude Code does. |
 | `packages.br-hook` | `br-hook <entry>` wrapper for `hooks/*.py` with the pinned Python |
 | `lib.mk { pkgs, ... }` | `{ payload, hook, python }` for consumers; extra arguments such as `lib` are accepted and ignored |
 | `checks.payload` | the payload build |
@@ -163,7 +185,7 @@ inputs.warren.url = "github:BadRabbit00/warren";
 # ...
 let warren = inputs.warren.lib.mk { inherit pkgs; };   # also accepts { inherit pkgs lib; }
 in {
-  # lay out warren.payload/claude/* into ~/.claude, install core/CLAUDE.md as ~/.claude/CLAUDE.md,
+  # lay out warren.payload/claude/* into ~/.claude (workflows/ into ~/.claude/workflows), install core/CLAUDE.md as ~/.claude/CLAUDE.md,
   # deep-merge warren.payload/settings.fragment.json and merge warren.payload/hooks.json by id into settings.json,
   # put warren.hook on PATH for the hooks;
   # lay out warren.payload/codex/* into ~/.codex (merge codex/agents.toml into config.toml)
