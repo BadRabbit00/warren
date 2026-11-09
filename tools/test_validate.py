@@ -758,6 +758,74 @@ class WorkflowTest(unittest.TestCase):
             with self.subTest(case=label):
                 self.assertEqual(self.findings(self.GOOD + line), [])
 
+    # AC9: a regex literal is also recognised after `=>`, operator characters and keywords; quote or backtick
+    # characters inside it do not hide the rest of the file; division after `)`, `]`, an identifier or a number stays
+    def test_workflow_regex_literal_after_operators(self) -> None:
+        positions = {
+            "after =>": "const f = (s) => /ab+c/.test(s)\n",
+            "after => without parens": "const f = s =>/ab+c/.test(s)\n",
+            "after +": "const r = a + /ab+c/.source\n",
+            "after -": "const r = a - /ab+c/.source\n",
+            "after *": "const r = a * /ab+c/.source\n",
+            "after %": "const r = a % /ab+c/.source\n",
+            "after <": "const r = a < /ab+c/.source\n",
+            "after >": "const r = a > /ab+c/.source\n",
+            "after ~": "const r = ~/ab+c/.exec(s)\n",
+            "after ^": "const r = a ^ /ab+c/.source\n",
+            "after return": "function f(s) { return /ab+c/.test(s) }\n",
+            "after typeof": "const r = typeof /ab+c/\n",
+            "after case": "switch (k) { case /ab+c/: break }\n",
+            "after void": "const r = void /ab+c/\n",
+            "after delete": "const r = delete /ab+c/.x\n",
+            "after throw": "function f() { throw /ab+c/ }\n",
+            "after in": "const r = k in /ab+c/\n",
+            "after of": "for (const m of /ab+c/g) { go(m) }\n",
+            "after instanceof": "const r = k instanceof /ab+c/\n",
+            "after new": "const r = new /ab+c/\n",
+            "after await": "const r = await /ab+c/\n",
+            "after yield": "function* g() { yield /ab+c/ }\n",
+        }
+        for label, line in positions.items():
+            with self.subTest(position=label):
+                self.assert_regex_finding(self.findings(self.GOOD + line), 13)
+        tails = "const t = Date.now()\nconst bad = await agent('p')\n"
+        hiding = {
+            "backtick after =>": "const f = s => /[`]/.test(s)\n",
+            "single quote after =>": "const f = s => /[']/.test(s)\n",
+            "double quote after =>": 'const f = s => /["]/.test(s)\n',
+            "backtick after +": "const r = a + /[`]/.source\n",
+            "single quote after -": "const r = a - /[']/.source\n",
+            "double quote after <": 'const r = a < /["]/.source\n',
+            "backtick after ~": "const r = ~/[`]/.exec(s)\n",
+            "quote after return": "function f(s) { return /['\"]/.test(s) }\n",
+            "backtick after typeof": "const r = typeof /[`]/\n",
+            "quote after case": "switch (k) { case /[']/: break }\n",
+            "backtick after await": "const r = await /[`]/\n",
+        }
+        for label, line in hiding.items():
+            with self.subTest(hidden=label):
+                found = self.findings(self.GOOD + line + tails)
+                self.assert_regex_finding(found, 13)
+                self.assertTrue(any("Date.now(" in e and re.search(r"\b14\b", e) for e in found), found)
+                self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        division = {
+            "after an identifier, past a >": "const r = a > b / 2\n",
+            "after an identifier, past a -": "const r = a - b / 2\n",
+            "after a closing paren": "const r = (a + b) / 2\n",
+            "after a closing paren, chained": "const r = (a + b) / 2 / c\n",
+            "after a closing bracket": "const r = arr[0] / 2\n",
+            "after a number": "const r = 3 / 4\n",
+            "after a number, chained": "const r = 3 / 4 / 5\n",
+            "after an identifier, chained": "const r = x > y / 2 / z\n",
+            "after an identifier ending in a keyword (of)": "const r = proof / 2 / 3\n",
+            "after an identifier ending in a keyword (in)": "const r = margin / 2 / 3\n",
+            "after an identifier starting with a keyword": "const r = returned / 2 / 3\n",
+            "after an identifier containing new": "const r = renew / 2 / 3\n",
+        }
+        for label, line in division.items():
+            with self.subTest(division=label):
+                self.assertEqual(self.findings(self.GOOD + line), [])
+
     # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
     def test_shipped_workflows_are_clean(self) -> None:
         shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
