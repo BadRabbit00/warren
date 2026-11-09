@@ -21,7 +21,7 @@ Where secrets live and how code reads them. Hooks already block printing `.env` 
 - R-SECRET-EXAMPLE: every variable is in `.env.example` in the same change that introduces it, with a working local value. Secrets get `change-me-…`; external keys stay empty.
 - R-SECRET-NO-DEFAULTS: code has no default value for a secret. A missing secret stops startup and names the variable, never the value.
 - R-SECRET-GENERATE-LOCAL: a local dev value may be generated without printing it: `printf 'DB_PASSWORD=%s\n' "$(openssl rand -hex 32)" >> .env`. Prod values are entered by a human.
-- R-SECRET-NOT-IN-ARTIFACTS: no secrets in images (`ARG`/`ENV`/`COPY .env`), in `.nix` files (they land in a world-readable `/nix/store`), in logs, in docs, or in subagent briefs.
+- R-SECRET-NOT-IN-ARTIFACTS: no secrets in images (`ARG`/`ENV`/`COPY .env`), in committed config files, in logs, in docs, or in subagent briefs.
 - R-SECRET-LEAK: a secret that reached git, a log, a chat, or an image is compromised. Report it and propose rotation; never rewrite git history yourself.
 
 ## Examples
@@ -50,15 +50,16 @@ class Settings(BaseSettings):
         return self
 ```
 
-### R-SECRET-NOT-IN-ARTIFACTS — not in the Nix store
+### R-SECRET-NOT-IN-ARTIFACTS — not in committed config
 
 Bad:
-```nix
-systemd.services.api.environment.DATABASE_URL = "postgresql://api:S3cret@db/api";
+```ini
+# committed unit file
+Environment=DATABASE_URL=postgresql://api:S3cret@db/api
 ```
-Why: the value is written into `/nix/store`, which every user on the machine can read.
+Why: the value lands in the repository and in a world-readable unit file.
 
 Good:
-```nix
-systemd.services.api.serviceConfig.EnvironmentFile = "/run/secrets/api.env";   # sops-nix or a 0600 file
+```ini
+EnvironmentFile=/run/secrets/api.env   # a 0600 file outside the repo
 ```

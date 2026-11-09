@@ -72,7 +72,6 @@ const BY_EXTENSION = {
   js: 'ts-react-reviewer',
   jsx: 'ts-react-reviewer',
   dart: 'flutter-dart-reviewer',
-  nix: 'nix-reviewer',
 }
 
 const MIGRATIONS_BRIEF =

@@ -123,8 +123,8 @@ function engineerBrief(extra) {
 async function check() {
   if (!take('local checks')) return null
   return agent(
-    `Do not edit files. Check these CI files locally: ${files.join(', ')}. Run: actionlint on the workflow files, zizmor on them (both through \`nix shell nixpkgs#actionlint -c actionlint\` and \`nix shell nixpkgs#zizmor -c zizmor\`), ` +
-      'and the project linters/formatters the workflow itself will run (read the workflow, run the same commands through `nix develop -c`). ' +
+    `Do not edit files. Check these CI files locally: ${files.join(', ')}. Run: actionlint on the workflow files, zizmor on them (run both directly; a missing one means install_needed with the requirements.md hint), ` +
+      'and the project linters/formatters the workflow itself will run (read the workflow, run the same commands). ' +
       'Return every command with ok and a bounded excerpt of the failure output. ok is true only when every check passed.',
     { agentType: 'test-runner', phase: 'Check', label: 'local checks', schema: CHECK_SCHEMA },
   )
@@ -188,8 +188,8 @@ if (round > maxRounds) {
 }
 if (!take('gh login preflight')) return { stopped: true, problems: ['agent cap reached'] }
 const login = await agent(
-  'Check the login of the gh CLI with the status command from the cli-gh skill, through `nix shell nixpkgs#gh -c <cmd>`; read-only. ' +
-    'Return logged_in and, when not logged in, user_command: the exact one command the user runs as `! nix shell nixpkgs#gh -c <cmd>`.',
+  'Check the login of the gh CLI with the status command from the cli-gh skill (run gh directly; missing gh means install_needed with the requirements.md hint); read-only. ' +
+    'Return logged_in and, when not logged in, user_command: the exact one command the user runs as `! <cmd>`.',
   { agentType: 'log-collector', phase: 'Preflight', label: 'login preflight', schema: LOGIN_SCHEMA },
 )
 if (!login) return { stopped: true, problems: ['login preflight returned nothing'] }

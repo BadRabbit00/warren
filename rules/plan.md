@@ -55,7 +55,7 @@ Good:
 ```markdown
 - **Status:** done
 - **Evidence:**
-  - red: `nix develop -c pytest src/orders/tests/services -q` → 0 passed, 3 failed; tests sha256 `9f1c…`
+  - red: `pytest src/orders/tests/services -q` → 0 passed, 3 failed; tests sha256 `9f1c…`
   - green: → 3 passed, 0 failed, 0 skipped; tests sha256 `9f1c…` (unchanged)
   - refactor: → 3 passed; tests sha256 `9f1c…`; full suite 214 passed
 ```

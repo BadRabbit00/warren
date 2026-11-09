@@ -13,7 +13,7 @@ effort: medium
 <!--
 TEMPLATE — copy to agents/<name>.md, delete every comment.
 The payload injects core/subagent-contract.md right after the frontmatter,
-so do NOT repeat here: reporting format, language rules, "do not invent facts", nix develop -c.
+so do NOT repeat here: reporting format, language rules, "do not invent facts".
 
 Size: aim for 120–250 lines. Over 300 lines means a skill is hiding inside the agent — move the reference part out.
 Description: neutral. The orchestrator decides who runs. Words like "proactively" make Claude Code auto-invoke.

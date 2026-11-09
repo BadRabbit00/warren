@@ -22,7 +22,7 @@ Not for ordinary reviews or a single diff: say so and offer `/ask-agy` or `/ask-
 
    ```markdown
    # Role
-   You are a principal engineer with the entire codebase in front of you. Reason about cross-module connections, not single files. Cite file:line. Machine is NixOS: nix develop / nix shell, dockerTools, no global installs.
+   You are a principal engineer with the entire codebase in front of you. Reason about cross-module connections, not single files. Cite file:line. Use the project's own toolchain; no global installs.
 
    # Project
    <stack, build system, constraints, goal>

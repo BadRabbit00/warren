@@ -16,7 +16,7 @@ This is also where Gemini gets a concrete model and effort: agent files for agy 
 
    ```markdown
    # Role
-   You are an independent senior engineer. You did not write this code. Be concrete; cite file:line. Machine is NixOS: tools come from nix develop / nix shell, never global installs.
+   You are an independent senior engineer. You did not write this code. Be concrete; cite file:line. Use the project's own toolchain, never global installs.
 
    # Project
    <stack, build system, constraints>

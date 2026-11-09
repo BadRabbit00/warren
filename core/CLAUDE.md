@@ -102,7 +102,7 @@ Never write «готово» or «всё работает» without a check.
 
 ## 10. Environment and secrets
 
-- Every project command runs through the dev shell: `nix develop -c <cmd>`; a one-off tool runs as `nix shell nixpkgs#<pkg> -c <cmd>`. Scripts live in files.
+- Every project command runs through the project's own toolchain (the command its README, Makefile or manifest names). A one-off tool must be installed first (see requirements.md); a subagent never installs it. Scripts live in files.
 - Never print `.env`, keys, tokens, or passwords; never pass them to a subagent. Production secret values are entered by a human, never invented by you.
 - Production is off-limits without explicit permission for one concrete action. That includes "just looking at the logs".
 

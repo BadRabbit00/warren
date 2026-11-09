@@ -9,7 +9,7 @@ TEMPLATE — copy to skills/<name>/SKILL.md, delete every comment.
 A skill is reference material loaded on demand or preloaded into a specific agent via `skills:`.
 It may be long, but must be scannable: a table of contents up top, short sections, tables over prose.
 Supporting files (tables, examples) may live next to SKILL.md and be referenced by relative path.
-Skills ship no scripts: the payload installs SKILL.md and its reference files only. Anything executable belongs in nix/ as a package.
+Skills ship no scripts: the payload installs SKILL.md and its reference files only. Anything executable belongs in tools/ or the project's own scripts.
 -->
 
 # <Skill title>
