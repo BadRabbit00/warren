@@ -446,6 +446,8 @@ class ReadersBashIsCliOnly(unittest.TestCase):
                    "--format json); [ \"$(printf \"%s\\n\" \"$out\" | grep -c \"\\\"Service\\\"\")\" -eq 3 ] && "
                    "! printf \"%s\\n\" \"$out\" | grep -Eq \"\\\"Health\\\":\\\"(starting|unhealthy)\\\"\"; "
                    "do sleep 2; done'")
+    # no-Nix (P261110 AC3): the same loop run directly under timeout, the way the contract spells it now
+    HEALTH_LOOP_DIRECT = HEALTH_LOOP.replace("nix shell nixpkgs#docker -c ", "")
 
     FILE_READERS = [
         "cat README.md", "cat logs/run.txt", "sed -n 1,20p x", "awk '{print}' x", "ls", "ls logs", "ls -la docs",
@@ -465,6 +467,14 @@ class ReadersBashIsCliOnly(unittest.TestCase):
         "docker logs api | uniq logs/run.txt",
     ]
     CLI_AND_FILTERS = [
+        # no-Nix (P261110 AC3): R-marked CLI reads run directly and under timeout; the wrapped forms
+        # (wrapper resolution) stay right after the direct forms
+        "gh run view 1 --log-failed | tail -n 200",
+        "docker compose -p shop logs --tail 200 api",
+        "timeout 60 docker compose -p shop ps",
+        "timeout 60 docker compose -p shop logs --tail 200 api | tail -n 50",
+        "railway logs | head -n 50",
+        "docker ps",
         "nix shell nixpkgs#gh -c gh run view 1 --log-failed | tail -n 200",
         "docker compose -p shop logs --tail 200 api | grep -i error",
         "nix shell nixpkgs#railway -c railway logs | head -n 50",
@@ -509,6 +519,12 @@ class ReadersBashIsCliOnly(unittest.TestCase):
             self.assertFalse(denied(res), reason(res))
         with self.subTest(agent="stand-operator", denied="health-wait loop without -p"):
             self.assertTrue(denied(self.run_cmd(self.HEALTH_LOOP.replace("-p shop ", ""), "stand-operator")))
+        # no-Nix (P261110 AC3): the direct loop (no nix wrapper) is allowed, and still denied without -p
+        with self.subTest(agent="stand-operator", allowed="direct health-wait loop"):
+            res = self.run_cmd(self.HEALTH_LOOP_DIRECT, "stand-operator")
+            self.assertFalse(denied(res), reason(res))
+        with self.subTest(agent="stand-operator", denied="direct health-wait loop without -p"):
+            self.assertTrue(denied(self.run_cmd(self.HEALTH_LOOP_DIRECT.replace("-p shop ", ""), "stand-operator")))
         # the janitor keeps git for its tracked-file gate: ls-files and status, nothing else of git
         for cmd in ["git ls-files src/a.py", "git ls-files --error-unmatch src/a.py", "git status --porcelain"]:
             with self.subTest(agent="janitor", allowed=cmd):
@@ -522,6 +538,31 @@ class ReadersBashIsCliOnly(unittest.TestCase):
             for cmd in ["git ls-files src/a.py", "git status --porcelain"]:
                 with self.subTest(agent=agent, denied=cmd):
                     self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd!r} was allowed")
+
+    def test_readers_run_cli_reads_directly_and_wrapped(self):
+        """no-Nix (P261110 AC3): the R-marked CLI reads run bare and under timeout for every reader; the same
+        reads hidden in `nix shell ... -c` / `nix develop -c` are resolved and judged the same way, not newly allowed."""
+        direct = ["gh run view 1 --log-failed | tail -n 200", "docker compose -p shop logs --tail 200 api",
+                  "timeout 60 gh run list", "timeout 60 docker compose -p shop ps"]
+        for agent in ALL_READERS:
+            for cmd in direct:
+                with self.subTest(agent=agent, allowed=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertFalse(denied(res), f"{agent}: {cmd!r}: {reason(res)}")
+            for cmd in ["nix shell nixpkgs#gh -c gh run view 1 --log-failed | tail -n 200",
+                        "nix develop -c docker compose -p shop logs --tail 200 api"]:
+                with self.subTest(agent=agent, allowed_wrapped=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertFalse(denied(res), f"{agent}: {cmd!r}: {reason(res)}")
+            # nothing new is allowed through a wrapper
+            for cmd in ["nix shell nixpkgs#coreutils -c cat README.md", "nix develop -c cat README.md",
+                        "timeout 5 nix develop -c cat README.md"]:
+                with self.subTest(agent=agent, denied_wrapped=cmd):
+                    self.assertTrue(denied(self.run_cmd(cmd, agent)), f"{agent}: {cmd!r} was allowed")
+            # no-Nix (P261110 AC4): a reader's deny reason does not mention nix
+            with self.subTest(agent=agent, reason_has_no_nix=True):
+                res = self.run_cmd("cat README.md", agent)
+                self.assertNotIn("nix", reason(res).lower(), f"{agent}: {reason(res)!r}")
 
     def test_readers_bash_cli_only_does_not_limit_other_agents(self):
         """Guard: the main session and executors keep cat, ls, sed, find, cd, git, tee, cp and touch."""
