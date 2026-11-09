@@ -127,7 +127,8 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
             fail(f"agents/{name}.md: {exc}")
             continue
         desc = get(fm, "description")
-        if not desc or "\n" in desc:
+        # multi-line descriptions are rejected by the validator, not here
+        if not desc:
             fail(f"agents/{name}.md: description must be one non-empty line")
             continue
         if "'''" in body:
@@ -167,7 +168,11 @@ def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, 
         except ValueError as exc:
             fail(f"commands/{p.name}: {exc}")
             continue
-        (prompts_dir / p.name).write_text(f"# /{p.stem}\n\n{body.lstrip(chr(10))}", encoding="utf-8")
+        body = body.lstrip("\n")
+        first = next((ln for ln in body.splitlines() if ln.strip()), "")
+        if first.strip() != f"# /{p.stem}":
+            body = f"# /{p.stem}\n\n{body}"
+        (prompts_dir / p.name).write_text(body, encoding="utf-8")
         prompts += 1
 
     shutil.copytree(claude / "skills", out / "codex" / "skills")
