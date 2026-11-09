@@ -142,12 +142,22 @@ def fence_tags(body: str) -> tuple[list[str], bool]:
 
 # ---------------------------------------------------------------- checks
 
+LIST_KEYS = (
+    "allowedModels", "allowedEffort", "agyModels", "requiredDisallowed", "forbiddenDescriptionWords",
+    "examplesExempt", "hookEvents", "docTemplates", "buildIsolated", "useWhenExempt",
+)
+
+
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
         cfg = json.loads((root / "tools" / "validate.json").read_text(encoding="utf-8"))
         if not isinstance(cfg, dict):
             raise TypeError("tools/validate.json: top level must be an object")
+        for key in LIST_KEYS:
+            val = cfg.get(key, [])
+            if not isinstance(val, list) or not all(isinstance(v, str) for v in val):
+                raise TypeError(f"tools/validate.json: {key} must be a list of strings")
         self.cfg = cfg
         self.errors: list[str] = []
         self.rule_ids: dict[str, Path] = {}
@@ -389,21 +399,23 @@ class Validator:
         for name, spec in models.items():
             if name not in agent_names:
                 self.err(m, f"'{name}' is not an agent in agents/")
-            if not isinstance(spec, dict) or not str(spec.get("model", "")).startswith("claude-"):
+            if not isinstance(spec, dict):
+                self.err(m, f"'{name}': model must be a full claude-* id")
+                continue
+            if not str(spec.get("model", "")).startswith("claude-"):
                 self.err(m, f"'{name}': model must be a full claude-* id")
             elif spec.get("effort") not in self.cfg["allowedEffort"]:
                 self.err(m, f"'{name}': bad effort")
-            if not isinstance(spec, dict):
-                continue
             codex = spec.get("codex")
             if not isinstance(codex, dict):
                 self.err(m, f"'{name}': codex must be an object with model and effort")
             else:
                 cmodel = codex.get("model")
-                if not isinstance(cmodel, str) or not cmodel:
+                if not isinstance(cmodel, str) or not cmodel.strip():
                     self.err(m, f"'{name}': codex.model {cmodel!r} must be a non-empty string")
-                if codex.get("effort") not in self.cfg["allowedEffort"]:
-                    self.err(m, f"'{name}': codex.effort {codex.get('effort')!r} not in allowedEffort")
+                ceffort = codex.get("effort")
+                if ceffort not in self.cfg["allowedEffort"]:
+                    self.err(m, f"'{name}': codex.effort {ceffort!r} not in allowedEffort")
             agy = spec.get("agy")
             if not isinstance(agy, dict):
                 self.err(m, f"'{name}': agy must be an object with model")
