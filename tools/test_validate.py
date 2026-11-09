@@ -79,23 +79,29 @@ log.info("x", x=x)
 """
 
 
+def make_root(tmp: Path) -> Path:
+    """Copies the shipped tree (explicit allowlist) into tmp/br and returns that root."""
+    root = tmp / "br"
+    root.mkdir()
+    # Explicit allowlist (mirrors the payload.nix fileset): copying the repo root would follow
+    # .direnv symlinks into /nix/store and fail to clean up read-only files.
+    for name in COPIED:
+        src = REPO / name
+        if src.is_dir():
+            shutil.copytree(
+                src, root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
+                copy_function=shutil.copyfile,  # a read-only source tree must not give read-only copies
+            )
+        else:
+            shutil.copyfile(src, root / name)
+    return root
+
+
 class ValidateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.root = self.tmp / "br"
-        self.root.mkdir()
-        # Explicit allowlist (mirrors the payload.nix fileset): copying the repo root would follow
-        # .direnv symlinks into /nix/store and fail to clean up read-only files.
-        for name in COPIED:
-            src = REPO / name
-            if src.is_dir():
-                shutil.copytree(
-                    src, self.root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
-                    copy_function=shutil.copyfile,  # a read-only source tree must not give read-only copies
-                )
-            else:
-                shutil.copyfile(src, self.root / name)
+        self.root = make_root(self.tmp)
         models = json.loads((self.root / "agent-models.json").read_text(encoding="utf-8"))
         models["agents"]["demo-agent"] = {
             "model": "claude-sonnet-5-5",
@@ -377,17 +383,7 @@ class ModelTableTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.root = self.tmp / "br"
-        self.root.mkdir()
-        for name in COPIED:
-            src = REPO / name
-            if src.is_dir():
-                shutil.copytree(
-                    src, self.root / name, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"),
-                    copy_function=shutil.copyfile,
-                )
-            else:
-                shutil.copyfile(src, self.root / name)
+        self.root = make_root(self.tmp)
         # A complete, valid table written here, so the tests do not depend on the repo's own file content.
         self.models_path = self.root / "agent-models.json"
         models = json.loads(self.models_path.read_text(encoding="utf-8"))
@@ -405,8 +401,12 @@ class ModelTableTest(unittest.TestCase):
         self.models_path.write_text(json.dumps(models), encoding="utf-8")
 
     def findings_for(self, name: str, baseline: list[str]) -> list[str]:
-        """New findings (absent from the baseline run) that name the agent."""
-        return [e for e in validate.Validator(self.root).run() if e not in baseline and name in e]
+        """New findings (absent from the baseline run) about exactly this agent.
+
+        Model-table findings read "agent-models.json: '<name>': ...", body findings "agents/<name>.md: ...".
+        """
+        mine = (f"agent-models.json: '{name}':", f"agents/{name}.md:")
+        return [e for e in validate.Validator(self.root).run() if e not in baseline and e.startswith(mine)]
 
     def test_models_complete_table_is_clean(self) -> None:
         self.assertEqual(validate.Validator(self.root).run(), [])
@@ -440,6 +440,35 @@ class ModelTableTest(unittest.TestCase):
         models["agents"][bad]["codex"] = {"model": "gpt-6-astra", "effort": "ultra"}
         self.save(models)
         self.assertTrue(any("ultra" in e for e in self.findings_for(bad, baseline)), bad)
+
+    def test_models_reject_wrong_shapes(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        list_codex, str_agy, int_model, blank_model = self.names[:4]
+        models = self.load()
+        models["agents"][list_codex]["codex"] = ["x"]
+        models["agents"][str_agy]["agy"] = "flash"
+        models["agents"][int_model]["codex"] = {"model": 5, "effort": "high"}
+        models["agents"][blank_model]["codex"] = {"model": "   ", "effort": "high"}
+        self.save(models)
+        for name in (list_codex, str_agy, int_model, blank_model):
+            self.assertTrue(self.findings_for(name, baseline), name)  # reports, does not raise
+
+    def test_config_list_keys_must_be_lists(self) -> None:
+        path = self.root / "tools" / "validate.json"
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        cfg["agyModels"] = "flash"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        with self.assertRaises(TypeError):
+            validate.Validator(self.root).run()
+        err = io.StringIO()
+        argv = sys.argv
+        sys.argv = ["validate.py", str(self.root)]
+        try:
+            with redirect_stderr(err):
+                rc = validate.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(rc, 2)
 
     def test_body_rejects_toml_literal_terminator(self) -> None:
         baseline = validate.Validator(self.root).run()
