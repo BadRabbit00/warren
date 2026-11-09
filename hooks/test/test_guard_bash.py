@@ -846,5 +846,272 @@ class BashWritesFollowWriteSets(unittest.TestCase):
         self.assertFalse(denied(bash("echo x > src/a/tests/test_a.py", agent="test-writer", cwd=root)))
 
 
+# ---------------------------------------------------------------- round 4 (review wf_92927075-67b)
+GATE_AGENTS = ["deploy-error-reader", "log-collector"]
+
+
+class ReaderGateAllowlist(unittest.TestCase):
+    """AC12: the reader gate is a true allowlist: every resolved command head must be an allowed read command."""
+    UTILITIES = ["cat logs/run.txt", "head -n 5 logs/run.txt", "tail -n 20 logs/run.txt", "grep -rn error logs",
+                 "rg -n error logs", "jq . data.json", "less logs/run.txt", "wc -l logs/run.txt",
+                 "sort logs/run.txt", "uniq logs/run.txt", "cut -d, -f1 logs/run.txt", "tr a-z A-Z",
+                 "ls -la logs", "stat logs/run.txt", "file logs/run.txt", "date", "echo hello", "printf 'x\\n'",
+                 "test -f logs/run.txt", "true", "sleep 1", "sed -n 1,5p logs/run.txt", "sed 's/a/b/' logs/run.txt",
+                 "awk '{print $1}' logs/run.txt", "find . -name '*.log'", "find logs -type f -name '*.txt'"]
+    DENIED = ["rm -f logs/run.txt", "git push origin feature/x", "git commit -m x", "podman ps",
+              "docker-compose up -d", "kubectl get pods", "curl -X POST https://example.com/hook",
+              "curl https://example.com", "python3 script.py", "frobnicate --now", "chmod +x run.sh",
+              "kill 1", "ssh host ls",
+              "sed -i 's/a/b/' notes.txt", "awk -i inplace '{print}' notes.txt",
+              "find . -name '*.log' -delete", "find . -name x -exec rm {} \\;",
+              "find . -name x -execdir rm {} \\;", "find . -name x -ok rm {} \\;",
+              "find . -name x -fprint out.txt", "find . -name x -fprintf out.txt '%p'",
+              "find . -name x -fprint0 out.txt"]
+
+    def test_reader_gate_is_an_allowlist(self):
+        for agent in GATE_AGENTS:
+            for cmd in [*DeployErrorReader.READ, *self.UTILITIES]:
+                with self.subTest(agent=agent, allowed=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+            for cmd in self.DENIED:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
+
+    def test_reader_gate_denies_a_forbidden_head_anywhere_in_a_chain(self):
+        for agent in GATE_AGENTS:
+            for cmd in ["gh run list && rm -rf logs", "railway logs | python3 parse.py", "docker logs api; git push",
+                        "echo ok || podman rm api", "gh run list\nkubectl get pods"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
+
+    def test_reader_gate_pipes_of_allowed_commands_stay_allowed(self):
+        for agent in GATE_AGENTS:
+            for cmd in ["gh run view 1 --log-failed | grep -i error | head -n 20",
+                        "docker compose logs api | sort | uniq | wc -l",
+                        "gcloud logging read 'severity>=ERROR' --limit 50 | jq .textPayload",
+                        "railway logs && wrangler whoami"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_reader_gate_unknown_global_flag_before_a_subcommand_is_denied(self):
+        for agent in GATE_AGENTS:
+            for cmd in ["gh --bogus run list", "gh --bogus value run list", "gh --bogus=1 run list",
+                        "docker --weird stand logs api", "docker compose --wat x logs api",
+                        "gh -X run view 1 --log-failed"]:
+                for form in (cmd, f"nix shell nixpkgs#{'gh' if cmd.startswith('gh') else 'docker'} -c {cmd}"):
+                    with self.subTest(agent=agent, denied=form):
+                        self.assertTrue(denied(bash(form, agent=agent)), form)
+            for cmd in ["gh -R o/r run list", "docker compose -p stand ps", "docker --context stand logs api"]:
+                with self.subTest(agent=agent, still_allowed=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_reader_gate_does_not_limit_other_agents(self):
+        for agent in [None, "coder", "deploy-engineer", "ci-engineer"]:
+            for cmd in ["nix develop -c python3 script.py", "podman ps", "kubectl get pods", "frobnicate --now"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+class ReaderGateWrappers(unittest.TestCase):
+    """AC13: the reader gate sees through wrappers the way the Nix-only check does."""
+    MUTATING = [
+        "nix run nixpkgs#gh -- run rerun 1",
+        "nix run nixpkgs#gh -- workflow run ci.yml",
+        "bash -lc 'gh run rerun 1'", "bash -c 'railway up'", "sh -ec 'gh workflow run ci.yml'",
+        "nix shell nixpkgs#gh --command bash -lc 'gh run rerun 1'",
+        "nix shell nixpkgs#gh -c sh -c 'gh run rerun 1'",
+        "nix develop -c bash -c 'docker compose up -d'",
+        "echo $(gh run rerun 1)", "echo \"$(railway up)\"", "echo `railway redeploy`",
+        "echo 1 | xargs gh run rerun", "echo 1 | xargs -n1 gh run rerun",
+        "gh run list --json databaseId -q '.[].databaseId' | xargs -n1 gh run rerun",
+        "eval 'gh run rerun 1'", "eval \"railway up\"",
+        "find . -name x -exec gh run rerun 1 \\;", "find . -name x -exec rm {} \\;",
+        "bash -c 'echo $(gh run rerun 1)'",
+        "bash -c \"bash -c 'docker rm api'\"",
+    ]
+    READ = [
+        "nix run nixpkgs#gh -- run list", "nix run nixpkgs#gh -- run view 1 --log-failed",
+        "bash -lc 'gh run list'", "sh -ec 'docker compose logs api'",
+        "nix shell nixpkgs#gh --command bash -lc 'gh run view 1 --log-failed'",
+        "nix shell nixpkgs#docker -c sh -c 'docker logs api | tail -n 20'",
+        "echo \"latest: $(gh run list --limit 1)\"", "echo `railway whoami`",
+        "echo 12345 | xargs gh run view --log-failed",
+        "eval 'gh run list'",
+    ]
+
+    def test_reader_gate_sees_through_wrappers(self):
+        for agent in GATE_AGENTS:
+            for cmd in self.MUTATING:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
+            for cmd in self.READ:
+                with self.subTest(agent=agent, allowed=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+    def test_reader_gate_wrappers_do_not_limit_other_agents(self):
+        for agent in [None, "deploy-engineer", "ci-engineer"]:
+            for cmd in ["bash -lc 'gh run rerun 1'", "nix run nixpkgs#gh -- run rerun 1", "echo 1 | xargs gh run rerun"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent)
+                    self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+
+
+# One entry per glued or exotic way of redirecting; {p} is the target.
+GLUED_FORMS = {
+    "word>file": "echo x>{p}",
+    "word>>file": "echo x>>{p}",
+    "word>|file": "echo x>|{p}",
+    "fd>file": "ls 2>{p}",
+    "fd>>file": "ls 2>>{p}",
+    "&>file": "ls &>{p}",
+    "&>>file": "ls &>>{p}",
+    ">&file": "ls >&{p}",
+    "spaced >|": "echo x >| {p}",
+    "spaced &>": "ls &> {p}",
+    "spaced >&": "ls >& {p}",
+    "heredoc>file": "cat <<EOF>{p}\nx = 1\nEOF",
+    "heredoc >file": "cat <<'EOF' >{p}\nx = 1\nEOF",
+    "after &&": "echo ok&&echo x>{p}",
+    "in bash -c": "bash -c 'echo x>{p}'",
+}
+
+
+class BashWritesGluedRedirections(unittest.TestCase):
+    """AC14: Bash write targets are found for glued and other redirection operators, and after `cd`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = plan_project()
+
+    def run_cmd(self, cmd, agent):
+        return bash(cmd, agent=agent, cwd=self.root)
+
+    def assert_allowed_cmd(self, cmd, agent):
+        res = self.run_cmd(cmd, agent)
+        self.assertFalse(denied(res), f"{agent}: {cmd!r}: {reason(res)}")
+
+    def assert_denied_cmd(self, cmd, agent, names):
+        res = self.run_cmd(cmd, agent)
+        self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+        self.assertIn(names, reason(res), f"{agent}: {cmd!r}: the reason does not name the target")
+
+    def test_bash_writes_glued_redirections_and_cd(self):
+        self.check_cd_resolves_relative_targets()
+        self.check_readers_unresolvable_targets_fail_closed()
+        for form, tpl in GLUED_FORMS.items():
+            for agent in ["coder", "python-coder", "ci-engineer"]:
+                with self.subTest(agent=agent, form=form, check="own Writes"):
+                    self.assert_allowed_cmd(tpl.format(p="src/a/app.py"), agent)
+                for path in ["src/z/new.py", "src/b/app.py", "README.md"]:
+                    with self.subTest(agent=agent, form=form, denied=path):
+                        self.assert_denied_cmd(tpl.format(p=path), agent, path)
+            with self.subTest(agent="test-writer", form=form, check="tests of a red task"):
+                self.assert_allowed_cmd(tpl.format(p="src/b/tests/test_b.py"), "test-writer")
+            for path in ["src/b/app.py", "src/a/tests/test_a.py", "hooks/README.md"]:
+                with self.subTest(agent="test-writer", form=form, denied=path):
+                    self.assert_denied_cmd(tpl.format(p=path), "test-writer", path)
+            for agent in GATE_AGENTS:
+                with self.subTest(agent=agent, form=form, denied="out.log"):
+                    self.assert_denied_cmd(tpl.format(p="out.log"), agent, "out.log")
+                with self.subTest(agent=agent, form=form, allowed="/tmp"):
+                    self.assert_allowed_cmd(tpl.format(p="/tmp/t1r4/out.log"), agent)
+            for agent in ["coder", "test-writer", "refactorer", "ci-engineer"]:
+                with self.subTest(agent=agent, form=form, allowed="/tmp"):
+                    self.assert_allowed_cmd(tpl.format(p="/tmp/t1r4/out.log"), agent)
+                with self.subTest(agent=agent, form=form, allowed="scratchpad"):
+                    self.assert_allowed_cmd(tpl.format(p=f"{SCRATCHPAD}/out.log"), agent)
+
+    def test_bash_writes_glued_redirections_main_session_and_no_plan_keep_today(self):
+        plain = plan_project(None)
+        for form, tpl in GLUED_FORMS.items():
+            with self.subTest(who="main session", form=form):
+                res = bash(tpl.format(p="src/z/new.py"), cwd=self.root)
+                self.assertFalse(denied(res), f"{form}: {reason(res)}")
+            with self.subTest(who="coder without a plan", form=form):
+                res = bash(tpl.format(p="src/z/new.py"), agent="coder", cwd=plain)
+                self.assertFalse(denied(res), f"{form}: {reason(res)}")
+
+    def test_bash_writes_glued_redirections_harmless_forms_are_unaffected(self):
+        cmds = ["echo x>/dev/null", "echo x >/dev/null", "ls 2>/dev/null", "ls &>/dev/null", "ls >&/dev/null",
+                "nix develop -c pytest -q >/dev/null 2>&1", "nix develop -c pytest -q 2>&1", "echo x >&2",
+                "ls 1>&2", "echo 'a>src/z/new.py'", 'echo "a>>src/z/new.py"',
+                "grep -n 'x>y' src/a/app.py", "echo x>/tmp/t1r4/out.txt", "echo x&>/tmp/t1r4/out.txt"]
+        for agent in [*CODE_EXECUTORS, "refactorer", "test-writer"]:
+            for cmd in cmds:
+                with self.subTest(agent=agent, cmd=cmd):
+                    self.assert_allowed_cmd(cmd, agent)
+        for agent in GATE_AGENTS:
+            for cmd in ["gh run list>/dev/null", "gh run list 2>/dev/null", "docker compose logs api 2>&1 | tail -n 5",
+                        "docker logs api &>/tmp/t1r4/api.log", "docker logs api >&/tmp/t1r4/api.log",
+                        "docker logs api 2>&1 >/tmp/t1r4/api.log", "echo 'a>src/z/new.py'"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    self.assert_allowed_cmd(cmd, agent)
+
+    def check_cd_resolves_relative_targets(self):
+        root = str(self.root)
+        cases_denied = [
+            ("coder", "cd src/z && echo x > new.py", "src/z/new.py"),
+            ("coder", "cd src/z && echo x>new.py", "src/z/new.py"),
+            ("coder", "cd src/z; echo x >> new.py", "src/z/new.py"),
+            ("coder", "cd src/z && touch new.py", "src/z/new.py"),
+            ("coder", "cd src/z && tee new.py < /tmp/src.txt", "src/z/new.py"),
+            ("coder", "cd src/z && cp /tmp/src.txt new.py", "src/z/new.py"),
+            ("coder", "cd src/z && sed -i 's/a/b/' new.py", "src/z/new.py"),
+            ("coder", "cd src/a && echo x > ../z/new.py", "src/z/new.py"),
+            ("coder", "cd src && cd z && echo x > new.py", "src/z/new.py"),
+            ("coder", f"cd {root}/src/z && echo x > new.py", "src/z/new.py"),
+            ("coder", "cd src/a/tests && echo x > test_a.py", "src/a/tests/test_a.py"),
+            ("python-coder", "cd src/b && echo x > app.py", "src/b/app.py"),
+            ("test-writer", "cd src/b && echo x > app.py", "src/b/app.py"),
+            ("test-writer", "cd src/b/tests && echo x > test_other.py", "src/b/tests/test_other.py"),
+            ("test-writer", "cd src/a/tests && echo x > test_a.py", "src/a/tests/test_a.py"),
+        ]
+        for agent, cmd, target in cases_denied:
+            with self.subTest(agent=agent, denied=cmd):
+                self.assert_denied_cmd(cmd, agent, target)
+        cases_allowed = [
+            ("coder", "cd src/a && echo x > app.py"),
+            ("coder", "cd src/a && echo x>app.py"),
+            ("coder", "cd src/a && cp /tmp/src.txt app.py"),
+            ("coder", "cd src/a/lib && echo x > util.py"),
+            ("coder", "cd src/z && echo x > ../a/app.py"),
+            ("coder", "cd src && cd a && echo x > app.py"),
+            ("coder", f"cd {root}/src/a && echo x > app.py"),
+            ("coder", "cd src/z && echo x > /tmp/t1r4/out.txt"),
+            ("coder", "cd /tmp && echo x > t1r4-out.txt"),
+            ("coder", f"cd {SCRATCHPAD} && echo x > notes.md"),
+            ("test-writer", "cd src/b/tests && echo x > test_b.py"),
+            ("test-writer", "cd src/b/tests/unit && echo x > test_rows.py"),
+            ("refactorer", "cd src/c && echo x > app.py"),
+        ]
+        for agent, cmd in cases_allowed:
+            with self.subTest(agent=agent, allowed=cmd):
+                self.assert_allowed_cmd(cmd, agent)
+
+    def check_readers_unresolvable_targets_fail_closed(self):
+        cmds = ["echo x > $HOME/out.txt", "echo x > ${OUT_DIR}/out.txt", "echo x > $OUT", "echo x > \"$OUT\"",
+                "echo x > ~/out.txt", "echo x>~/out.txt", "echo x >> ~/out.txt", "echo x > `mktemp`",
+                "echo x > $(mktemp)", "echo x>$(mktemp)", "ls 2>$ERRFILE", "ls &>$ALL", "ls >&$ALL",
+                "docker compose logs api > $LOGFILE", "gh run view 1 --log-failed >> ~/ci.log",
+                "docker logs api 2> $(mktemp -u)", "cat <<EOF>$OUT\nx\nEOF",
+                "bash -c 'echo x > $OUT'"]
+        for agent in GATE_AGENTS:
+            for cmd in cmds:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = self.run_cmd(cmd, agent)
+                    self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+
+    def test_bash_writes_executors_keep_skipping_unresolvable_targets(self):
+        for agent in ["coder", "python-coder", "test-writer"]:
+            for cmd in ["echo x > $TMPDIR/out.txt", "echo x > \"$OUT\"", "echo x > ~/t1r4-out.txt"]:
+                with self.subTest(agent=agent, cmd=cmd):
+                    self.assert_allowed_cmd(cmd, agent)
+
+
 if __name__ == "__main__":
     unittest.main()
