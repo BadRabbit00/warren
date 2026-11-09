@@ -689,6 +689,75 @@ class WorkflowTest(unittest.TestCase):
             found = self.findings(self.GOOD + "const s = `${x}` + Date.now()\n")
             self.assert_line(found, 13)
 
+    # AC8 (D13): a regex literal in expression position is a finding on its line; division, comments,
+    # strings and template text are not; the rest of the file is still checked afterwards
+    def assert_regex_finding(self, found: list[str], line: int) -> None:
+        self.assertTrue(
+            any("regex" in e and re.search(rf"\b{line}\b", e) for e in found),
+            f"no regex finding names line {line}: {found}",
+        )
+
+    def test_workflow_regex_literal(self) -> None:
+        positions = {
+            "after (": "const t = check(/ab+c/)\n",
+            "after ,": "const t = [1, /ab+c/]\n",
+            "after =": "const re = /ab+c/g\n",
+            "after :": "const o = { re: /ab+c/ }\n",
+            "after [": "const l = [/ab+c/]\n",
+            "after !": "const n = !/ab+c/.test(s)\n",
+            "after &": "const b = ok && /ab+c/.test(s)\n",
+            "after |": "const b = ok || /ab+c/.test(s)\n",
+            "after ?": "const b = ok ? /ab+c/ : null\n",
+            "after {": "if (ok) { /ab+c/.test(s) }\n",
+            "after }": "if (ok) {} /ab+c/.test(s)\n",
+            "after ;": "go(); /ab+c/.test(s)\n",
+            "after return": "function f(s) { return /ab+c/.test(s) }\n",
+            "at line start": "/ab+c/.test(s)\n",
+            "with an escaped slash": "const re = /a\\/b/\n",
+        }
+        for label, line in positions.items():
+            with self.subTest(position=label):
+                self.assert_regex_finding(self.findings(self.GOOD + line), 13)
+        with self.subTest(case="the finding says to use new RegExp"):
+            found = self.findings(self.GOOD + "const re = /ab+c/\n")
+            self.assertTrue(any("new RegExp" in e for e in found), found)
+        with self.subTest(case="a regex holding quote characters does not hide the rest of the file"):
+            text = self.GOOD + "const re = /['\"]/g\nconst k = 1\nconst bad = await agent('p')\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 13)
+            self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        with self.subTest(case="an untyped agent() two lines after a regex is still reported"):
+            text = self.GOOD + "const re = /ab+c/\nconst k = 1\nconst bad = await agent('p')\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 13)
+            self.assertTrue(any("agentType" in e and re.search(r"\b15\b", e) for e in found), found)
+        with self.subTest(case="a forbidden call after a regex on the same line is still reported"):
+            found = self.findings(self.GOOD + "const t = /ab+c/.test(String(Date.now()))\n")
+            self.assertTrue(any("Date.now(" in e for e in found), found)
+            self.assert_regex_finding(found, 13)
+        with self.subTest(case="only the regex line is reported among division and comments"):
+            text = self.GOOD + "const h = x/2\n// see /ab+c/ here\n/* and /ab+c/ here */\nconst re = /y/\n"
+            found = self.findings(text)
+            self.assert_regex_finding(found, 16)
+            self.assertFalse(any(re.search(r"\b1[345]\b", e) for e in found), found)
+        not_regex = {
+            "division with spaces": "const q = a / b\n",
+            "division without spaces": "const h = x/2\n",
+            "chained division": "const d = a/b/c\n",
+            "line comment": "// matches /ab+c/ here\n",
+            "line comment after code": "const k = 1 // then /ab+c/\n",
+            "block comment": "/* matches /ab+c/ here */\n",
+            "multi-line block comment": "/*\n * matches /ab+c/ here\n */\n",
+            "slashes in a single-quoted string": "const s = 'a/b/c'\n",
+            "regex-looking double-quoted string": 'const s = "/ab+c/"\n',
+            "url in a string": "const u = 'https://example.test/x'\n",
+            "slashes in template text": "const s = `/ab+c/ and a/b`\n",
+            "slashes in a template next to interpolation": "const s = `a/${x}/b`\n",
+        }
+        for label, line in not_regex.items():
+            with self.subTest(case=label):
+                self.assertEqual(self.findings(self.GOOD + line), [])
+
     # AC6: the shipped workflows/*.js are clean (the whole tree is also covered by test_shipped_tree_is_clean)
     def test_shipped_workflows_are_clean(self) -> None:
         shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
