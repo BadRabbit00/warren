@@ -205,8 +205,10 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
-                "build-fixer", "coder", "nix-build-resolver", "nix-engineer", "nix-test-runner",
-                "presenter", "refactorer", "test-writer", "ui-verifier",
+                "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
+                "nix-build-resolver", "nix-engineer", "nix-test-runner", "presenter",
+                "python-coder", "refactorer", "rust-coder", "test-writer", "ts-coder",
+                "ui-verifier",
             ],
         )
         for name, mode in expected.items():
