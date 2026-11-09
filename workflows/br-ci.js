@@ -228,9 +228,15 @@ if (!fix || fix.status !== 'done') {
   log(`stopped: ci-engineer fix ${fix ? 'blocked' : 'returned nothing'}`)
   return { stopped: true, problems: [fix ? fix.notes : 'ci-engineer returned nothing'], analysis }
 }
+const recheck = await check()
+if (!recheck || !recheck.ok) {
+  log('stopped for the user: local checks fail after the ci-test fix')
+  return { ready_to_push: false, stop_for_user: true, round, analysis, work: fix, checks: recheck ? recheck.checks : [], problems: [recheck ? 'local checks fail after the fix' : 'local checks did not run'] }
+}
 return {
   ready_to_push: true,
   round,
+  checks: recheck.checks,
   next_round: round + 1,
   analysis,
   work: fix,

@@ -48,10 +48,10 @@ const mode = args && typeof args.mode === 'string' ? args.mode : 'survey'
 const approved = args && Array.isArray(args.approved) ? args.approved.filter((a) => typeof a === 'string' && a.trim() !== '') : []
 
 const SURVEY_BRIEF =
-  'Mode: survey. Change nothing. Find: dev containers and volumes of finished stands (by compose project name, `docker compose -p <project>`), result and result-* symlinks, ' +
+  'Mode: survey. Change nothing. Find: dev containers and volumes of finished stands (by compose project name, `docker compose -p <project>`), networks of finished stands,result and result-* symlinks, ' +
   'leftovers in docs/temp/, untracked junk files, helper scripts of finished tasks, stale or duplicated lines in .plan/PLAN.md (plan_lines, report only), ' +
   'and specs or docs that no longer match the code (stale_docs, report only). For each item give name, kind, reason, size, age, tracked (git ls-files) and proposed. ' +
-  'Tracked files get proposed report-only.'
+  'Tracked files get proposed report-only. Use only read-only commands: `docker ps -a`, `docker volume ls`, `docker network ls`, `docker compose ls`.'
 
 async function survey(phase, label) {
   const got = await agent(SURVEY_BRIEF, { agentType: 'janitor', phase, label, schema: SURVEY_SCHEMA })
@@ -79,7 +79,7 @@ if (approved.length === 0) {
 const removed = await agent(
   'Mode: delete. The user approved exactly this list with «да»; remove only these entries and nothing else:\n' +
     approved.map((a) => `- ${a}`).join('\n') + '\n' +
-    'One command per entry, by exact name: rm for a file, docker rm for a container, the matching docker volume or network remove for those; no globs, no rm -rf, no prune. ' +
+    'One command per entry, by exact name: rm for a file, docker rm for a container, `docker volume rm NAME` for a volume, `docker network rm NAME` for a network; no globs, no rm -rf, no prune. ' +
     'Never delete a tracked file (git ls-files) or an entry of another compose project: leave it and say why in left. ' +
     'Do not edit .plan/PLAN.md or any doc. Report each removal with its exit code.',
   { agentType: 'janitor', phase: 'Delete', label: 'delete', schema: DELETE_SCHEMA },

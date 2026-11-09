@@ -137,7 +137,7 @@ if (!take('preflight')) return { stopped: true, problems: ['agent cap reached'] 
 const cli = CLI_OF[target]
 const pre = await agent(
   `Preflight, read-only. ${cli ? `Check the login of the ${cli} CLI with the status command from its cli-* skill, through \`nix shell nixpkgs#<pkg> -c <cmd>\`. ` : ''}` +
-    'Check that the docker daemon answers (`docker version`) and that the ports and subnets used by these files are free: ' + files.join(', ') + '. ' +
+    'Check that the docker daemon answers (`docker version`) and that the ports (read-only `ss -ltn`) and subnets (read-only `docker network ls` and `docker network inspect`) used by these files are free:' + files.join(', ') + '. ' +
     'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`. List every other missing tool or taken port/subnet in problems.',
   { agentType: 'log-collector', phase: 'Preflight', label: 'preflight', schema: LOGIN_SCHEMA },
 )
