@@ -1,5 +1,5 @@
 # br payload. Output:
-#   $out/claude/{CLAUDE.md,agents,skills,commands,rules/br,output-styles,br/templates}
+#   $out/claude/{CLAUDE.md,agents,skills,commands,workflows,rules/br,output-styles,br/templates}
 #   $out/settings.fragment.json   env + outputStyle, merged into ~/.claude/settings.json
 #   $out/hooks.json               br:* hooks pointing at the pinned br-hook
 #   $out/LICENSE                  the payload ships MIT-licensed skills
@@ -24,6 +24,7 @@ let
       ../core
       ../output-styles
       ../templates
+      ../workflows
       ../hooks
       ../tools
       # payload.py itself: tools/test_validate.py runs it in subprocess tests.
@@ -60,7 +61,7 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     c="$out/claude"
-    mkdir -p "$c"/{agents,skills,commands,rules/br,output-styles,br/templates}
+    mkdir -p "$c"/{agents,skills,commands,workflows,rules/br,output-styles,br/templates}
 
     cp core/CLAUDE.md "$c/CLAUDE.md"
     cp LICENSE "$out/LICENSE"
@@ -70,6 +71,7 @@ stdenvNoCC.mkDerivation {
     cp -r templates/. "$c/br/templates/"
     cp agents/*.md "$c/agents/"
     cp commands/*.md "$c/commands/"
+    cp workflows/*.js "$c/workflows/"
     cp -r skills/. "$c/skills/"
     chmod -R u+w "$out"
 

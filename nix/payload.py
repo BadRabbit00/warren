@@ -364,6 +364,14 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
+    scripts = sorted((claude / "workflows").glob("*.js"))
+    if not scripts:
+        fail("claude/workflows: no *.js files")
+    for script in scripts:
+        first = next((ln for ln in script.read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.lstrip().startswith("//")), "")
+        if not first.startswith("export const meta = {"):
+            fail(f"claude/workflows/{script.name}: first statement must be export const meta = {{…}}")
+
     n_codex, n_prompts = export_codex_agy(out, br, models)
 
     if errors:
@@ -375,6 +383,7 @@ def main() -> int:
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
           f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
+          f"{len(scripts)} workflows, "
           f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 
