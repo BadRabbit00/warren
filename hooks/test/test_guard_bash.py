@@ -653,6 +653,7 @@ WRITE_FORMS = {
 SHORT_FORMS = ["redirect", "tee", "sed -i", "cp", "touch", "heredoc"]
 CODE_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer"]
 READERS = ["deploy-error-reader", "log-collector", "web-researcher"]
+GATE_AGENTS_R8 = ["deploy-error-reader", "log-collector"]    # AC23: Bash runs only R-marked CLI commands
 
 
 def plan_project(plan: str | None = BASH_PLAN) -> Path:
@@ -758,26 +759,45 @@ class BashWritesFollowWriteSets(unittest.TestCase):
             for form in WRITE_FORMS:
                 for path in ["src/z/out.txt", "out.log", "src/a/app.py"]:
                     with self.subTest(agent=agent, form=form, denied=path):
-                        self.assert_denied(form, path, agent)
+                        if agent in GATE_AGENTS_R8 and form == "heredoc":
+                            # AC23: `cat` is gone for the two CLI readers, so the denial may name the command
+                            # instead of the redirection target; it must still be a denial
+                            cmd = WRITE_FORMS[form].format(p=path)
+                            self.assertTrue(denied(bash(cmd, agent=agent, cwd=self.root)), cmd)
+                        else:
+                            self.assert_denied(form, path, agent)
 
     def test_bash_writes_reader_log_commands_cannot_save_into_the_project(self):
         for agent in ["deploy-error-reader", "log-collector"]:
             for cmd, target in [("docker compose logs api > ci.log", "ci.log"),
-                                ("gh run view 1 --log-failed | tee logs/run.txt", "logs/run.txt"),
                                 ("railway logs >> out/railway.log", "out/railway.log")]:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = bash(cmd, agent=agent, cwd=self.root)
                     self.assertTrue(denied(res), cmd)
                     self.assertIn(target, reason(res))
+            # AC23: tee is gone for readers; the denial need not name the target any more
+            cmd = "gh run view 1 --log-failed | tee logs/run.txt"
+            with self.subTest(agent=agent, cmd=cmd):
+                self.assertTrue(denied(bash(cmd, agent=agent, cwd=self.root)), cmd)
 
     # ---- temp dirs and harmless redirections are unaffected
     def test_bash_writes_temp_and_scratchpad_are_allowed(self):
-        agents = [*CODE_EXECUTORS, "refactorer", "test-writer", *READERS]
+        agents = [*CODE_EXECUTORS, "refactorer", "test-writer", "web-researcher"]
         for agent in agents:
             for form in SHORT_FORMS:
                 for path in ["/tmp/t1r3/out.txt", "/var/tmp/t1r3/out.txt", f"{SCRATCHPAD}/notes.md"]:
                     with self.subTest(agent=agent, form=form, p=path):
                         self.assert_allowed(form, path, agent)
+        # AC23: the two CLI readers write to temp dirs by redirection only; tee, sed -i, cp, touch and cat > are gone
+        for agent in GATE_AGENTS_R8:
+            for form in SHORT_FORMS:
+                for path in ["/tmp/t1r3/out.txt", "/var/tmp/t1r3/out.txt", f"{SCRATCHPAD}/notes.md"]:
+                    with self.subTest(agent=agent, form=form, p=path):
+                        if form == "redirect":
+                            self.assert_allowed(form, path, agent)
+                        else:
+                            cmd = WRITE_FORMS[form].format(p=path)
+                            self.assertTrue(denied(bash(cmd, agent=agent, cwd=self.root)), cmd)
 
     def test_bash_writes_reading_and_harmless_redirections_are_unaffected(self):
         cmds = ["cat src/z/other.py", "grep -rn 'x > y' src", "sed -n 1,5p src/z/other.py", "ls src/z > /dev/null",
@@ -790,12 +810,21 @@ class BashWritesFollowWriteSets(unittest.TestCase):
                     res = bash(cmd, agent=agent, cwd=self.root)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
         for agent in READERS:
-            for cmd in ["cat src/z/other.py", "grep -rn error src", "gh run list 2>/dev/null",
+            for cmd in ["gh run list 2>/dev/null",
                         "docker compose logs api 2>&1 | tail -n 20", "gh run view 1 --log-failed > /tmp/t1r3/run.txt",
-                        "railway logs | tee /tmp/t1r3/railway.log", f"docker logs api > {SCRATCHPAD}/api.log"]:
+                        f"docker logs api > {SCRATCHPAD}/api.log"]:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = bash(cmd, agent=agent, cwd=self.root)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+        # AC23: cat, grep on a file and tee moved from allowed to denied for the two CLI readers
+        for cmd in ["cat src/z/other.py", "grep -rn error src", "railway logs | tee /tmp/t1r3/railway.log"]:
+            for agent in READERS:
+                with self.subTest(agent=agent, cmd=cmd):
+                    res = bash(cmd, agent=agent, cwd=self.root)
+                    if agent in GATE_AGENTS_R8:
+                        self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
+                    else:
+                        self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
 
     def test_bash_writes_heredoc_body_is_data(self):
         cmd = "cat > src/a/app.py <<'EOF'\necho hi > src/z/forbidden.py\ntee src/z/also.py\nEOF"
@@ -862,12 +891,18 @@ GATE_AGENTS = ["deploy-error-reader", "log-collector"]
 
 class ReaderGateAllowlist(unittest.TestCase):
     """AC12: the reader gate is a true allowlist: every resolved command head must be an allowed read command."""
-    UTILITIES = ["cat logs/run.txt", "head -n 5 logs/run.txt", "tail -n 20 logs/run.txt", "grep -rn error logs",
-                 "rg -n error logs", "jq . data.json", "wc -l logs/run.txt",
-                 "sort logs/run.txt", "uniq logs/run.txt", "cut -d, -f1 logs/run.txt", "tr a-z A-Z",
-                 "ls -la logs", "stat logs/run.txt", "file logs/run.txt", "date", "echo hello", "printf 'x\\n'",
-                 "test -f logs/run.txt", "true", "sleep 1", "sed -n 1,5p logs/run.txt", "sed 's/a/b/' logs/run.txt",
-                 "awk '{print $1}' logs/run.txt", "find . -name '*.log'", "find logs -type f -name '*.txt'"]
+    # AC23: the stdin-only filters are allowed in a pipe after a CLI command, and date, echo, printf, test, true and
+    # sleep alone; the utilities with a file operand moved to FILE_UTILITIES (denied)
+    UTILITIES = ["date", "echo hello", "printf 'x\\n'", "test -n x", "true", "sleep 1",
+                 "docker logs api | head -n 5", "docker logs api | tail -n 20", "docker logs api | grep -i error",
+                 "gcloud logging read 'severity>=ERROR' | jq .", "docker logs api | wc -l", "docker logs api | sort",
+                 "docker logs api | uniq", "docker logs api | cut -d, -f1", "docker logs api | tr a-z A-Z"]
+    FILE_UTILITIES = ["cat logs/run.txt", "head -n 5 logs/run.txt", "tail -n 20 logs/run.txt", "grep -rn error logs",
+                      "rg -n error logs", "jq . data.json", "wc -l logs/run.txt",
+                      "sort logs/run.txt", "uniq logs/run.txt", "cut -d, -f1 logs/run.txt",
+                      "ls -la logs", "stat logs/run.txt", "file logs/run.txt", "sed -n 1,5p logs/run.txt",
+                      "sed 's/a/b/' logs/run.txt", "awk '{print $1}' logs/run.txt", "find . -name '*.log'",
+                      "find logs -type f -name '*.txt'"]
     DENIED = ["rm -f logs/run.txt", "git push origin feature/x", "git commit -m x", "podman ps",
               "docker-compose up -d", "kubectl get pods", "curl -X POST https://example.com/hook",
               "curl https://example.com", "python3 script.py", "frobnicate --now", "chmod +x run.sh",
@@ -884,7 +919,7 @@ class ReaderGateAllowlist(unittest.TestCase):
                 with self.subTest(agent=agent, allowed=cmd):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
-            for cmd in self.DENIED:
+            for cmd in [*self.DENIED, *self.FILE_UTILITIES]:
                 with self.subTest(agent=agent, denied=cmd):
                     self.assertTrue(denied(bash(cmd, agent=agent)), cmd)
 
@@ -1031,10 +1066,12 @@ class BashWritesGluedRedirections(unittest.TestCase):
                 with self.subTest(agent="test-writer", form=form, denied=path):
                     self.assert_denied_cmd(tpl.format(p=path), "test-writer", path)
             for agent in GATE_AGENTS:
+                # AC23: ls and cat are gone for the CLI readers; `date` carries the same redirection
+                reader_tpl = tpl.replace("ls ", "date ").replace("cat <<", "date <<")
                 with self.subTest(agent=agent, form=form, denied="out.log"):
-                    self.assert_denied_cmd(tpl.format(p="out.log"), agent, "out.log")
+                    self.assert_denied_cmd(reader_tpl.format(p="out.log"), agent, "out.log")
                 with self.subTest(agent=agent, form=form, allowed="/tmp"):
-                    self.assert_allowed_cmd(tpl.format(p="/tmp/t1r4/out.log"), agent)
+                    self.assert_allowed_cmd(reader_tpl.format(p="/tmp/t1r4/out.log"), agent)
             for agent in ["coder", "test-writer", "refactorer", "ci-engineer"]:
                 with self.subTest(agent=agent, form=form, allowed="/tmp"):
                     self.assert_allowed_cmd(tpl.format(p="/tmp/t1r4/out.log"), agent)
@@ -1188,12 +1225,16 @@ class ReadersNeverPrintSecrets(unittest.TestCase):
     def test_stand_operator_and_janitor_may_run_reader_commands(self):
         for agent in ["stand-operator", "janitor"]:
             for cmd in ["gh run list", "gh run view 12345 --log-failed", "railway whoami", "railway logs",
-                        "docker logs --tail 50 shop-api-1", "docker version", "git status", "git log --oneline",
-                        "cat logs/run.txt", "grep -rn error logs", "ls -la docs/temp",
+                        "docker logs --tail 50 shop-api-1", "docker version",
                         "docker logs shop-api-1 | grep -i error"]:
                 with self.subTest(agent=agent, allowed=cmd):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
+            # AC23: git log, cat, grep on a file and ls moved from allowed to denied (git status stays for the janitor)
+            for cmd in ["git log --oneline", "cat logs/run.txt", "grep -rn error logs", "ls -la docs/temp",
+                        *(["git status"] if agent == "stand-operator" else [])]:
+                with self.subTest(agent=agent, denied=cmd):
+                    self.assertTrue(denied(bash(cmd, agent=agent)), f"{agent}: {cmd!r} was allowed")
 
     def test_stand_operator_and_janitor_are_gated_like_readers(self):
         for agent in ["stand-operator", "janitor"]:
@@ -1347,7 +1388,6 @@ class JanitorDeletes(unittest.TestCase):
         "rm docs/temp/curl-out.json",
         "rm docs/temp/trace-1.log docs/temp/trace-2.log",
         "rm scripts/new-helper.sh",
-        "cd docs/temp && rm trace-1.log",
         "docker rm shop-api-1",
         "docker volume rm shop_pgdata",
         "docker compose -p shop down",
@@ -1364,6 +1404,7 @@ class JanitorDeletes(unittest.TestCase):
         "rm scripts/seed.sh", "rm notes.md", "rm docs/temp/tracked.txt", "rm docs/temp/trace-1.log scripts/seed.sh",
         "rm scripts/seed.sh docs/temp/trace-1.log", "cd scripts && rm seed.sh", "rm ./scripts/seed.sh",
         "rm -- scripts/seed.sh",
+        "cd docs/temp && rm trace-1.log",     # AC23: cd is gone for readers, so this moved from allowed to denied
         "rm /etc/hosts", "rm ../outside.txt", "rm ~/old.log", "rm $HOME/old.log", "rm $FILE", "rm $(ls docs/temp)",
         "rm `ls docs/temp`", "rm docs/temp/trace-1.log /etc/hosts",
         "find docs/temp -delete", "find . -name '*.log' -delete", "find docs/temp -name '*.log' -exec rm {} \\;",
@@ -1839,11 +1880,10 @@ class StandAndJanitorGates(unittest.TestCase):
         with self.subTest(denied="rm in a directory that is not a git repository"):
             self.assertTrue(denied(self.janitor("rm leftover.txt", root=not_a_repo)), "rm was allowed outside a git repo")
         # janitor: cd tracking cannot be fooled
-        self.assertAllowedFor(self.janitor, [
-            "cd docs/temp && rm trace-1.log", "cd scripts && cd ../docs/temp && rm trace-2.log",
-            "rm docs/temp/curl-out.json",
-        ], "cd_allowed")
+        self.assertAllowedFor(self.janitor, ["rm docs/temp/curl-out.json"], "cd_allowed")
         self.assertDeniedFor(self.janitor, [
+            # AC23: cd is gone for readers, so the two forms that used it moved from allowed to denied
+            "cd docs/temp && rm trace-1.log", "cd scripts && cd ../docs/temp && rm trace-2.log",
             "cd -L docs/temp && rm trace-1.log", "cd -P docs/temp && rm trace-1.log", "cd -e docs/temp && rm trace-1.log",
             "cd -- docs/temp && rm trace-1.log", "cd -L scripts && rm seed.sh", "cd -P scripts && rm seed.sh",
             "cd -- scripts && rm seed.sh", "cd -L src && rm x",
