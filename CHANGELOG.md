@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — unreleased
+
+- Codex CLI and Antigravity CLI (`agy`) exports in the payload: `$out/codex/{agents/*.toml,agents.toml,prompts,skills,AGENTS.md}`
+  and `$out/agy/{agents/*.md,AGENTS.md}`, generated from the same agents, commands, skills and `core/CLAUDE.md`.
+- `agent-models.json` carries `codex.model`, `codex.effort` and `agy.model` per agent; the validator requires them,
+  checks the agy tier vocabulary and the codex effort, and rejects `'''` in agent bodies.
+- No export of `tools`, `disallowedTools`, `maxTurns`, hooks or the orchestrator output style: the other CLIs have no equivalent.
+
 ## 0.1.0 — 2026-11-06
 
 First standalone release as **warren**. Until now this layer lived as the `badrabbit/` directory and the
