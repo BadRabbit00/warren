@@ -40,10 +40,6 @@
   ],
   "proactivelyPattern": "\\s*Use PROACTIVELY[^.]*\\.",
   "examplesExempt": [
-    "agent:nix-architect",
-    "agent:nix-build-resolver",
-    "agent:nix-engineer",
-    "agent:nix-test-runner"
   ],
   "hookEvents": [
     "PreToolUse",
@@ -72,10 +68,6 @@
     "example_db.dbml"
   ],
   "buildIsolated": [
-    "nix-architect",
-    "nix-build-resolver",
-    "nix-engineer",
-    "nix-test-runner"
   ],
   "useWhenExempt": [
     "api-design",
@@ -93,14 +85,7 @@
     "homelab-wireguard-vpn",
     "mcp-server-patterns",
     "network-config-validation",
-    "nix-debugging",
-    "nix-flake-patterns",
-    "nixos-module-patterns",
-    "nix-packaging",
-    "nix-testing",
-    "nix-toolkit",
     "postgres-patterns",
-    "project-flake",
     "prompt-caching-strategy",
     "react-patterns",
     "recsys-pipeline-architect",

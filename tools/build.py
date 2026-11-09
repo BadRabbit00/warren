@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Second half of the br payload build (nix/payload.nix): frontmatter edits and self-checks.
+"""Builds the br payload tree: copies the sources, edits frontmatter, self-checks.
 
-The shell part of the build has already copied files into $out. This script:
-  1. pins model/effort from agent-models.json into every agent;
-  2. isolates every agent (omitClaudeMd, disallowedTools, maxTurns, preloaded skills for the Nix
-     agents, no "Use PROACTIVELY"); a no-op for fields an agent already has;
+Usage: build.py <out> <repo-root> <hook-python>
+  1. copies core, rules, templates, agents, commands, workflows, skills, hooks into <out>/claude;
+  2. pins model/effort from agent-models.json into every agent and isolates it (omitClaudeMd,
+     disallowedTools, maxTurns, no "Use PROACTIVELY");
   3. injects core/subagent-contract.md after the frontmatter of every agent;
-  4. writes hooks.json with the pinned br-hook path;
+  4. writes hooks.json: commands run the copied hook files with <hook-python> -I -B;
   5. runs the output self-checks;
   6. exports the finished Claude tree to out/codex and out/agy.
-Any miss exits non-zero and fails the build.
-
-Usage: payload.py <out> <repo-root> <br-hook-exe>
+Any miss exits non-zero.
 Stdlib only.
 """
 from __future__ import annotations
@@ -23,14 +21,6 @@ import sys
 import tomllib
 from pathlib import Path
 
-# Skills each Nix agent is told to read in its body. The Skill tool is disabled for
-# subagents, so preloading through `skills:` is the only way they get them.
-NIX_AGENT_SKILLS = {
-    "nix-architect": ["nix-toolkit", "nix-flake-patterns", "nixos-module-patterns"],
-    "nix-engineer": ["nix-flake-patterns", "nixos-module-patterns", "nix-packaging"],
-    "nix-build-resolver": ["nix-debugging"],
-    "nix-test-runner": ["nix-testing"],
-}
 CONTRACT_HEADING = "## Contract (all br subagents)"
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -242,8 +232,33 @@ def first_statement(text: str) -> str:
     return text[m.end():] if m else text
 
 
+def copy_sources(out: Path, br: Path) -> None:
+    c = out / "claude"
+    for d in ("agents", "skills", "commands", "workflows", "rules/br", "output-styles", "br/templates", "br/hooks"):
+        (c / d).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(br / "core" / "CLAUDE.md", c / "CLAUDE.md")
+    shutil.copyfile(br / "LICENSE", out / "LICENSE")
+    shutil.copyfile(br / "settings.fragment.json", out / "settings.fragment.json")
+    for src, dst, pat in [("output-styles", "output-styles", "*.md"), ("rules", "rules/br", "*.md"),
+                          ("agents", "agents", "*.md"), ("commands", "commands", "*.md"),
+                          ("workflows", "workflows", "*.js")]:
+        for f in sorted((br / src).glob(pat)):
+            if f.is_file():
+                shutil.copyfile(f, c / dst / f.name)
+            else:
+                fail(f"{src}/{f.name}: not a regular file")
+    ignore = shutil.ignore_patterns("__pycache__")
+    shutil.copytree(br / "templates", c / "br" / "templates", dirs_exist_ok=True, ignore=ignore, copy_function=shutil.copyfile)
+    shutil.copytree(br / "skills", c / "skills", dirs_exist_ok=True, ignore=ignore, copy_function=shutil.copyfile)
+    hooks = c / "br" / "hooks"
+    for f in sorted((br / "hooks").glob("*.py")):
+        shutil.copyfile(f, hooks / f.name)
+    shutil.copytree(br / "hooks" / "brhooks", hooks / "brhooks", dirs_exist_ok=True, ignore=ignore, copy_function=shutil.copyfile)
+
+
 def main() -> int:
-    out, br, hook_exe = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    out, br, hook_py = Path(sys.argv[1]).resolve(), Path(sys.argv[2]), sys.argv[3]
+    copy_sources(out, br)
     claude = out / "claude"
     agents_dir = claude / "agents"
     models = json.loads((br / "agent-models.json").read_text(encoding="utf-8"))["agents"]
@@ -287,14 +302,8 @@ def main() -> int:
             fm = put(fm, "maxTurns", "40")
         if get(fm, "tools") is None:
             fail(f"{name}: agent without an explicit tools: line")
-        skills = NIX_AGENT_SKILLS.get(name, [])
-        if skills:
-            fm = put(fm, "skills", "[" + ", ".join(skills) + "]")
         fm = [proactive.sub("", ln) if ln.startswith("description:") else ln for ln in fm]
         p.write_text(join(fm, "\n" + contract + body.lstrip("\n")), encoding="utf-8")
-    for skill_agent in NIX_AGENT_SKILLS:
-        if not (agents_dir / f"{skill_agent}.md").is_file():
-            fail(f"{skill_agent}: listed in NIX_AGENT_SKILLS but agents/{skill_agent}.md is missing")
 
     # --- 4: hooks.json ---------------------------------------------------------------------------
     # Parse first, substitute inside the command values only: a raw-text replace would also hit
@@ -305,7 +314,8 @@ def main() -> int:
         for entries in hooks["hooks"].values():
             for entry in entries:
                 for h in entry["hooks"]:
-                    h["command"] = h["command"].replace("@BR_HOOK@", hook_exe)
+                    entry_name = h["command"].replace("@BR_HOOK@", "").strip()
+                    h["command"] = f'"{hook_py}" -I -B "{out}/claude/br/hooks/{entry_name}.py"'
         (out / "hooks.json").write_text(json.dumps(hooks, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     # --- 5: self-checks --------------------------------------------------------------------------
@@ -363,8 +373,8 @@ def main() -> int:
                 if not str(entry.get("id", "")).startswith("br:"):
                     fail(f"hooks.json: id {entry.get('id')} does not start with br:")
                 for h in entry["hooks"]:
-                    parts = h["command"].split()
-                    if len(parts) != 2 or parts[0] != hook_exe or not (br / "hooks" / f"{parts[1]}.py").is_file():
+                    m = re.fullmatch(r'"' + re.escape(hook_py) + r'" -I -B "' + re.escape(str(out)) + r'/claude/br/hooks/([a-z_]+)\.py"', h["command"])
+                    if not m or not (br / "hooks" / f"{m.group(1)}.py").is_file():
                         fail(f"hooks.json: bad command {h['command']!r}")
 
     for d, want in [("skills/architecture-guide/references/layers", 11), ("skills/security-review/references", 5)]:
