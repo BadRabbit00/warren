@@ -7,7 +7,9 @@ The shell part of the build has already copied files into $out. This script:
      agents, no "Use PROACTIVELY"); a no-op for fields an agent already has;
   3. injects core/subagent-contract.md after the frontmatter of every agent;
   4. writes hooks.json with the pinned br-hook path;
-  5. runs the output self-checks. Any miss exits non-zero and fails the build.
+  5. runs the output self-checks;
+  6. exports the finished Claude tree to out/codex and out/agy.
+Any miss exits non-zero and fails the build.
 
 Usage: payload.py <out> <repo-root> <br-hook-exe>
 Stdlib only.
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -28,6 +31,9 @@ NIX_AGENT_SKILLS = {
     "nix-test-runner": ["nix-testing"],
 }
 CONTRACT_HEADING = "## Contract (all br subagents)"
+WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
+SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
+AGENTS_MD_LIMIT = 24_000  # agy reads at most 24 000 bytes per rules file; codex allows more
 
 errors: list[str] = []
 
@@ -101,6 +107,77 @@ def hooks_shape_ok(hooks: object) -> bool:
                 fail(f"hooks/hooks.json: {event}: every entry needs a 'hooks' list of objects with a string 'command'")
                 ok = False
     return ok
+
+
+def export_codex_agy(out: Path, br: Path, models: dict[str, dict[str, dict[str, str]]]) -> tuple[int, int]:
+    """Step 6: codex and agy trees from the finished Claude tree. Returns (agents, prompts)."""
+    claude = out / "claude"
+    codex_agents = out / "codex" / "agents"
+    agy_agents = out / "agy" / "agents"
+    prompts_dir = out / "codex" / "prompts"
+    for d in (codex_agents, agy_agents, prompts_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    entries: list[str] = []
+    subagents: list[str] = []
+    for p in sorted((claude / "agents").glob("*.md")):
+        name = p.stem
+        try:
+            fm, body = split(p.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            fail(f"agents/{name}.md: {exc}")
+            continue
+        desc = get(fm, "description")
+        if not desc or "\n" in desc:
+            fail(f"agents/{name}.md: description must be one non-empty line")
+            continue
+        if "'''" in body:
+            fail(f"agents/{name}.md: body contains ''' which would end the TOML literal string in codex/agents/{name}.toml")
+            continue
+        try:
+            codex, agy = models[name]["codex"], models[name]["agy"]
+            cmodel, ceffort, tier = str(codex["model"]), str(codex["effort"]), str(agy["model"])
+        except KeyError as exc:
+            fail(f"agents/{name}.md: agent-models.json has no {exc} entry for codex/agy")
+            continue
+        sandbox = "workspace-write" if WRITE_TOOLS & set(as_list(get(fm, "tools"))) else "read-only"
+        quoted = json.dumps(desc, ensure_ascii=False)
+        (codex_agents / f"{name}.toml").write_text(
+            f"name = {json.dumps(name)}\n"
+            f"description = {quoted}\n"
+            f"model = {json.dumps(cmodel)}\n"
+            f"model_reasoning_effort = {json.dumps(ceffort)}\n"
+            f"sandbox_mode = {json.dumps(sandbox)}\n"
+            f"developer_instructions = '''\n{body.strip(chr(10))}\n'''\n",
+            encoding="utf-8",
+        )
+        entries.append(f'[agents.{name.replace("-", "_")}]\nconfig_file = "agents/{name}.toml"\ndescription = {quoted}\n')
+        (agy_agents / f"{name}.md").write_text(
+            f"---\nname: {name}\ndescription: {desc}\nmodel: {tier}\nsubagent: true\nmainAgent: true\n---\n\n{body.lstrip(chr(10))}",
+            encoding="utf-8",
+        )
+        subagents.append(f"- `{name}` — {desc} (codex: {cmodel}/{ceffort}; agy: {tier})")
+    (out / "codex" / "agents.toml").write_text("\n".join(entries), encoding="utf-8")
+
+    prompts = 0
+    for p in sorted((claude / "commands").glob("*.md")):
+        if p.stem in SKIPPED_PROMPTS:
+            continue
+        try:
+            _, body = split(p.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            fail(f"commands/{p.name}: {exc}")
+            continue
+        (prompts_dir / p.name).write_text(f"# /{p.stem}\n\n{body.lstrip(chr(10))}", encoding="utf-8")
+        prompts += 1
+
+    shutil.copytree(claude / "skills", out / "codex" / "skills")
+    core = (br / "core" / "CLAUDE.md").read_text(encoding="utf-8")
+    agents_md = core.rstrip("\n") + "\n\n## Subagents\n\n" + "\n".join(subagents) + "\n"
+    if len(agents_md.encode("utf-8")) > AGENTS_MD_LIMIT:
+        fail(f"AGENTS.md: {len(agents_md.encode('utf-8'))} bytes, limit {AGENTS_MD_LIMIT}")
+    for tool in ("codex", "agy"):
+        (out / tool / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+    return len(subagents), prompts
 
 
 def main() -> int:
@@ -235,6 +312,8 @@ def main() -> int:
     if not (claude / "skills/project-docs/templates/example_db.dbml").is_file():
         fail("skills/project-docs/templates/example_db.dbml missing")
 
+    n_codex, n_prompts = export_codex_agy(out, br, models)
+
     if errors:
         print("br payload self-check failed:", file=sys.stderr)
         for msg in errors:
@@ -243,7 +322,8 @@ def main() -> int:
     print(f"br payload: {len(list(agents_dir.glob('*.md')))} agents, "
           f"{len(list((claude / 'skills').iterdir()))} skills, "
           f"{len(list((claude / 'commands').glob('*.md')))} commands, "
-          f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules — self-checks passed")
+          f"{len(list((claude / 'rules' / 'br').glob('*.md')))} rules, "
+          f"codex/agy: {n_codex} agents, {n_prompts} prompts — self-checks passed")
     return 0
 
 
