@@ -35,14 +35,14 @@ R = allowed for log-collector / deploy-error-reader (intended). E = deploy-engin
 | `railway restart` | `-s`, `-e`, `-p`, `-y`, `--json` |
 | `railway down` | `-s`, `-e`, `-p`, `-y` (removes the most recent deployment) |
 | `railway link` | `-p`, `-e`, `-s`, `-w`, `--json` (docs) |
-| `railway add` | `--database postgres\|mysql\|redis\|mongo`, `--service`, `--repo`, `--branch`, `--image`, `--json` (docs); non-interactive runs must pass one of them |
+| `railway add` | `--database <postgres, mysql, redis or mongo>`, `--service`, `--repo`, `--branch`, `--image`, `--json` (docs); non-interactive runs must pass one of them |
 | `railway volume` | `list\|add\|delete\|update\|attach\|detach\|files\|browse` (docs), e.g. `volume add --service api --mount-path /data --json` |
-| `railway config` | `init`, `pull`, `plan [--detailed-exit-code]` (0 no changes, 2 pending), `apply --yes --confirm-destructive`, `migrate --apply` (docs; the subcommand exists in 5.30.4) |
+| `railway config` | `init`, `pull`, `plan [--detailed-exit-code]` (0 no changes, 2 pending), `apply`, `migrate --apply` (docs; the subcommand exists in 5.30.4). `apply` and `migrate --apply` are IaC apply: only after the user's «да» on the shown `railway config plan` output, never in CI; a destructive change needs the «да» on that named change before any `--confirm-destructive`. See skills `iac` and `cloud-railway` |
 | `railway service`, `railway environment` | present in the command list; flags not verified: run `--help` |
 
 ## Environment and tokens (docs)
 - `RAILWAY_TOKEN`: project token (one project + one environment; deploy, redeploy, logs). `RAILWAY_API_TOKEN`: account/workspace token (`whoami`, `link`, `list`, `init`).
-- CI recipe: `RAILWAY_TOKEN=<project token> nix shell nixpkgs#railway -c railway up --ci --service <svc> --environment <env>`. Official image `ghcr.io/railwayapp/cli:latest`.
+- CI recipe: `RAILWAY_TOKEN=<project token> nix shell nixpkgs#railway -c railway up --ci --service <svc> --environment <env>`. In CI pin the Nix input (flake lock or a pinned nixpkgs), not bare `nixpkgs#`. A container image, if used, is pinned by digest (`ghcr.io/railwayapp/cli@sha256:<digest>`), never `:latest`; prefer `nix shell nixpkgs#railway` as in SKILL.md section 1.
 - Public GraphQL API: `https://backboard.railway.com/graphql/v2`; header `Authorization: Bearer <token>` (account tokens) or `Project-Access-Token: <token>` (project tokens).
 
 ## Sources

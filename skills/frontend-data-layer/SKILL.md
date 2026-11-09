@@ -53,7 +53,7 @@ Details: `references/auth-browser.md`. The server side is the skill `auth-servic
 
 ## Checks before you hand back
 
-1. `nix develop -c npx tsc --noEmit`, `nix develop -c npx eslint .`, `nix develop -c npx vitest run` - numbers in the report; no skipped.
+1. `nix develop -c npx --no-install tsc --noEmit`, `nix develop -c npx --no-install eslint .`, `nix develop -c npx --no-install vitest run` (or the project's `npm run typecheck|lint|test`) - numbers in the report; no skipped. If a binary is missing from `node_modules`, report `STATUS: blocked`; never let `npx` fetch a package.
 2. Playwright (when the task has e2e tests) uses browsers from nixpkgs (`PLAYWRIGHT_BROWSERS_PATH` from the dev shell), never a downloaded browser.
 3. Dependencies: `nix develop -c npm ci`; a new package is reported (name, version, why), not added.
 4. `git diff`: files of the write set only; grep your diff for `fetch(` in components, `localStorage`, `sessionStorage`, `import.meta.env` outside `env.ts`, `any`.

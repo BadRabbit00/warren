@@ -8,7 +8,7 @@ Most list commands: `--limit` (default 1000 items). Folder selection flag `--fol
 ## Auth and config
 | Command | Notes |
 |---|---|
-| `yc iam whoami` (E) | login check, prints the subject. Exit 1 "Failed to get credentials" when logged out |
+| `yc iam whoami` (R, intended; hook follows in T1) | login check, prints the subject. Exit 1 "Failed to get credentials" when logged out |
 | `yc iam create-token` | prints a live IAM token. Never for agents. `--impersonate-service-account-id` exists (docs) |
 | `yc config list` (R today) | prints the OAuth `token:` in plain text. Never paste the output |
 | `yc config get folder-id` / `cloud-id` (E) | safe way to read context |
@@ -18,7 +18,7 @@ Most list commands: `--limit` (default 1000 items). Folder selection flag `--fol
 ## Logging
 | Command | Flags that matter |
 |---|---|
-| `yc logging group list` (E) | `--limit` |
+| `yc logging group list` (R, intended; hook follows in T1) | `--limit` |
 | `yc logging read <group-name\|id> [SINCE] [FILTER]` (R) | `--group-id`, `--group-name`, `--since`, `--until`, `--limit`, `-f/--follow`, `--levels`, `--filter`, `--resource-types`, `--resource-ids`, `--stream-names`, `--max-response-size` (default 3.5 MiB) |
 
 Timestamps: `HH:MM:SS`, RFC-3339, or a duration (`2h`, `3h30m ago`). `--follow` cannot be combined with `--since`/`--until` (FINDINGS, not re-run).

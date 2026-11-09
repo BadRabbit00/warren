@@ -32,12 +32,13 @@ Good:
 ```ts
 // shared/api/http.ts
 let refreshing: Promise<void> | null = null;
+const noRefresh = new Set(["/v1/auth/login", "/v1/auth/refresh"]);   // paths follow docs/API.md
 
 async function request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (method !== "GET") headers["X-CSRF-Token"] = readCookie("csrf_token") ?? "";
   const res = await fetch(env.apiUrl + path, { method, headers, credentials: "include", body: body && JSON.stringify(body) });
-  if (res.status === 401 && !retried && path !== "/v1/auth/refresh") {
+  if (res.status === 401 && !retried && !noRefresh.has(path)) {
     refreshing ??= refresh().finally(() => { refreshing = null; });   // one shared refresh
     try { await refreshing; } catch { sessionExpired(); throw new ApiError(401); }
     return request<T>(method, path, body, true);                       // retry once
@@ -46,7 +47,7 @@ async function request<T>(method: string, path: string, body?: unknown, retried 
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 ```
-Header and cookie names follow the backend contract (`docs/API.md`); the CSRF cookie is the only cookie JS may read.
+A 401 from login is a normal error (wrong password) and reaches the form. `http.get(path, { params })` is a thin wrapper over `request` that appends `new URLSearchParams(params)` to the path. Header and cookie names follow the backend contract (`docs/API.md`); the CSRF cookie is the only cookie JS may read.
 
 ### R-FDL-SESSION - session is a query
 

@@ -6,7 +6,7 @@ description: Use when you must read container and Compose state (ps, logs, event
 # docker and docker compose: container state and logs
 
 Verified locally with docker 29.9.2 and compose 5.6.0 (`--help` of every command below). Full flag tables: `references/commands.md`.
-Who: `R` = allowed for `log-collector` and `deploy-error-reader` (intended allowlist: `docker compose ps`, `docker compose logs`, `docker logs`). `E` = read-only, but only for `deploy-engineer` / `ci-engineer`. `M` = mutating, those two only, on request.
+Who: `R` = allowed for `log-collector` and `deploy-error-reader` (intended allowlist: `docker compose ps`, `docker compose logs`, `docker logs`). `E` = read-only, but only for `deploy-engineer` / `ci-engineer`. `M` = mutating, those two only, after the user's «да» for the command.
 
 ## 1. Run
 
@@ -74,7 +74,7 @@ nix shell nixpkgs#docker -c docker context ls --format json
 ```
 Does a tag exist in the registry, and its digest: use these before blaming the deploy. `context inspect` may list endpoint settings: read only the name and host.
 
-## 4. Mutating commands: only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands: only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
@@ -89,7 +89,7 @@ nix shell nixpkgs#docker -c docker exec <container> <cmd>                       
 - `compose down -v` / `--volumes` deletes named volumes (data): never without an explicit request; `--rmi all` and `--remove-orphans` also delete. `docker rm`, `docker run`, `docker system prune`: M.
 - `--dry-run` is a compose option on its commands: use it first.
 - Rollback = `up -d` with the previous image tag or digest (read it from `images` or the registry first). There is no `docker rollback`.
-- Before `up` or `down` say what will be recreated or removed, and run only on request.
+- Before `up` or `down` say what will be recreated or removed, and run only after the user's «да».
 
 ## 5. Patterns and anti-patterns
 
@@ -115,7 +115,7 @@ Bad: `docker exec <c> env`, `docker exec <c> cat .env`
 Good: do not; `exec` is M, and prints secrets
 
 Bad: `docker compose down -v` to "fix" a service
-Good: `restart <service>` on request; `down -v` only when the user named the data loss
+Good: `restart <service>` after the user's «да»; `down -v` only when the user named the data loss
 
 Bad: judge by `docker ps` alone (the container is "Up" while unhealthy)
 Good: `compose ps --format json` and read `Health`; `.State.Health` in inspect

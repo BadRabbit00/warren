@@ -44,7 +44,7 @@ Other `apps` subcommands in the list (not verified, `--help` first): cancel-even
 |---|---|
 | `doctl compute droplet list` / `get <id>` | `--format`, `--no-header`; list shows ID, name, IPs, memory, vCPUs, disk, region, image |
 | `doctl databases list` / `get <id>` | cluster id, name, engine, version, nodes, region, status, size |
-| `doctl databases connection <id>` (E) | password masked unless global `--show` (docs): never `--show` |
+| `doctl databases connection <id>` (secret) | prints the connection URI and password (not verified masked; no `--show` flag in 1.169.0). Never for agents |
 | `doctl registry get` | registry details |
 | `doctl registry repository list-tags <repo>` | alias `lt`; `--format Tag,CompressedSizeBytes,UpdatedAt,ManifestDigest`, `--registry <name>` |
 | `doctl registry repository list-v2` | repositories; flags not verified |
@@ -52,7 +52,7 @@ Other `apps` subcommands in the list (not verified, `--help` first): cancel-even
 | `doctl monitoring alert list` | alias `ls` |
 
 ## REST fallback for what doctl lacks (docs, not run)
-- Rollback: `POST /v2/apps/{app_id}/rollback` body `{"deployment_id":"<id>"}` (optional `skip_pin`); `/rollback/validate` checks first; `/rollback/commit` or `/rollback/revert` ends a pinned rollback. Call with `nix shell nixpkgs#curl -c curl`, header `Authorization: Bearer $DIGITALOCEAN_ACCESS_TOKEN` (never echo it).
+- Rollback: `POST /v2/apps/{app_id}/rollback` body `{"deployment_id":"<id>"}` (optional `skip_pin`); `/rollback/validate` checks first; `/rollback/commit` or `/rollback/revert` ends a pinned rollback. Call with `nix shell nixpkgs#curl -c curl`. Keep the token out of argv: `printf 'Authorization: Bearer %s\n' "$DIGITALOCEAN_ACCESS_TOKEN" | nix shell nixpkgs#curl -c curl -H @- ...` (`-H` takes `<header/@file>`; `@-` for stdin not verified). Never echo the token; report the command with `<token>`, never expanded.
 - App spec keys, `registry_type` (DOCR, DOCKER_HUB, GHCR), `deploy_on_push`: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
 
 ## Sources

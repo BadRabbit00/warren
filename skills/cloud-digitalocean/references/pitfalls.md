@@ -47,7 +47,7 @@ doctl databases create <new> --engine pg --restore-from-cluster-name <src> --res
 
 Bad:
 ```
-doctl databases connection <cluster-id> --show      # in CI: password in the log
+doctl databases connection <cluster-id>      # 1.169.0: Password column, no masking flag: password in the log
 ```
 Good:
 ```
@@ -57,11 +57,11 @@ Good:
 
 Bad:
 ```
-doctl apps create --spec app.yaml --wait      # timeout -> CI marks failure while the deployment is still running
+doctl apps create --spec app.yaml --wait      # no bound: the job hangs, or a killed job hides a deployment still running
 ```
 Good:
 ```
-doctl apps create --spec app.yaml --wait --wait-timeout 30m
+timeout 1800 doctl apps create --spec app.yaml --wait      # outer timeout (--wait-timeout is 2.x only, not in 1.169.0)
 doctl apps get-deployment <app id> <deployment id>      # after a timeout, read the real state
 ```
 [source](https://docs.digitalocean.com/reference/doctl/reference/apps/create/)

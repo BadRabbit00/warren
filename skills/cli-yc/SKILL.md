@@ -25,7 +25,8 @@ NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc iam whoami
 - Do NOT use `yc config list` as the check: it prints the OAuth `token:` in plain text. Do NOT use `yc iam create-token`: it prints a live IAM token.
 
 Not logged in: report `STATUS: blocked — login needed` and give the user this one command:
-`! NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc init`
+`! NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc init --federation-id=<federation_ID>` (or `--username=<email>` / `--userpool-id=<id>`)
+Newly issued OAuth tokens are not accepted since 2026-06-01 (source: <https://yandex.cloud/en/docs/iam/concepts/authorization/oauth-token>, via skill `cloud-yandex`), so plain `yc init` with an OAuth token may fail; old profiles still hold `token:`.
 CI or service-account mode (docs, not run): a service-account key via `yc config profile` / an IAM token in the environment; see <https://yandex.cloud/en/docs/cli/operations/authentication/service-account> and <https://yandex.cloud/en/docs/cli/operations/authentication/iam-token-env>. An IAM token lives at most 12 hours.
 
 ## 3. Read-only commands
@@ -76,7 +77,7 @@ NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc resource-ma
 NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc config get folder-id
 ```
 
-## 4. Mutating commands: only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands: only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
@@ -96,7 +97,7 @@ Bad: `yc iam create-token` (prints a live IAM token)
 Good: not needed by agents; only the user or CI creates tokens
 
 Bad: `yc logging read <group> --follow`
-Good: `yc logging read --group-name <g> --since 1h --limit 1000`; `--follow` cannot be combined with `--since`
+Good: `yc logging read --group-name <g> --since 1h --limit 100`; `--follow` cannot be combined with `--since`
 
 Bad: `yc logging read` without `--since`/`--limit` (long history, up to 3.5 MiB per response)
 Good: `--since 1h --levels ERROR --limit 100`

@@ -16,7 +16,7 @@ ansible-playbook site.yml --check --diff --limit <host>
 
 Modules without check-mode support "report nothing and do nothing", and tasks depending on registered vars give no output: a green dry run does not prove a change is safe. Mark `command` / `shell` tasks with `check_mode: true` (always dry) or `check_mode: false` (applies even under `--check`; use sparingly) [source](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_checkmode.html).
 
-Flow like IaC: dry run in CI or by the agent, the real run only after the user's «да», `--limit` to one host first.
+Before any `--check` run, grep the playbook, roles and includes for `check_mode: false` and `check_mode: no`. If any is found, the run is a real run: it needs the user's «да», and the request names those tasks. Otherwise flow like IaC: dry run in CI or by the agent, the real run only after the user's «да», `--limit` to one host first.
 
 ## Privilege and secrets
 

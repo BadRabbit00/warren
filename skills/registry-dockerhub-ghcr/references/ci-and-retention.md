@@ -24,12 +24,12 @@ Multi-arch builds and provenance leave untagged per-platform and attestation man
 A HEAD request does not count against the limit [source](https://docs.docker.com/docker-hub/usage/pulls/):
 
 ```
-TOKEN=$(curl "https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull" | jq -r .token)
-curl --head -H "Authorization: Bearer $TOKEN" https://registry-1.docker.io/v2/ratelimitpreview/test/manifests/latest
+TOKEN=$(nix shell nixpkgs#curl nixpkgs#jq -c sh -c 'curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull" | jq -r .token')
+nix shell nixpkgs#curl -c curl --head -H "Authorization: Bearer $TOKEN" https://registry-1.docker.io/v2/ratelimitpreview/test/manifests/latest
 # read the ratelimit-limit and ratelimit-remaining headers (w=21600 is the window in seconds)
 ```
 
-Add `--user 'username:password'` to the token request for the authenticated limit (use a token, not a password, and do not print it). In CI log in before pulling.
+The anonymous check above is enough for an agent. An authenticated limit needs a credential, and `curl --user user:token` puts it in argv (process list, shell history): if it is needed, the user runs it with a `--netrc-file` (exists in curl `--help all`) from a sops-decrypted file, never an agent. In CI log in before pulling.
 
 ## GHCR package listing
 

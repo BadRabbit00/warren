@@ -18,7 +18,7 @@ Provider skill. Commands: `cli-gcloud`. IaC basics: `iac`. Secrets: `sops`, `sec
 
 Run: `nix shell nixpkgs#google-cloud-sdk -c gcloud ...` (`gcloud components install` is disabled in the nixpkgs build; extra components such as `beta` and `log-streaming` need `google-cloud-sdk.withExtraComponents [ ... ]` in the project devShell [source](https://github.com/NixOS/nixpkgs/blob/nixos-unstable/pkgs/by-name/go/google-cloud-sdk/package.nix); the expression syntax is not verified). See `cli-gcloud`.
 
-1. `gcloud auth list --filter=status:ACTIVE --format="value(account)"`: empty output = not logged in (exit code of the auth commands without credentials is not documented, test the output). `gcloud config get-value project` shows the project.
+1. `gcloud auth list --filter=status:ACTIVE --format="value(account)"`: empty output = not logged in (with an empty config it prints a WARNING and exits 0, verified google-cloud-sdk 583.0.0: test the output, not the exit code). `gcloud config get-value project` shows the project.
 2. gcloud credentials and Application Default Credentials (ADC) are separate. OpenTofu and SDKs need ADC: `gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS` [source](https://docs.cloud.google.com/docs/authentication/application-default-credentials). Check ADC separately.
 3. Not logged in: stop with `STATUS: blocked — login needed` and give the user:
    - `! nix shell nixpkgs#google-cloud-sdk -c gcloud auth login --no-launch-browser`
@@ -26,6 +26,8 @@ Run: `nix shell nixpkgs#google-cloud-sdk -c gcloud ...` (`gcloud components inst
 4. Never run the login, never ask for a key in chat. Service account keys "create a security risk and are not recommended" [source](https://docs.cloud.google.com/sdk/gcloud/reference/auth/activate-service-account); CI uses WIF (`references/iac.md`).
 
 ## Deploy
+
+All `gcloud` commands below run through `nix shell nixpkgs#google-cloud-sdk -c` (see `cli-gcloud`).
 
 ```
 gcloud run deploy SERVICE --image=REGION-docker.pkg.dev/PROJECT/REPO/IMAGE@sha256:<digest> --region=REGION \
@@ -56,6 +58,6 @@ Keep migrations backward-compatible (expand/contract): traffic rollback does not
 
 ## Not verified
 
-- gcloud auth exit codes without credentials; whether `gcloud run services logs read` needs the beta component in the nixpkgs build.
+- (`gcloud run services logs read` exists in GA, `--help` checked on 583.0.0.)
 - Current Memorystore versions beyond the docs example (`redis_6_x`), Memorystore Cluster/Valkey.
 - `gcloud storage buckets create` flags; the pinned hashicorp/google provider version.

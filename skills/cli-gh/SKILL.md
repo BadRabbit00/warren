@@ -73,7 +73,7 @@ nix shell nixpkgs#gh -c gh run download <id> -n <artifact> -D <tmpdir> -R owner/
 ```
 `run download` writes files: only into a temp dir that you name.
 
-## 4. Mutating commands: only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands: only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these (the hook denies them). A reader that thinks one is needed reports it to the orchestrator.
 ```

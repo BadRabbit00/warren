@@ -34,7 +34,7 @@ Key providers: pbkdf2, aws_kms, gcp_kms, azure_vault, openbao, external. `TF_ENC
 ## Drift
 
 - `plan -detailed-exitcode`: 0 no changes, 1 error, 2 changes present; run on a schedule. With the setup wrapper on, set `tofu_wrapper: false` / `terraform_wrapper: false` to read the raw exit code [source](https://opentofu.org/docs/cli/commands/plan/), [wrapper](https://github.com/hashicorp/setup-terraform).
-- `plan -refresh-only` shows out-of-band changes. A normal apply after drift tries to undo them and may destroy or recreate resources [source](https://developer.hashicorp.com/terraform/tutorials/state/resource-drift). Decide per resource: accept (`apply -refresh-only`) or revert (normal apply).
+- `plan -refresh-only` shows out-of-band changes. A normal apply after drift tries to undo them and may destroy or recreate resources [source](https://developer.hashicorp.com/terraform/tutorials/state/resource-drift). Decide per resource: accept (`apply -refresh-only`) or revert (normal apply); both write and need the user's «да».
 - PR comments: GitHub limits comments to 65,535 characters: write the plan to `$GITHUB_STEP_SUMMARY` or truncate.
 
 ## Import existing resources
@@ -51,8 +51,8 @@ import {
 Optional `identity` (not with `id`), `for_each`, `provider`. `tofu plan -generate-config-out=generated.tf` writes HCL for import targets without a resource block; the target file must not exist, the feature is experimental, may emit invalid config for complex schemas, and does not work with `for_each` import blocks in OpenTofu [source](https://developer.hashicorp.com/terraform/language/block/import), [OpenTofu](https://opentofu.org/docs/language/import/). Review the generated file by hand, then require an empty `plan` before committing.
 
 - `cf-terraforming` (Cloudflare): `generate` fetches resources as Terraform stanzas, `import` prints `terraform import` commands, `--modern-import-block` emits import blocks (Terraform 1.5+), per its `--help` (0.29.0). Maintenance status and compatibility with provider v5: not verified.
-- Terraformer (GoogleCloudPlatform/terraformer): archived and read-only since 2026-03-16, no further updates or security patches; README targets Terraform 0.13; Cloudflare is marked broken [source](https://github.com/GoogleCloudPlatform/terraformer). Prefer import blocks. If you still must use it: `terraformer import aws --resources=vpc,subnet --regions=eu-west-1`, then fix old provider addresses with `terraform state replace-provider`.
+- Terraformer (GoogleCloudPlatform/terraformer): archived and read-only since 2026-03-16, no further updates or security patches; README targets Terraform 0.13; Cloudflare is marked broken [source](https://github.com/GoogleCloudPlatform/terraformer). Prefer import blocks. If you still must use it: `nix shell nixpkgs#terraformer -c terraformer import aws --resources=vpc,subnet --regions=eu-west-1`, then fix old provider addresses with `nix shell nixpkgs#opentofu -c tofu state replace-provider ...` (changes state: only after the user's «да»). Not verified with `--help`.
 
 ## CI actions
 
-`hashicorp/setup-terraform@v4` (inputs `terraform_version`, `cli_config_credentials_token`, `terraform_wrapper`), `opentofu/setup-opentofu@v2` (`tofu_version`, `tofu_wrapper`, `cli_config_credentials_token`). Pin both by full SHA. PR plan jobs need `contents: read` and `pull-requests: write` only if they comment. Alternative: no action, `nix shell nixpkgs#opentofu` from the pinned flake.
+`hashicorp/setup-terraform@v4` (inputs `terraform_version`, `cli_config_credentials_token`, `terraform_wrapper`), `opentofu/setup-opentofu@v2` (`tofu_version`, `tofu_wrapper`, `cli_config_credentials_token`). Pin both by full SHA. PR plan jobs need `contents: read` and `pull-requests: write` only if they comment. Alternative: no action, `nix develop -c tofu ...` with opentofu in the project's devShell (or `nix shell --inputs-from . nixpkgs#opentofu -c tofu ...`) so nixpkgs comes from `flake.lock`.

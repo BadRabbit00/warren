@@ -22,7 +22,7 @@ Which token is set decides which check works [source](https://docs.railway.com/c
 | none, or `RAILWAY_API_TOKEN` (account/workspace token) | `nix shell nixpkgs#railway -c railway whoami` (exit 1 and `Unauthorized` when missing) |
 | only `RAILWAY_TOKEN` (project token) | `railway status --json` or `railway deployment list --service <svc> --json`; `whoami` fails for project tokens by design |
 
-Not logged in: stop with `STATUS: blocked — login needed`, give `! nix shell nixpkgs#railway -c railway login` (or `railway login --browserless` without a browser). Never run it yourself; never ask for tokens in chat. A stale login that still says Unauthorized: user deletes `~/.railway/config.json` and logs in again (user-reported fix, not official). Which of `RAILWAY_TOKEN` / `RAILWAY_API_TOKEN` wins when both are set is not documented: set only one.
+Not logged in: stop with `STATUS: blocked — login needed`, give `! nix shell nixpkgs#railway -c railway login` (or `! nix shell nixpkgs#railway -c railway login --browserless` without a browser). Never run it yourself; never ask for tokens in chat. A stale login that still says Unauthorized: user deletes `~/.railway/config.json` and logs in again (user-reported fix, not official). Which of `RAILWAY_TOKEN` / `RAILWAY_API_TOKEN` wins when both are set is not documented: set only one.
 
 Never run an unauthenticated `railway up`: it chains into OAuth and can create a project [source](https://docs.railway.com/cli/up). Always pass `--service` and `--environment`.
 

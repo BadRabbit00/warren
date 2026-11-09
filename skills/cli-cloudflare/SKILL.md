@@ -6,7 +6,7 @@ description: Use when you must read Cloudflare Workers, Pages, D1, KV or R2 stat
 # wrangler and cf (Cloudflare): deploy state and logs
 
 Verified locally with wrangler 4.151.1 and cf 1.0.0-beta.21 (`--help` of every wrangler command below). Full flag tables: `references/commands.md`.
-Who: `R` = allowed for `log-collector` and `deploy-error-reader` (intended allowlist: `wrangler whoami`, `wrangler tail`; `cf` is not on it). `E` = read-only, but only for `deploy-engineer` / `ci-engineer`. `M` = mutating, those two only, on request.
+Who: `R` = allowed for `log-collector` and `deploy-error-reader` (intended allowlist: `wrangler whoami`, `wrangler tail`; `cf` is not on it). `E` = read-only, but only for `deploy-engineer` / `ci-engineer`. `M` = mutating, those two only, after the user's «да» for the command.
 Use wrangler in a project that has `wrangler.jsonc` / `.json` / `.toml`. Use `cf` only for things wrangler does not cover (docs, API schema). The two keep separate logins.
 
 ## 1. Run
@@ -24,11 +24,11 @@ nix shell nixpkgs#wrangler -c wrangler whoami --json
 - exit 1 and `{"loggedIn":false}` = stop. Do not try other commands.
 - If `CLOUDFLARE_API_TOKEN` is set it overrides a stored login: the identity may differ from the expected one. Check with `test -n "$CLOUDFLARE_API_TOKEN"`; never print it.
 
-Not logged in: report `STATUS: blocked: login needed` and give the user this one command:
+Not logged in: report `STATUS: blocked — login needed` and give the user this one command:
 `! nix shell nixpkgs#wrangler -c wrangler login --device`
 (`--device` works over SSH and in containers; `--browser=false` prints the link instead. Default callback port 8976 is unreachable there.) CI: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
 
-`cf` check: `nix shell nixpkgs#cf -c cf auth whoami`. It exits 0 even when logged out: read the JSON, `"authenticated": false` = stop. Login: `! nix shell nixpkgs#cf -c cf auth login`. Its output suggests `cf deploy --temporary-account`: do NOT follow it. `cf` does not reuse a wrangler login.
+`cf` check: `nix shell nixpkgs#cf -c cf auth whoami`. It exits 0 even when logged out: read the JSON, `"authenticated": false` = stop. Login: `! nix shell nixpkgs#cf -c cf auth login --no-browser`. Its output suggests `cf deploy --temporary-account`: do NOT follow it. `cf` does not reuse a wrangler login.
 
 ## 3. Read-only commands
 
@@ -78,11 +78,11 @@ nix shell nixpkgs#cf -c cf cli search "<describe the task, no names or ids>"
 nix shell nixpkgs#cf -c cf docs search "<question>"
 nix shell nixpkgs#cf -c cf schema <command path>
 nix shell nixpkgs#cf -c cf workers list
-nix shell nixpkgs#cf -c cf workers get | deployments | versions     # run <command> --help first
+nix shell nixpkgs#cf -c cf workers <get|deployments|versions> --help     # pick one subcommand, read its help first
 ```
 `cf` is a huge API wrapper in beta and its commands may change: `cf cli search` first, then `--help`, then run. Subcommand `--help` in this version prints the top-level help in some cases: not verified for every path. Keep search queries free of names, domains and ids.
 
-## 4. Mutating commands: only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands: only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
@@ -99,7 +99,7 @@ nix shell nixpkgs#wrangler -c wrangler pages deploy <dir> --project-name <name> 
 - Rollback restores code only, not D1/KV/R2 data; it is blocked after a Durable Object class migration or a deleted binding (docs).
 - Pages has no CLI rollback (docs): dashboard "Rollback to this deployment", or redeploy the previous commit. `wrangler pages deployment delete` deletes: it is not a rollback.
 - `secret put/delete` deploy immediately and bypass a gradual rollout (docs).
-- Before `rollback` say what it undoes (`deployments list`), and rollback only on request.
+- Before `rollback` say what it undoes (`deployments list`), and rollback only after the user's «да» (the effect is immediate on all routes).
 
 ## 5. Patterns and anti-patterns
 
@@ -119,7 +119,7 @@ Bad: `cf auth whoami` judged by exit code (always 0)
 Good: read `"authenticated"` in the JSON
 
 Bad: follow `cf deploy --temporary-account` from the login hint
-Good: stop and give the user `! nix shell nixpkgs#cf -c cf auth login`
+Good: stop and give the user `! nix shell nixpkgs#cf -c cf auth login --no-browser`
 
 Bad: `wrangler whoami` logged in, so assume `cf` is logged in
 Good: check each tool; they keep separate credentials

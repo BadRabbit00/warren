@@ -9,7 +9,7 @@ Every command takes the global flags `--project`, `--format`, `--quiet` (not lis
 |---|---|
 | `gcloud auth list` (R) | `--filter=EXPRESSION`, `--filter-account`, `--limit`. Use `--filter=status:ACTIVE --format="value(account)"`; empty output = logged out, exit 0 |
 | `gcloud auth login` (M) | user runs it: `--no-launch-browser`, `--no-browser`, `--cred-file`, `--update-adc` |
-| `gcloud auth activate-service-account` (M) | `--key-file` (secret file), `--password-file`, `--prompt-for-password` |
+| `gcloud auth activate-service-account` | key-file login: not for agents (secret key; CI uses Workload Identity Federation via `google-github-actions/auth`) |
 | `gcloud auth print-access-token` | prints a live token. Never for agents |
 | `gcloud config list` (E) | `--all`, `SECTION/PROPERTY` |
 | `gcloud config get-value` (E) | `SECTION/PROPERTY`, e.g. `core/project` |
@@ -20,7 +20,7 @@ Every command takes the global flags `--project`, `--format`, `--quiet` (not lis
 |---|---|
 | `gcloud run services list` (E) | `--region`, `--filter`, `--limit`, `--sort-by`, `--uri` |
 | `gcloud run services describe SERVICE` (E) | `--region`, `--namespace` |
-| `gcloud run services logs read SERVICE` (E) | `--freshness` (default 1d), `--log-filter`, `--order` (default desc), `--region`, `--limit` |
+| `gcloud run services logs read SERVICE` (R, intended; hook follows in T1) | `--freshness` (default 1d), `--log-filter`, `--order` (default desc), `--region`, `--limit` |
 | `gcloud run revisions list` (E) | `--service`, `--region`, `--filter`, `--limit`, `--sort-by`, `--uri` |
 | `gcloud run revisions describe REVISION` (E) | `--region` |
 | `gcloud run services update-traffic [SERVICE]` (M) | `--to-revisions=REV=PERCENT,...` (`LATEST` allowed), `--to-latest`, `--to-tags`, `--set-tags`, `--update-tags`, `--remove-tags`, `--clear-tags`, `--async`, `--region` |

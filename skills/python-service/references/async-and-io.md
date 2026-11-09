@@ -127,13 +127,15 @@ Why: a hung provider holds the request; retries happen by accident or never.
 
 Good:
 ```python
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
 client = httpx.AsyncClient(base_url=cfg.payment_url, timeout=httpx.Timeout(cfg.payment_timeout_s))
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential_jitter(),
        retry=retry_if_exception_type(httpx.TransportError))
 async def get_status(payment_id: str) -> PaymentStatus: ...   # idempotent GET only
 ```
-A POST without an idempotency key is not retried. Timeout and attempts come from `docs/POLICY.md` through config.
+Use the project's retry helper; if `tenacity` is not in `pyproject.toml`, report it as a new dependency. A POST without an idempotency key is not retried. Timeout and attempts come from `docs/POLICY.md` through config.
 
 ### R-PYS-WORKERS - parallel-safe, repeatable tasks
 
@@ -172,9 +174,10 @@ Good:
 ```python
 async def check_login_rate(redis: Redis, ip: str, limit: int, window_s: int) -> None:
     key = f"auth:login:{ip}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window_s)
+    async with redis.pipeline(transaction=True) as pipe:   # counter and TTL set atomically
+        pipe.incr(key)
+        pipe.expire(key, window_s, nx=True)
+        count, _ = await pipe.execute()
     if count > limit:
         raise TooManyAttempts()
 ```

@@ -7,7 +7,7 @@ paths:
 
 ## Scope
 
-The full rule set for coding agents is the skill `python-service`.
+The full rule set for coding agents is the skill `python-service`. Id map: `R-PY-X` = `R-PYS-X` (same rule), except `R-PY-ERRORS` = `R-PYS-EXCEPT`.
 
 Python 3.12+ code: FastAPI services, workers, scripts. Layers, DB, and tests have their own rules; this is the language part. `python-reviewer` checks it in depth.
 

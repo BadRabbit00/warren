@@ -68,9 +68,9 @@ nix shell nixpkgs#doctl -c doctl registry get
 nix shell nixpkgs#doctl -c doctl registry repository list-tags <repository> --format Tag,UpdatedAt,ManifestDigest
 nix shell nixpkgs#doctl -c doctl monitoring alert list
 ```
-`doctl databases connection` masks the password unless the global `--show` flag is set: never `--show`. There is no `databases logs` command (docs).
+`doctl databases connection` prints the connection URI and password (not verified masked; it has no `--show` flag in doctl 1.169.0): it is secret-printing, never for agents. There is no `databases logs` command (docs).
 
-## 4. Mutating commands (M): only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands (M): only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
@@ -89,7 +89,7 @@ nix shell nixpkgs#doctl -c doctl registry login                                 
 Bad: `doctl apps logs <app> web` plus `--follow` (blocks), or no `--tail` (whole log)
 Good: `doctl apps logs <app> web --type run --tail 200`
 
-Bad: `doctl databases connection <id> --show`, `doctl auth token`, `doctl auth init --access-token <token>` typed in a command line, `env`, `echo $DIGITALOCEAN_ACCESS_TOKEN`
+Bad: `doctl databases connection <id>`, `doctl auth token`, `doctl auth init --access-token <token>` typed in a command line, `env`, `echo $DIGITALOCEAN_ACCESS_TOKEN`
 Good: `doctl account get --format Status --no-header`; `test -n "$DIGITALOCEAN_ACCESS_TOKEN"`
 
 Bad: guess an app or deployment id from memory

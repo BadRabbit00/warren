@@ -1,6 +1,6 @@
 # CI: security scans and workflow lint
 
-All nixpkgs attributes below were checked with `nix eval` on 2026-11-09 (research card): `gitleaks` 8.30.1, `trivy` 0.76.1, `osv-scanner` 2.7.0, `semgrep` 1.180.0, `codeql` 2.27.2 (unfree), `zizmor` 1.31.1, `actionlint` 1.7.12, `shellcheck` 0.11.0. Run as `nix shell nixpkgs#<attr> -c <cmd>`. Running the CLI from the pinned flake avoids trusting a mutable third-party action tag.
+All nixpkgs attributes below were checked with `nix eval` on 2026-11-09 (research card): `gitleaks` 8.30.1, `trivy` 0.76.1, `osv-scanner` 2.7.0, `semgrep` 1.180.0, `codeql` 2.27.2 (unfree), `zizmor` 1.31.1, `actionlint` 1.7.12, `shellcheck` 0.11.0. Locally run as `nix shell nixpkgs#<attr> -c <cmd>` (not pinned: it follows the global registry, nixpkgs-unstable). In CI pin nixpkgs: put the tool in the project's devShell and run `nix develop -c <cmd>`, or `nix shell --inputs-from . nixpkgs#<attr> -c <cmd>` so nixpkgs comes from the project's `flake.lock` (both flags checked with `nix shell --help` / `nix develop --help`). A pinned CLI avoids trusting a mutable third-party action tag.
 
 ## Which scanner when
 
@@ -25,7 +25,7 @@ CLI: `nix shell nixpkgs#gitleaks -c gitleaks ...` needs no licence. `gitleaks/gi
 
 ## trivy
 
-`aquasecurity/trivy-action` inputs: `scan-type`, `image-ref`, `scan-ref`, `exit-code`, `ignore-unfixed`, `vuln-type`, `severity`, `format`, `output`, `scanners`, `trivyignores`, `timeout`, `version` (default v0.76.2), `cache` and others [source](https://raw.githubusercontent.com/aquasecurity/trivy-action/master/action.yaml). After the 2026-03-19 tag hijack the named safe versions were trivy v0.69.3, trivy-action v0.35.0, setup-trivy v0.2.6; verify tags and SHAs against the official repo before pinning, and rotate secrets reachable by affected runs [source](https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know). Safer: `nix shell nixpkgs#trivy -c trivy fs .` from the pinned flake.
+`aquasecurity/trivy-action` inputs: `scan-type`, `image-ref`, `scan-ref`, `exit-code`, `ignore-unfixed`, `vuln-type`, `severity`, `format`, `output`, `scanners`, `trivyignores`, `timeout`, `version` (default v0.76.2), `cache` and others [source](https://raw.githubusercontent.com/aquasecurity/trivy-action/master/action.yaml). After the 2026-03-19 tag hijack the named safe versions were trivy v0.69.3, trivy-action v0.35.0, setup-trivy v0.2.6; verify tags and SHAs against the official repo before pinning, and rotate secrets reachable by affected runs [source](https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know). Safer: `nix shell --inputs-from . nixpkgs#trivy -c trivy fs .` in CI (nixpkgs from the project's `flake.lock`; plain `nixpkgs#trivy` is not pinned).
 
 ## osv-scanner
 

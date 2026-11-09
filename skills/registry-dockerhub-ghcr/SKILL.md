@@ -26,12 +26,12 @@ nix shell nixpkgs#skopeo -c skopeo login --get-login ghcr.io      # prints the u
 nix shell nixpkgs#skopeo -c skopeo login --get-login docker.io
 ```
 
-Whether `--get-login` also reads `~/.docker/config.json` is not verified. Reading public images needs no login (`skopeo inspect --no-creds docker://...`).
+`--get-login` also reads `~/.docker/config.json` (verified with skopeo 1.24.1: exit 0 on a fake entry). But `skopeo login` by default writes to `${XDG_RUNTIME_DIR}/containers/auth.json`, which docker and buildx do not read: for a login that `docker buildx imagetools` also sees, add `--compat-auth-file ~/.docker/config.json` (`skopeo login --help`). Reading public images needs no login (`skopeo inspect --no-creds docker://...`).
 
 Not logged in and a push or private pull is needed: stop with `STATUS: blocked — login needed` and give the user one of
 
-- `! nix shell nixpkgs#skopeo -c skopeo login -u <github-user> ghcr.io` (asks for a PAT; classic PAT scopes `read:packages`, `write:packages`, `delete:packages`; create it from `https://github.com/settings/tokens/new?scopes=write:packages` so `repo` is not added)
-- `! nix shell nixpkgs#skopeo -c skopeo login -u <user> docker.io` (PAT or organization access token)
+- `! nix shell nixpkgs#skopeo -c skopeo login --compat-auth-file ~/.docker/config.json -u <github-user> ghcr.io` (asks for a PAT; classic PAT scopes `read:packages`, `write:packages`, `delete:packages`; create it from `https://github.com/settings/tokens/new?scopes=write:packages` so `repo` is not added)
+- `! nix shell nixpkgs#skopeo -c skopeo login --compat-auth-file ~/.docker/config.json -u <user> docker.io` (PAT or organization access token)
 
 Never run it, never ask for the token in chat, never pass it in argv. In CI: `docker/login-action` with `GITHUB_TOKEN` (ghcr) or `secrets.DOCKERHUB_TOKEN` (Hub). Credentials without a credential store sit base64-encoded in `~/.docker/config.json` (not encrypted): CI jobs log out at the end (`logout: true` is the login-action default) [source](https://docs.docker.com/reference/cli/docker/login/).
 
@@ -62,7 +62,7 @@ Pull and deploy by `ghcr.io/OWNER/IMAGE@sha256:<digest>`; the `docker://` transp
 Deploys that reference digests roll back by pointing to the previous digest (best option). To move a tag back without rebuilding (user's «да» for a prod tag) [source](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/):
 
 ```
-docker buildx imagetools create -t REG/IMAGE:prod REG/IMAGE@sha256:<old>        # --dry-run previews
+docker buildx imagetools create -t REG/IMAGE:prod REG/IMAGE@sha256:<old>        # --dry-run previews; docker comes from the project devShell (nix develop -c), uses the ~/.docker/config.json login
 nix shell nixpkgs#skopeo -c skopeo copy --all docker://REG/IMAGE@sha256:<old> docker://REG/IMAGE:prod     # daemonless
 ```
 

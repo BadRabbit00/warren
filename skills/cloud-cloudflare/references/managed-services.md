@@ -5,7 +5,7 @@ All commands are in `cli-cloudflare`. Always pass `--remote` for production and 
 | Need | Service | Create (via IaC; CLI only for a one-off) | App gets access |
 |---|---|---|---|
 | SQL database for Workers | D1 | IaC resource from the provider docs; CLI `wrangler d1 ...` | Binding in the Worker config; no connection string |
-| PostgreSQL | none at Cloudflare; Hyperdrive fronts an external Postgres | `wrangler hyperdrive create <NAME> --connection-string ...` or IaC | Hyperdrive binding; the origin password is passed once at creation, from sops or a CI secret, not typed in a shared log |
+| PostgreSQL | none at Cloudflare; Hyperdrive fronts an external Postgres | IaC (preferred); the CLI `wrangler hyperdrive create <NAME> --connection-string ...` is run by the user | Hyperdrive binding; the origin password (in `--connection-string` or `--origin-password`, both argv, checked on wrangler `--help`) lands in the process list and shell history even when it comes from sops, so keep it out of agent commands |
 | Redis/Valkey | none found in the research | use another provider | n/a |
 | Object storage | R2 | `wrangler r2 bucket create <NAME>`; IaC | Binding, or S3 API: endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`, keys from an R2 API token [source](https://developers.cloudflare.com/r2/api/s3/api/) |
 | Key-value | KV | `wrangler kv namespace create <NAMESPACE> --binding <B> --update-config` | Binding |

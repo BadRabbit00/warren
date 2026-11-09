@@ -6,7 +6,7 @@ description: Use when you must read Google Cloud state (Cloud Run services and r
 # gcloud (Google Cloud CLI): Cloud Run, logs, Cloud SQL, builds
 
 Verified locally with gcloud 583.0.0 (`--help` of every command below; nothing was run against a real project). Full flag tables: `references/commands.md`.
-Who: `R` = allowed for `log-collector` and `deploy-error-reader` (hook allowlist today: `gcloud auth list`, `gcloud logging read`). `E` = read-only, but only for `deploy-engineer` / `ci-engineer` (the readers' hook denies it). `M` = mutating. Marks other than the two allowlisted commands are the intended policy; the hook follows in T1.
+Who: `R` = allowed for `log-collector` and `deploy-error-reader` (hook allowlist today: `gcloud auth list`, `gcloud logging read`; intended to add `gcloud run services logs read`, the hook follows in T1). `E` = read-only, but only for `deploy-engineer` / `ci-engineer` (the readers' hook denies it). `M` = mutating. Marks other than the two allowlisted commands are the intended policy; the hook follows in T1.
 
 ## 1. Run
 
@@ -25,7 +25,7 @@ nix shell nixpkgs#google-cloud-sdk -c gcloud auth list --filter=status:ACTIVE --
 
 Not logged in: report `STATUS: blocked — login needed` and give the user this one command:
 `! nix shell nixpkgs#google-cloud-sdk -c gcloud auth login --no-launch-browser`
-CI or service-account mode: `gcloud auth activate-service-account --key-file=<file>` needs a key file (a secret; never print it). In GitHub Actions the documented way is the `google-github-actions/auth` action (workload identity, no key file). Both are from the research card, not run locally.
+Agents never log in themselves and never use a service-account key file (a secret; Google does not recommend keys). In GitHub Actions CI authenticates through the `google-github-actions/auth` action with Workload Identity Federation (no key file); see skills `cloud-gcp` and `iac` (`references/iac.md`). Not run locally.
 
 ## 3. Read-only commands
 
@@ -72,7 +72,7 @@ nix shell nixpkgs#google-cloud-sdk -c gcloud secrets list --project <id> --limit
 ```
 `secrets list` shows names only. Reading a secret value (`gcloud secrets versions access`) is never done: not verified locally, and it prints the secret.
 
-## 4. Mutating commands: only deploy-engineer / ci-engineer, only on request
+## 4. Mutating commands: only deploy-engineer / ci-engineer, only after the user's «да» for this command (prod: «да» per command)
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
@@ -82,8 +82,6 @@ nix shell nixpkgs#google-cloud-sdk -c gcloud run services update-traffic <servic
 nix shell nixpkgs#google-cloud-sdk -c gcloud run services update-traffic <service> --to-latest --region <region> --project <id>
 # M: deploy an image; --no-traffic creates the revision without sending traffic to it
 nix shell nixpkgs#google-cloud-sdk -c gcloud run deploy <service> --image <image> --region <region> --project <id> --no-traffic
-# M: login with a key file (secret) in CI
-nix shell nixpkgs#google-cloud-sdk -c gcloud auth activate-service-account --key-file=<file>
 ```
 Check the revision list first: roll back to a revision you have seen serve traffic. Rollback after a bad migration does not undo the migration.
 

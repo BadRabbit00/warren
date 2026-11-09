@@ -11,10 +11,11 @@ Why: the copy drifts silently; the compiler stays green while the UI shows `unde
 
 Good:
 ```ts
-// generated: nix develop -c npx openapi-typescript <backend openapi.json> -o src/shared/api/schema.ts
+// generated: nix develop -c npx --no-install openapi-typescript <backend openapi.json> -o src/shared/api/schema.ts   (or `npm run gen:api`)
 import type { components } from "@/shared/api/schema";
 export type Order = components["schemas"]["OrderRead"];
 ```
+`openapi-typescript` must be a pinned devDependency; if it is missing, report it as a new dependency and do not let `npx` fetch it.
 
 ### R-FDL-QUERY - TanStack Query owns server data
 

@@ -58,7 +58,7 @@ nix shell nixpkgs#ansible -c ansible-playbook site.yml --check --diff --limit <h
 nix shell nixpkgs#ansible-lint -c ansible-lint --profile=production
 ```
 
-Real runs (without `--check`) change hosts: the user's «да», like `apply`.
+Before `--check`, grep playbook, roles and includes for `check_mode: false` / `check_mode: no` (such tasks apply even under `--check`): if found, treat the run as real and name those tasks in the «да» request. Real runs (without `--check`) change hosts: the user's «да», like `apply`.
 
 ## Bad / Good
 
@@ -78,7 +78,7 @@ terraform refresh                    # silently overwrites state with real value
 ```
 Good:
 ```
-tofu plan -refresh-only              # review; accept with `apply -refresh-only` or revert drift with a normal apply
+tofu plan -refresh-only              # review; accept with `apply -refresh-only` / revert with a normal apply, both only after the user's «да»
 ```
 [source](https://developer.hashicorp.com/terraform/tutorials/state/resource-drift)
 

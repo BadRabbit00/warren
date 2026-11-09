@@ -39,7 +39,7 @@ Bad:
 ```
 Good:
 ```
-railway config migrate --apply        # to .railway/railway.ts
+railway config pull                   # import the linked project into .railway/railway.ts
 railway config plan --detailed-exit-code    # gate in CI; apply by a human
 ```
 Old files have no effect on new services and are ignored by everyone after 2026-12-01. [source](https://station.railway.com/questions/railway-toml-has-no-effect-what-replac-b623aa81)
@@ -64,7 +64,7 @@ Good:
 ```
 [source](https://docs.railway.com/volumes)
 
-A service with an attached volume cannot use replicas or scale to zero; deploys fail when the replica count is above 1. Keep one replica for volume-backed services, stop one with `railway down`, back up before removing a volume. [source](https://station.railway.com/questions/service-stuck-at-2-replicas-with-an-atta-70a44553)
+A service with an attached volume cannot use replicas or scale to zero; deploys fail when the replica count is above 1. Keep one replica for volume-backed services, back up before removing a volume. (`railway down --service <svc> --environment <env>` removes the latest deployment, so the service goes down: only after the user's «да».) [source](https://station.railway.com/questions/service-stuck-at-2-replicas-with-an-atta-70a44553)
 
 Bad:
 ```

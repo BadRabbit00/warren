@@ -71,12 +71,15 @@ Bad:
 ```python
 await worker.start()
 await asyncio.sleep(2)
-assert await repo.status(id) == "sent"
+assert await repo.status(order_id) == "sent"
 ```
 Why: slow on a fast machine, flaky on a slow one.
 
 Good:
 ```python
 await worker.start()
-await wait_until(lambda: repo.status(id) == "sent", timeout=5)   # polls a condition, fails on timeout
+async def sent() -> bool:
+    return await repo.status(order_id) == "sent"
+
+await wait_until(sent, timeout=5)   # awaits the async predicate repeatedly, fails on timeout
 ```

@@ -4,7 +4,7 @@ Each item: sources in brackets.
 
 Bad:
 ```
-nix shell nixpkgs#wrangler -c wrangler d1 execute prod-db --command "DELETE FROM sessions"
+nix shell nixpkgs#wrangler -c wrangler d1 execute prod-db --command "SELECT count(*) FROM sessions"
 ```
 Good:
 ```
@@ -88,10 +88,10 @@ nix shell nixpkgs#opentofu -c tofu plan           # same cloudflare/cloudflare p
 
 Bad:
 ```
-cf workers delete <name> --force      # --force is also an API parameter: also deletes Workers others reference
+cf workers delete <name> --force --delete-with-references      # --force skips the confirmation; --delete-with-references deletes the Worker even when others reference it (breaks service bindings, deletes Durable Object namespaces it implements)
 ```
 Good:
 ```
-cf workers delete <name> --dry-run    # preview; ask the user; non-interactive delete without --force prints "Aborted." and still exits 0
+cf workers delete <name> --dry-run    # preview; ask the user for «да»; non-interactive delete without --force prints "Aborted." and still exits 0
 ```
-[cf-cli skill](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md)
+Flags checked in `cf workers delete --help` (nixpkgs cf, `-f, --force  Skip confirmation`; `--delete-with-references`; `--dry-run`). [cf-cli skill](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md)
