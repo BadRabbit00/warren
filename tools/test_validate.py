@@ -493,6 +493,46 @@ class ModelTableTest(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\nPrint it as '''text''' please.\n", encoding="utf-8")
         self.assertTrue(self.findings_for(target, baseline), target)
 
+    # -- agent names: charset and reserved codex [agents] keys
+
+    RESERVED_KEYS = [
+        "max_depth", "max_threads", "max_concurrent_threads_per_session", "default_subagent_model",
+        "default_subagent_reasoning_effort", "job_max_runtime_seconds", "interrupt_message",
+    ]
+
+    def inject_agent(self, name: str) -> None:
+        """Adds agents/<name>.md (a real agent's frontmatter and body, renamed) and a complete model entry."""
+        source = (self.root / "agents" / "code-reviewer.md").read_text(encoding="utf-8")
+        prefix = "".join(c for c in name.upper() if c.isalnum())  # keeps rule ids unique across injected agents
+        text = source.replace("name: code-reviewer", f"name: {name}", 1).replace("R-CR-", f"R-{prefix}-")
+        (self.root / "agents" / f"{name}.md").write_text(text, encoding="utf-8")
+        models = self.load()
+        models["agents"][name] = {
+            "model": "claude-sonnet-5-5", "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"}, "agy": {"model": "flash"},
+        }
+        self.save(models)
+
+    def test_agent_name_charset(self) -> None:
+        baseline = validate.Validator(self.root).run()
+        self.inject_agent("Bad_Name")
+        self.inject_agent("good-name-2")
+        bad = [e.partition(": ")[2] for e in self.findings_for("Bad_Name", baseline)]
+        self.assertTrue(any("name" in e for e in bad), bad)
+        self.assertEqual(self.findings_for("good-name-2", baseline), [])
+
+    def test_agent_name_not_codex_reserved(self) -> None:
+        path = self.root / "tools" / "validate.json"
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        cfg["codexReservedAgentKeys"] = self.RESERVED_KEYS
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        baseline = validate.Validator(self.root).run()
+        for name in ("max-depth", "max-threads"):
+            with self.subTest(agent=name):
+                self.inject_agent(name)
+                found = [e.partition(": ")[2] for e in self.findings_for(name, baseline)]
+                self.assertTrue(any("reserved" in e for e in found), found)
+
 
 if __name__ == "__main__":
     unittest.main()

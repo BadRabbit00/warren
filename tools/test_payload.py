@@ -91,6 +91,7 @@ class Probe:
     name: str
     description: str = "Reviews code."
     tools: str = "Read, Grep"
+    disallowed: str = ""
     body: str = "# Probe\n\nA probe agent.\n"
 
 
@@ -98,7 +99,11 @@ def add_probes(root: Path, *probes: Probe) -> None:
     models_path = root / "agent-models.json"
     models = json.loads(models_path.read_text(encoding="utf-8"))
     for probe in probes:
-        text = f"---\nname: {probe.name}\ndescription: {probe.description}\ntools: {probe.tools}\n---\n\n{probe.body}"
+        denied = f"disallowedTools: {probe.disallowed}\n" if probe.disallowed else ""
+        text = (
+            f"---\nname: {probe.name}\ndescription: {probe.description}\ntools: {probe.tools}\n{denied}"
+            f"---\n\n{probe.body}"
+        )
         (root / "agents" / f"{probe.name}.md").write_text(text, encoding="utf-8")
         models["agents"][probe.name] = {
             "model": "claude-sonnet-5-5", "effort": "medium",
@@ -194,6 +199,23 @@ class ExportTest(unittest.TestCase):
         data = tomllib.loads((out / "codex" / "agents" / "probe-multiedit.toml").read_text(encoding="utf-8"))
         self.assertEqual(data["sandbox_mode"], "workspace-write")
 
+    def test_codex_sandbox_mode_subtracts_disallowed(self) -> None:
+        probe = Probe("probe-denied-write", tools="Read, Write", disallowed="Write, Agent, Skill, mcp__*")
+        out, proc = export_with_probes(self, probe)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = tomllib.loads((out / "codex" / "agents" / "probe-denied-write.toml").read_text(encoding="utf-8"))
+        self.assertEqual(data["sandbox_mode"], "read-only")
+
+    def test_codex_sandbox_mode_keeps_write_when_only_agent_disallowed(self) -> None:
+        probe = Probe("probe-edit-kept", tools="Read, Edit", disallowed="Agent")
+        out, proc = export_with_probes(self, probe)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = tomllib.loads((out / "codex" / "agents" / "probe-edit-kept.toml").read_text(encoding="utf-8"))
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
+
+    def test_exporter_reports_toml_self_check(self) -> None:
+        self.assertIn("codex toml ok", self.proc.stdout)
+
     def test_codex_agents_fragment(self) -> None:
         path = self.out / "codex" / "agents.toml"
         self.assertTrue(path.is_file(), f"{path} missing; exporter stderr: {self.proc.stderr!r}")
@@ -211,8 +233,9 @@ class ExportTest(unittest.TestCase):
         for name in self.names:
             text = (self.out / "agy" / "agents" / f"{name}.md").read_text(encoding="utf-8")
             fm, body = split(text)
-            self.assertEqual(set(fm), {"name", "description", "model", "subagent", "mainAgent"}, name)
+            self.assertEqual(set(fm), {"name", "description", "model", "subagent", "mainAgent", "inheritMcp"}, name)
             raw_frontmatter = text.split("\n---\n", 1)[0].split("\n")
+            self.assertIn("inheritMcp: false", raw_frontmatter, name)  # unquoted bool
             self.assertTrue(any(ln.startswith('description: "') for ln in raw_frontmatter), name)  # quoted scalar
             self.assertEqual(unquote(fm["name"]), name)
             self.assertEqual(unquote(fm["description"]), self.claude_agent(name)[0]["description"], name)
