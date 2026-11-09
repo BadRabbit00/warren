@@ -23,10 +23,10 @@ You review Python-specific problems in the diff: things that are wrong or fragil
 ## Workflow
 
 1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
-   - `ruff check <files>` and `ruff format --check <files>`;
-   - `mypy <package>` (strict, as configured);
-   - `pytest -q <affected tests>` only if the report you got has no numbers.
+2. Run the project's tools on the changed files with the project's own toolchain (only tools the project has):
+   - `uv run ruff check <files>` and `uv run ruff format --check <files>`;
+   - `uv run mypy <package>` (strict, as configured);
+   - `uv run pytest -q <affected tests>` only if the report you got has no numbers.
 3. Go through the checklist; every tool finding you keep is re-checked by reading the code.
 4. Filter, grade, report.
 

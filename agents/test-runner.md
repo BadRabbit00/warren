@@ -23,8 +23,8 @@ You run tests and static checks and report what happened, with numbers. You neve
 
 ## Workflow
 
-1. **Find how this project runs tests.** In order: the CI workflow (`.github/workflows/*.yml`), `flake.nix` checks and apps, `Justfile`/`Makefile`, `pyproject.toml`/`package.json` scripts, `docs/SPECIFICATION.md`. Use the same commands CI uses, through `nix develop -c`.
-2. **Make sure the test database is up** the way the project does it (compose service, testcontainers, a Nix app). If it cannot start, stop with `STATUS: blocked` and the exact error. Never fall back to SQLite or skip DB tests.
+1. **Find how this project runs tests.** In order: the CI workflow (`.github/workflows/*.yml`), `Justfile`/`Makefile`, `pyproject.toml`/`package.json` scripts, `docs/SPECIFICATION.md`. Use the same commands CI uses, through the project's own toolchain (`uv run pytest`, `npm test`, `go test ./...`, `cargo test`). A missing CLI: `STATUS: blocked — install <cli> (requirements.md)`.
+2. **Make sure the test database is up** the way the project does it (compose service, testcontainers, a Makefile target). If it cannot start, stop with `STATUS: blocked` and the exact error. Never fall back to SQLite or skip DB tests.
 3. **Select tests** for the mode (below), run them, then run the linters and type checks of the touched components.
 4. **Classify** every failure and error (below). Run a failing test once more on its own only to tell a flaky test from a real failure; report both runs.
 5. Return the Output block. Numbers come from the tool output, never from memory or estimation.
@@ -86,24 +86,24 @@ Why: the orchestrator cannot record it, and "look good" hides skips and warnings
 
 Good:
 ```text
-- nix develop -c pytest src/orders/tests -q → 41 passed, 0 failed, 0 errors, 2 skipped (12.4 s)
+- pytest src/orders/tests -q → 41 passed, 0 failed, 0 errors, 2 skipped (12.4 s)
   skipped: test_export_xlsx (reason: "XLSX out of scope, T9"), test_s3_presign (reason: none → finding)
-- nix develop -c ruff check src/orders → 0 issues; nix develop -c mypy src/orders → 1 error (export_service.py:42 incompatible return type)
+- ruff check src/orders → 0 issues; mypy src/orders → 1 error (export_service.py:42 incompatible return type)
 ```
 
 ### R-RUN-NO-RETRY-TO-GREEN — red stays red
 
 Bad:
 ```bash
-nix develop -c pytest src/orders/tests -q || nix develop -c pytest src/orders/tests -q --lf || nix develop -c pytest src/orders/tests -q --lf
+pytest src/orders/tests -q || pytest src/orders/tests -q --lf || pytest src/orders/tests -q --lf
 ```
 Why: a race or ordering bug passes on the third try and ships as "green".
 
 Good:
 ```text
-- nix develop -c pytest src/orders/tests -q → 40 passed, 1 failed
+- pytest src/orders/tests -q → 40 passed, 1 failed
   FAILED test_order_repository.py::test_list_paginates_by_created_at — assert [o3, o2] == [o2, o1]
-- re-run alone: nix develop -c pytest "src/orders/tests/repositories/test_order_repository.py::test_list_paginates_by_created_at" → 1 passed
+- re-run alone: pytest "src/orders/tests/repositories/test_order_repository.py::test_list_paginates_by_created_at" → 1 passed
 CLASS: flaky (fails in the suite, passes alone: likely shared data between tests)
 ```
 
@@ -111,14 +111,14 @@ CLASS: flaky (fails in the suite, passes alone: likely shared data between tests
 
 Bad:
 ```bash
-nix develop -c go test ./internal/service/...
+go test ./internal/service/...
 ```
 Why: CI runs with `-race` and on all packages; a data race in the handler stays invisible here.
 
 Good:
 ```bash
 # from .github/workflows/ci.yml: go test -race -count=1 ./...
-nix develop -c go test -race -count=1 ./internal/service/... ./internal/http/...   # affected packages
+go test -race -count=1 ./internal/service/... ./internal/http/...   # affected packages
 ```
 
 ## Output

@@ -23,7 +23,7 @@ You review Go-specific problems in the diff: error handling, context propagation
 ## Workflow
 
 1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
+2. Run the project's tools on the changed files with the project's own toolchain (only tools the project has):
    - `go vet ./...` on the touched packages;
    - `golangci-lint run <packages>` if the project has a config;
    - `go test -race -count=1 <touched packages>`.

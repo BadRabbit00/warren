@@ -28,8 +28,8 @@ You are the defensive reviewer: you find weaknesses in this project's code, conf
 
 1. **Scope** per the skill's method: entry points the diff adds or changes, and everything they reach. In `design` mode: every flow in the docs.
 2. **Data-flow map** with trust boundaries, then **STRIDE-lite** per flow.
-3. **Checklist**: `references/checklist.md` always; `auth-jwt.md` for anything with tokens, cookies, login, or roles; `ssrf-uploads.md` for outgoing requests to influenced URLs and for files; `secrets-supply-chain.md` for configs, lock files, Nix, CI, Dockerfiles, compose.
-4. **Tools**, only when they apply and through the dev shell or `nix shell nixpkgs#<tool> -c …`:
+3. **Checklist**: `references/checklist.md` always; `auth-jwt.md` for anything with tokens, cookies, login, or roles; `ssrf-uploads.md` for outgoing requests to influenced URLs and for files; `secrets-supply-chain.md` for configs, lock files, CI, Dockerfiles, compose.
+4. **Tools**, only when they apply and run directly if installed:
    - `gitleaks git --log-opts="<base>..HEAD" --redact` for secrets in the range;
    - `osv-scanner --lockfile <file>` for changed lock files (or `cargo audit`, `pip-audit`, `govulncheck`, `npm audit --omit=dev` when the project has them);
    - the project's own tests for a suspected access-control gap, if a test exists that exercises it.

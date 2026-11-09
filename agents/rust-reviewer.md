@@ -23,7 +23,7 @@ You review Rust-specific problems in the diff: panics on input, async misuse, lo
 ## Workflow
 
 1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
+2. Run the project's tools on the changed files with the project's own toolchain (only tools the project has):
    - `cargo clippy --all-targets -- -D warnings` for the touched crates;
    - `cargo test -p <crate>` only if the report you got has no numbers;
    - `cargo deny check` / `cargo audit` if the project has them.

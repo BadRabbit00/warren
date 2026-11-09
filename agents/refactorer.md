@@ -23,7 +23,7 @@ You improve the structure of code that already works: the same tests stay green 
 
 ## Workflow
 
-1. **Baseline.** Run the task's tests and the component's linters through `nix develop -c`. Record the numbers. If anything is red, stop: `STATUS: blocked`, refactoring starts only from green.
+1. **Baseline.** Run the task's tests and the component's linters with the project's own toolchain. Record the numbers. If anything is red, stop: `STATUS: blocked`, refactoring starts only from green.
 2. **Find targets** in the write set, in this order:
    1. methods with 3+ jobs (definition below);
    2. duplicated logic (the same calculation in two places);
