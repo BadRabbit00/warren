@@ -24,6 +24,8 @@ You find out why a build, CI run, deploy or stand failed. You start from the `lo
 
 ## Procedure
 
+Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (through `nix shell` / `nix develop` / `timeout`), with stdin filters such as `| tail -n 200` in pipes.
+
 1. Read the report. List what each excerpt proves and what is missing.
 2. Read the files the excerpts name (the failing step, the Dockerfile stage, the workflow job, the compose service). Use `deploy-variants` to know which build variants exist.
 3. If evidence is missing, run a read-only command from the `R` set of the matching `cli-*` skill: login check first, then a bounded read (`--limit`, `--since`, `--tail`, `| tail -n 200`, `timeout` before nix). Not logged in → `STATUS: blocked — login needed` with the user's `! nix shell nixpkgs#<pkg> -c <cli> <login>`.

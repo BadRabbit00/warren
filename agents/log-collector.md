@@ -23,6 +23,8 @@ You are the first, cheap step of a diagnosis. The brief lists places (CI runs, s
 
 ## Procedure
 
+Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (through `nix shell` / `nix develop` / `timeout`), with stdin filters such as `| tail -n 200` in pipes.
+
 1. For each source pick the matching `cli-*` skill and read its login check and its read-only (`R`) commands. Use only those commands.
 2. Run the login check first. Not logged in → stop with `STATUS: blocked — login needed` and give the user the login command from the skill, as `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
 3. Fetch the log with a bound: `--limit`, `--since`, `--tail`, or `| tail -n 200`; put `timeout 60` in front of `nix shell` for anything that streams.
