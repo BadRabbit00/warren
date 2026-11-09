@@ -9,7 +9,7 @@ export const meta = {
 const STEPS = ['red', 'green', 'refactor', 'fix-tests', 'fix-code', 'check']
 const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder', 'python-coder', 'go-coder', 'ts-coder', 'rust-coder',
   'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
-const MAX_AGENTS = 10
+const MAX_AGENTS = 15
 const strArr = { type: 'array', items: { type: 'string' } }
 
 const WORK_SCHEMA = {

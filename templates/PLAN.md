@@ -128,7 +128,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 ## Manifest W1
 
 <!-- Written by the orchestrator at dispatch, one per wave. /br-wave {wave: "W1"} reads it. step: red, green, refactor, fix-tests, fix-code, check.
-agent is optional (defaults by step and file extension). Parts of one task must not share files. At most 10 agents per run. Task Status must match the steps. -->
+agent is optional (defaults by step and file extension). Parts of one task must not share files. At most 15 agents per run. Task Status must match the steps. -->
 
 ```json
 { "wave": "W1", "items": [
