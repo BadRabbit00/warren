@@ -70,7 +70,6 @@ const PLAN_SCHEMA = {
       },
     },
     problems: { type: 'array', items: { type: 'string' }, description: 'requested ids missing or with a different Status' },
-    hash_command: { type: 'string' },
     base_branch: { type: 'string' },
   },
 }
@@ -84,8 +83,7 @@ async function readPlan(status) {
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
       'Copy every field verbatim from the plan; do not invent anything. ' +
-      'Also return hash_command (the tests-hash line from the plan, in the form ' +
-      '"git ls-files -co --exclude-standard -- <Tests globs> | sort | xargs sha256sum | sha256sum") and base_branch ("develop").',
+      'Also return base_branch ("develop").',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
   if (!plan) return { stopped: true, problems: ['plan reader returned nothing'] }

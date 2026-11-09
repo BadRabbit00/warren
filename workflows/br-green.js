@@ -66,9 +66,17 @@ const PLAN_SCHEMA = {
       },
     },
     problems: { type: 'array', items: { type: 'string' }, description: 'requested ids missing or with a different Status' },
-    hash_command: { type: 'string' },
     base_branch: { type: 'string' },
   },
+}
+
+// The tests-hash command is built here from the task's Tests paths, never taken from the plan.
+function shellQuote(s) {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+function hashCommand(paths) {
+  return `git ls-files -co --exclude-standard -- ${paths.map(shellQuote).join(' ')} | sort | xargs sha256sum | sha256sum`
 }
 
 // Stage 0, shared by all br workflows: read the plan, nothing else.
@@ -81,8 +89,7 @@ async function readPlan(statuses) {
   const plan = await agent(
     `Read .plan/PLAN.md only. Return ${which}\n` +
       'Copy every field verbatim from the plan; do not invent anything. ' +
-      'Also return hash_command (the tests-hash line from the plan, in the form ' +
-      '"git ls-files -co --exclude-standard -- <Tests globs> | sort | xargs sha256sum | sha256sum") and base_branch ("develop").',
+      'Also return base_branch ("develop").',
     { agentType: 'researcher', label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA },
   )
   if (!plan) return { stopped: true, problems: ['plan reader returned nothing'] }
@@ -128,7 +135,7 @@ async function check(plan, state, phaseTitle) {
     `Mode: affected. Task ${task.id} — ${task.name}. Do not edit files.\n` +
       `Tests: ${task.tests.join(', ')}\n` +
       'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. ' +
-      `Compute tests_hash with: ${plan.hash_command}`,
+      `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}`,
     { agentType: 'test-runner', phase: phaseTitle, label: `${task.id} test-runner`, schema: RUN_SCHEMA },
   )
   const hashOk = Boolean(run) && run.tests_hash === task.recorded_hash
