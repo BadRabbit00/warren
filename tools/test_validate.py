@@ -97,7 +97,12 @@ class ValidateTest(unittest.TestCase):
             else:
                 shutil.copyfile(src, self.root / name)
         models = json.loads((self.root / "agent-models.json").read_text(encoding="utf-8"))
-        models["agents"]["demo-agent"] = {"model": "claude-sonnet-5-5", "effort": "medium"}
+        models["agents"]["demo-agent"] = {
+            "model": "claude-sonnet-5-5",
+            "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"},
+            "agy": {"model": "flash"},
+        }
         (self.root / "agent-models.json").write_text(json.dumps(models), encoding="utf-8")
 
     def run_validator(self) -> list[str]:
