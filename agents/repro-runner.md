@@ -58,13 +58,13 @@ Error text identical in all failed runs: yes ("AssertionError: total=-5")
 
 Bad:
 ```text
-repro.sh failed on "nix: command not found", so I changed it to call python directly. 10 runs: 0 failed.
+repro.sh failed on "uv: command not found", so I changed it to call python directly. 10 runs: 0 failed.
 ```
 Why: the verdict is about a different command.
 
 Good:
 ```text
-Command did not run: exit 125 on run 1 ("nix: command not found"). Package unchanged. Runs: 1 of 10 attempted.
+Command did not run: exit 125 on run 1 ("uv: command not found"). Package unchanged. Runs: 1 of 10 attempted.
 ```
 
 ## Output

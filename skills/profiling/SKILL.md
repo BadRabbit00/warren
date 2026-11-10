@@ -38,17 +38,17 @@ All profiles, flame graphs, binaries, and build output live in `/tmp/prof-<id>/`
 
 ## Running the tools
 
-On a machine with nix, run each tool through a one-off shell; nothing is installed:
+Run each tool directly; it must be on `PATH`:
 
-| Tool | Command prefix | nixpkgs name |
+| Tool | Command | Note |
 |---|---|---|
-| py-spy | `nix shell nixpkgs#py-spy -c py-spy …` | `py-spy` (0.4.2 at the pinned rev) |
-| Go pprof | `nix develop -c go tool pprof …` (part of the Go toolchain) | graphviz for graph reports: `nixpkgs#graphviz` (15.1.1) |
-| Rust | `nix shell nixpkgs#cargo-flamegraph -c cargo flamegraph …` | `cargo-flamegraph` (0.6.14, wraps `perf`) |
-| perf | `nix shell nixpkgs#perf -c perf …` | `perf` (top-level; `linuxPackages.perf` is a deprecated alias) |
-| flamegraph.pl | `nix shell nixpkgs#flamegraph -c flamegraph.pl …` | `flamegraph` (pname FlameGraph) |
+| py-spy | `py-spy …` | Python sampling profiler |
+| Go pprof | `go tool pprof …` (part of the Go toolchain) | Graphviz for graph reports |
+| Rust | `cargo flamegraph …` | `cargo-flamegraph`, wraps `perf` |
+| perf | `perf …` | Linux |
+| flamegraph.pl | `flamegraph.pl …` | FlameGraph scripts |
 
-Without nix, the tools must already be on `PATH` (the project's `requirements.md` lists them); if one is missing, report it, do not install it.
+The project's `requirements.md` lists the tools; if one is missing, report it, do not install it.
 
 ## Permissions
 
@@ -106,7 +106,7 @@ Why: profiles and test binaries end up in the repository tree and can be committ
 Good:
 ```text
 $ mkdir -p /tmp/prof-W3
-$ nix shell nixpkgs#py-spy -c py-spy record -o /tmp/prof-W3/before.svg --pid 4242
+$ py-spy record -o /tmp/prof-W3/before.svg --pid 4242
 ```
 
 ### R-PROF-NUMBERS — findings carry numbers

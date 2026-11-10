@@ -1,6 +1,6 @@
 # Go - pprof
 
-Tool: `go tool pprof` is part of the Go toolchain (run through `nix develop -c go tool pprof …` if Go is in the dev shell). Graph reports need graphviz (`nix shell nixpkgs#graphviz -c …`). All files in `/tmp/prof-<id>/`.
+Tool: `go tool pprof` is part of the Go toolchain. Graph reports need Graphviz (`dot`) on `PATH`. All files in `/tmp/prof-<id>/`.
 
 ## Live service
 

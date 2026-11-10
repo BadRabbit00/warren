@@ -1,15 +1,15 @@
 # Rust - cargo-flamegraph and perf
 
-Tools: `cargo-flamegraph` (nixpkgs `cargo-flamegraph`, wraps `perf`), `perf` (nixpkgs `perf`), `flamegraph.pl` (nixpkgs `flamegraph`; whether the stackcollapse scripts ship with it is (U)). Linux only; cargo-flamegraph uses `perf` there.
+Tools: `cargo-flamegraph` (wraps `perf`), `perf`, `flamegraph.pl` (FlameGraph; whether the stackcollapse scripts ship with it is (U)). Linux only; cargo-flamegraph uses `perf` there.
 
 ## Commands
 
 | Goal | Command |
 |---|---|
-| Flame graph of the default binary | `CARGO_PROFILE_RELEASE_DEBUG=true nix shell nixpkgs#cargo-flamegraph -c cargo flamegraph` |
+| Flame graph of the default binary | `CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph` |
 | Output file | `-o /tmp/prof-<id>/before.svg` (U: verify `-o` with `cargo flamegraph --help`) |
 | A specific binary / benchmark | `--bin <name>`, `--bench <name>` (U: verify with `--help`) |
-| Raw perf | `nix shell nixpkgs#perf -c perf record …`, `perf report` (U: exact flags) |
+| Raw perf | `perf record …`, `perf report` (U: exact flags) |
 
 Without `-o` the SVG is written to the current directory (U) - always pass `-o`.
 

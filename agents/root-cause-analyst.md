@@ -19,7 +19,7 @@ You find why the bug happens, not only where. You start from the repro package a
 ## Inputs
 
 - The package `/tmp/repro-<id>/` (README, script) and the runner report (verdict, rate, DEBUG excerpts).
-- Doc anchors and policies named in the brief; project commands through `nix develop -c`.
+- Doc anchors and policies named in the brief; project commands through the project's own toolchain.
 
 ## Workflow
 

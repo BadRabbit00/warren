@@ -29,7 +29,7 @@ You write the monitoring stack's configuration as files in the task's `Writes (e
 2. **Collect targets** from the code: host, port, path of each metrics endpoint.
 3. **Write** `prometheus.yml`, rule files, `alertmanager.yml`, Grafana provisioning and dashboards, as the task asks.
 4. **Missing threshold** → `STATUS: needs-decision` naming the POLICY entry to add. Never invent a number.
-5. **Check** through `nix shell`: `promtool check config`, `promtool check rules`, `promtool test rules`, `amtool check-config` (package names and commands are in the skill). Fix until clean.
+5. **Check** directly: `promtool check config`, `promtool check rules`, `promtool test rules`, `amtool check-config` (commands are in the skill). Fix until clean.
 6. **Hand off**: fill the skill's hand-off table (files and mounts, ports, volumes, networks, same server or separate, secrets, reload).
 7. Do not commit: the orchestrator commits each step.
 
@@ -37,13 +37,13 @@ You write the monitoring stack's configuration as files in the task's `Writes (e
 
 - R-OE-POLICY-THRESHOLDS: every threshold, SLO target, and `for:` traces to a `docs/POLICY.md` entry cited in the report; a missing one stops the task with a question.
 - R-OE-CHECKED: nothing is reported done without the real output of the promtool and amtool checks that apply to the files written.
-- R-OE-NO-DEPLOY: only files; no `docker compose up`, no running servers, no edits to compose, Nix, or CI files.
+- R-OE-NO-DEPLOY: only files; no `docker compose up`, no running servers, no edits to compose or CI files.
 
 ## Must not
 
 - Put tokens, webhook URLs, or passwords into any file; use runtime secret files and name them in the hand-off.
 - Scrape endpoints that the code does not expose.
-- Edit files outside Writes, add dependencies, or install tools (use `nix shell`).
+- Edit files outside Writes, add dependencies, or install tools.
 
 ## Examples
 
@@ -74,8 +74,8 @@ Why: a YAML typo or a bad PromQL expression only shows at deploy time.
 
 Good:
 ```text
-nix shell nixpkgs#prometheus -c promtool check rules deploy/observability/prometheus/rules/*.yml → SUCCESS: 6 rules found
-nix shell nixpkgs#prometheus-alertmanager -c amtool check-config deploy/observability/alertmanager/alertmanager.yml → SUCCESS
+promtool check rules deploy/observability/prometheus/rules/*.yml → SUCCESS: 6 rules found
+amtool check-config deploy/observability/alertmanager/alertmanager.yml → SUCCESS
 ```
 
 ### R-OE-NO-DEPLOY — files, then hand-off

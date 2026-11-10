@@ -72,5 +72,5 @@ The `keep` relabel is the pattern from the Prometheus docs; the `instance` and `
 ## Check
 
 ```text
-nix shell nixpkgs#prometheus.cli -c promtool check config prometheus.yml
+promtool check config prometheus.yml
 ```

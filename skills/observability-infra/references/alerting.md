@@ -68,6 +68,6 @@ inhibit_rules: []
 ## Checks
 
 ```text
-nix shell nixpkgs#prometheus.cli -c promtool check rules rules/*.yml
-nix shell nixpkgs#prometheus-alertmanager -c amtool check-config alertmanager.yml
+promtool check rules rules/*.yml
+amtool check-config alertmanager.yml
 ```

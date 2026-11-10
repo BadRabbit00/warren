@@ -34,7 +34,7 @@ Difference from `log-writer`: the service's connector module (`app/core/metrics.
    - `/health` (no dependency calls) and `/ready` (each dependency with a short timeout, 503 on failure) in the router files of Writes.
 4. **Settings** (exporter endpoint, port, intervals) go to the config module; if that file is not in Writes, report it.
 5. **No new dependencies.** A missing library goes under NOTES.
-6. **Run the task's tests** with the project's own test command (through `nix develop -c`) and the linters of the component. They must stay green with the same numbers as before your change.
+6. **Run the task's tests** with the project's own test command and the linters of the component. They must stay green with the same numbers as before your change.
 7. **Report.**
 
 ## Must

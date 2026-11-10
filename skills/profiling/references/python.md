@@ -1,6 +1,6 @@
 # Python - py-spy
 
-Tool: `py-spy` (nixpkgs `py-spy`). All outputs in `/tmp/prof-<id>/`. Run as `nix shell nixpkgs#py-spy -c py-spy …`.
+Tool: `py-spy`. All outputs in `/tmp/prof-<id>/`. Run as `py-spy …`.
 
 ## Commands
 
@@ -14,7 +14,7 @@ Tool: `py-spy` (nixpkgs `py-spy`). All outputs in `/tmp/prof-<id>/`. Run as `nix
 | Include native extensions | add `--native` |
 | Include child Python processes | add `--subprocesses` |
 
-Launch mode is preferred: no ptrace permission is needed because the program is py-spy's child. In the project environment launch the program as the project does, e.g. `nix develop -c py-spy …` is not possible unless py-spy is in the dev shell; use `nix shell nixpkgs#py-spy -c py-spy record … -- <project python> prog.py` (U: the project interpreter path, take it from the task).
+Launch mode is preferred: no ptrace permission is needed because the program is py-spy's child. Launch the program as the project does: `py-spy record … -- <project python> prog.py` (U: the project interpreter path, take it from the task).
 
 ## Workflow
 

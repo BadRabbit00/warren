@@ -34,4 +34,4 @@ providers:
 - `templating` for `job` / `instance` variables; `time` and `refresh` as defaults.
 - Start from the four golden-signal panels: request rate, error ratio, latency quantile, saturation.
 - Write JSON by hand or export from a throwaway local Grafana and commit the file; never leave a dashboard only in the UI.
-- JSON syntax check: any JSON parser (`jq . file.json` via `nix shell nixpkgs#jq`). Grafana has no offline schema check in the research: schema validity is (U) verify; first load happens at deployment.
+- JSON syntax check: any JSON parser (`jq . file.json`). Grafana has no offline schema check in the research: schema validity is (U) verify; first load happens at deployment.

@@ -26,7 +26,7 @@ You look for code that will be slow, wasteful, or break when the service runs in
 1. **Map the hot paths.** From `API.md` and the routers: which endpoints, consumers, and jobs the diff touches, and how often they run. Unknown frequency → `warm` and a ❓ in NOTES.
 2. **Read the diff and its call paths** (`git diff <base>...HEAD`, then each changed function's callers and callees down to I/O).
 3. **Go through the checklists.**
-4. **Measure** by the skill `profiling`: take a baseline before any proposal (repeat at least 3 times), then profile one hypothesis at a time. Run the tools (py-spy, Go pprof, cargo-flamegraph, perf) through `nix shell`, never installed globally. Write outputs only under `/tmp/prof-<id>/` (the hook allows temp files only), never in the project tree. Put the numbers in the finding. When a tool or a permission is missing, report the exact requirement; give your estimate and mark it `not measured`. Use an existing benchmark or load script when the project has one.
+4. **Measure** by the skill `profiling`: take a baseline before any proposal (repeat at least 3 times), then profile one hypothesis at a time. Run the tools (py-spy, Go pprof, cargo-flamegraph, perf) directly from `PATH`; never install them. Write outputs only under `/tmp/prof-<id>/` (the hook allows temp files only), never in the project tree. Put the numbers in the finding. When a tool or a permission is missing, report the exact requirement; give your estimate and mark it `not measured`. Use an existing benchmark or load script when the project has one.
 5. **Rank** findings and write the Output block.
 
 ## Ranking

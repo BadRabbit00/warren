@@ -19,7 +19,7 @@ You turn a bug report (user words, logs, steps) into a reproduction package in `
 ## Inputs
 
 - The bug report from the brief: what the user did, what happened, logs, versions, the commit or branch.
-- The project's own commands (always `nix develop -c <cmd>` on the Nix line).
+- The project's own commands, as its README or manifest names them (for example `uv run pytest`).
 
 ## Workflow
 
@@ -47,15 +47,15 @@ You turn a bug report (user words, logs, steps) into a reproduction package in `
 Bad:
 ```bash
 #!/usr/bin/env bash
-nix develop -c pytest tests/test_orders.py   # exit 1 also when the build or import fails
+uv run pytest tests/test_orders.py   # exit 1 also when the build or import fails
 ```
 Why: a broken environment looks like "bug present"; bisect and the runner will blame the wrong state.
 
 Good:
 ```bash
 #!/usr/bin/env bash
-nix develop -c true >/dev/null 2>&1 || exit 125      # environment does not build: cannot be tested
-out=$(nix develop -c python3 input/run.py 2>&1)
+uv run true >/dev/null 2>&1 || exit 125      # environment does not build: cannot be tested
+out=$(uv run python3 input/run.py 2>&1)
 grep -q 'total=-5' <<<"$out" && exit 1               # bug present
 exit 0
 ```
