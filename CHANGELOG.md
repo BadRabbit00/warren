@@ -2,6 +2,14 @@
 
 ## 0.3.0 — unreleased
 
+- Metrics on demand: agent `metrics-writer` (status `metrics`) adds OpenTelemetry metrics through one connector
+  module per service and `/health` + `/ready`; skill `metrics` (Python, Go, Rust templates, semconv names,
+  cardinality). Agent `observability-engineer` writes Prometheus, alert and recording rules, Alertmanager and
+  Grafana provisioning as checked files (skill `observability-infra`); deployment goes through `/br-deploy`.
+- Debugging: workflow `/br-debug` — `bug-reproducer` builds a reproduction package, `repro-runner` (Haiku) runs it
+  N times, `root-cause-analyst` (Opus) finds the cause with file:line; the result names the failing test to write.
+  Skill `debugging` (repro exit contract shared with `git bisect run`, batch debuggers per language).
+- `optimizer` measures with skill `profiling` (py-spy, Go pprof, cargo-flamegraph/perf), outputs in temp dirs only.
 - Logging as its own step: agent `log-writer` adds logging after green (status `log`, `/br-wave` steps `log` and
   `fix-log`), never touching behaviour or tests; skill `logging` holds the levels (DEBUG, INFO, WARNING, ERROR,
   PANIC), the fields of every line (UTC time, file:line, module, function with class, request and trace ids),

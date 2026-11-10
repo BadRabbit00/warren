@@ -78,7 +78,10 @@ Subagents see nothing of this conversation, this style, or the core rules. Each 
 | `code-reviewer` + `python-reviewer` / `go-reviewer` / `rust-reviewer` / `ts-react-reviewer` / `flutter-dart-reviewer` / `nix-reviewer` | review of the task diff | nothing |
 | `db-reviewer` | models, queries, migrations, by data criticality and load | nothing |
 | `security-reviewer` | auth, input, secrets, files, network, supply chain | nothing |
-| `optimizer` | cache, objects, async, external calls on the wave diff | nothing |
+| `optimizer` | cache, objects, async, external calls on the wave diff; measures with skill `profiling` | nothing |
+| `metrics-writer` | metrics through one connector module + /health, /ready; on demand | `Writes (exclusive)` of tasks in `metrics` |
+| `observability-engineer` | Prometheus/alert/Grafana config, checked, never deploys | `Writes (exclusive)` of tasks in `green` |
+| `bug-reproducer`, `repro-runner`, `root-cause-analyst` | reproduce a bug, run it N times, find the root cause; via `/br-debug` | temp only |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | nothing |
 | `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
 
@@ -98,18 +101,18 @@ Return: <exact shape; the agent's Output block>
 Stop and report instead of guessing if: <a contract looks wrong, a file outside the write set is needed, an AC is unclear>
 ```
 
-Never put secrets, `.env` contents, or this conversation verbatim into a brief. Pass facts, not chat history.
+Never put secrets, `.env` contents, or chat verbatim into a brief. Pass facts.
 
 ### Dispatch protocol
 
-1. Set the task's `Status` in `PLAN.md` to the step first: `red` for test-writer, `green` for coder, `log` for log-writer, `refactor` for refactorer, `review` for reviewers. The write-set hook reads it.
+1. Set the task's `Status` in `PLAN.md` to the step first: `red` for test-writer, `green` for coder, `log` for log-writer, `refactor` for refactorer, `metrics` for metrics-writer, `review` for reviewers. The write-set hook reads it.
 2. Run agents in parallel only when their write sets are disjoint (same wave). Reviewers and runners are read-only and can always run in parallel.
 3. Read the Output block. `STATUS: blocked` → decide (replan, fix the doc, ask the user); never just re-send the same brief.
 4. Record numbers in `Evidence`. A report without numbers is sent back.
 
 ### Workflows
 
-Eight saved workflows, each a slash command.
+Nine saved workflows, each a slash command.
 
 | Workflow | When | Stops for the user |
 |---|---|---|
@@ -120,6 +123,7 @@ Eight saved workflows, each a slash command.
 | `/br-ci` | CI task: `ci-engineer` writes `-br` workflows, local checks (actionlint, zizmor); after `ci-test` is pushed, reads failed runs and fixes | the push of `ci-test` (you push); after 2 rounds |
 | `/br-deploy` | deployment task: `deploy-engineer` writes Dockerfile, compose, nix image or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are the user's, never run |
 | `/br-e2e` | docs plus a way to start a stand, whole system exercised: flows, stand, contract and journey tests, run with app/test/stand classification and p50/p95 | stand will not start; unclear behaviour (questions for `/br-research`); stand stays up |
+| `/br-debug` | a reported bug whose cause is unknown: reproduce, run N times, root cause | none; returns a report; next: test-writer writes the failing test, then red → green |
 | `/br-janitor` | after a stand or task: `survey` lists garbage and outdated docs; `delete` removes only the approved entries, then a confirming survey | always: the user's «да» on the exact list |
 
 - **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; log/fix-log → `log-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
@@ -127,6 +131,7 @@ Eight saved workflows, each a slash command.
 - **Size.** One run per wave, at most 15 agents counting the runners; more → split the wave.
 - **Ad hoc runs** (stand, e2e, research) may be written for the case, but the script is saved in `workflows/` and passes the validator.
 - **Checkpoint review.** At G4 place `## Checkpoint <id>` in the plan after risky steps and important tasks (security, contracts, data, money): tasks covered, risky paths, db flag, migration paths. Run `/br-review` with `args = { checkpoint: "<id>" }` in the background; coding continues. Its `fix_items` become fix items (`fix-code`, `fix-tests`) of the next manifest.
+- **Metrics and observability** are on demand, not a `/br-wave` default step: set the task to `metrics`, dispatch `metrics-writer`, `test-runner` green with the hash unchanged, commit `feat(Tn): metrics`. After `observability-engineer`, deploy goes through `/br-deploy`.
 - Every agent runs by `agentType`, so our hooks, pins, and contract apply.
 - Workflows never commit and never edit `PLAN.md`. You set Status before the run (red for red/fix-tests items, green for green/fix-code, log for log/fix-log, refactor for refactor; one task cannot be red and green in one run), read the returned table, commit, and record the hash and evidence.
 - A stopped task in the result is handled like a blocked agent: decide (replan, fix the doc, ask the user); never re-run blindly.
