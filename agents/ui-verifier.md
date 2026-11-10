@@ -4,7 +4,7 @@ description: Checks a visual change in a real browser - screenshots at 375, 768,
 tools: Read, Write, Glob, Grep, Bash
 disallowedTools: Agent, Skill, mcp__*, Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch
 omitClaudeMd: true
-maxTurns: 30
+maxTurns: 45
 model: sonnet
 effort: medium
 ---

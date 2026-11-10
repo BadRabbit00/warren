@@ -42,7 +42,7 @@ If an AC is ambiguous or contradicts the docs, stop with `STATUS: blocked` and q
 |---|---|---|---|
 | Python | `src/<svc>/tests/` mirroring `app/` | `test_<file>.py` | fixtures in `conftest.py` per level |
 | Go | `src/<svc>/tests/<layer>/`, package `<layer>_test` | `<entity>_<layer>_test.go` | black-box through the exported API; `internal/` is importable from inside the module |
-| TS / React | `src/web/tests/` mirroring `src/`; e2e in `src/web/tests/e2e/` | `OrderTable.test.tsx`, `login.spec.ts` | API mocked with MSW |
+| TS / React | `src/web/tests/` mirroring `src/`; end-to-end tests of the whole system in the root `tests/e2e/` (for every stack) | `OrderTable.test.tsx`, `login.spec.ts` | API mocked with MSW |
 | Flutter / Dart | `<package>/test/`, `<package>/integration_test/` | `<file>_test.dart` | the one exception: Flutter's tooling expects `test/` |
 | Rust | `<crate>/tests/` | `<area>.rs` | test through the public API; no `#[cfg(test)]` modules inside `src/` files, they belong to `coder` |
 
@@ -59,6 +59,8 @@ An existing project with another layout (Go `_test.go` next to code, colocated `
   - bug: the exact failing scenario, kept as a regression test.
 - R-TW-CONTRACT-FAKES: fakes of external systems return payloads taken from `docs/API.md` or the provider's documented contract, including their error shapes (timeout, 5xx, malformed body). An LLM fake returns stored answers, including broken JSON.
 - R-TW-NO-INTERNALS: assert results — return value, DB state, response, published event — never which private functions were called or in what order.
+- R-TW-CAN-PASS: prove each red test can pass in principle: no contradiction with ORM/session semantics, cookie handling, nullable types, or fixtures that answer real shapes. When unsure, work out the minimal passing stub (mentally, or describe it in NOTES).
+- R-TW-OLD-TESTS: list older tests that assert the contract being replaced and name them in NOTES for the orchestrator; do not edit them.
 - The rules in `tests.md` (real DB of the same version with migrations, isolation, determinism, names, no skips) apply to every test you write.
 
 ## Must not
@@ -105,6 +107,37 @@ Good:
 >       with pytest.raises(OrderNotCancellable):
 E       Failed: DID NOT RAISE <class 'app.domain.errors.OrderNotCancellable'>
 FAILED test_order_service.py::test_paid_order_cannot_be_cancelled
+```
+
+### R-TW-CAN-PASS — a red test must be satisfiable
+
+Bad:
+```python
+async def test_login_sets_session_cookie(client):
+    r = await client.post("/v1/login", json=CREDS)
+    assert client.cookies["session"]          # the test client drops Secure cookies over http://
+```
+Why: no implementation can turn it green; `coder` will loop or bend the code around the test.
+
+Good:
+```python
+async def test_login_sets_session_cookie(client):
+    r = await client.post("/v1/login", json=CREDS)
+    assert "session=" in r.headers["set-cookie"]
+    assert "HttpOnly" in r.headers["set-cookie"]
+```
+
+### R-TW-OLD-TESTS — stale tests are named, not edited
+
+Bad:
+```text
+NOTES: all done.
+```
+Why: `test_cancel_returns_204` still asserts the replaced contract; it fails after `coder` is green and nobody knows why.
+
+Good:
+```text
+NOTES: tests/api/test_orders.py::test_cancel_returns_204 asserts the old 204; the new contract (AC2) returns 200 with the order body. Orchestrator: update or delete it.
 ```
 
 ### R-TW-COVER — an endpoint gets its role matrix, not only the happy path

@@ -253,6 +253,127 @@
       "agy": {
         "model": "flash"
       }
+    },
+    "python-coder": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "go-coder": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "ts-coder": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "rust-coder": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "deploy-engineer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "ci-engineer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "web-researcher": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "stand-operator": {
+      "model": "claude-haiku-5-5",
+      "effort": "low",
+      "codex": {
+        "model": "gpt-6-luna",
+        "effort": "low"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "log-collector": {
+      "model": "claude-haiku-5-5",
+      "effort": "low",
+      "codex": {
+        "model": "gpt-6-luna",
+        "effort": "low"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "deploy-error-reader": {
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "janitor": {
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     }
   }
 }

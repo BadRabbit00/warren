@@ -16,7 +16,7 @@
       {
         "id": "br:guard:read",
         "description": "Read/Grep: .env, private keys and key files never enter the context",
-        "matcher": "Read|Grep",
+        "matcher": "Read|Grep|Glob",
         "hooks": [{ "type": "command", "command": "@BR_HOOK@ guard_read", "timeout": 5 }]
       }
     ],

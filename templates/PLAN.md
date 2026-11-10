@@ -12,7 +12,7 @@ Delete every hint comment and <…> placeholder as you fill. -->
 - **Mode:** <A — new project / B — existing project> · **Track:** <S — small change / F — full>
 - **Stage:** <0 intake / 1 business / 2 architecture / 3 docs / 4 plan / 5 execution / 6 wrap-up>
 - **Gates:** G1 <☐ / ✅ YYYY-MM-DD> · G2 <☐> · G3 <☐> · G4 <☐> · G5 <☐>
-- **Execution:** <manual / auto> · **Order:** <tests first (default) / code first — confirmed YYYY-MM-DD> · **Coder model:** <sonnet (default)> · **Dispatch:** <workflows (/br-red → /br-green → /br-review) / manual> — confirmed YYYY-MM-DD
+- **Execution:** <manual / auto> · **Order:** <tests first (default) / code first — confirmed YYYY-MM-DD> · **Coder model:** <sonnet (default)> · **Dispatch:** <workflows (/br-wave per wave, /br-review at checkpoints) / manual> — confirmed YYYY-MM-DD
 - **Next action:** <one line>
 
 ## Sources
@@ -99,6 +99,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 - **Skills:** <skill names the agents must read first, or —>
 - **Provides contracts:** <...> · **Uses contracts:** <...>
 - **Coder:** <sonnet / astra — agreed YYYY-MM-DD, why>
+- **Parts:** <filled at dispatch: P1 `files` → agent; P2 `files` → agent (after P1); disjoint files, each sized to one agent; or —>
 - **Subtasks:**
   1. <T1.1 ...>
   2. <T1.2 ...>
@@ -113,6 +114,30 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 - **Review:** <reviewers run → must-fix count / suboptimal count; round 1/2>
 - **Commits:** <test: sha · feat: sha · refactor: sha>
 - **Notes:** <blockers, decisions taken during execution>
+
+---
+
+## Checkpoint C1
+
+<!-- Review point (placed at G4) after risky steps and important tasks. /br-review {checkpoint: "C1"} reads it and runs in the background; findings become fix items of the next manifest. Copy per checkpoint. -->
+
+- **After:** <T1, T3>
+- **Risky areas:** `<src/orders/app/auth/**>` — <security / contracts / data / money>
+- **DB work:** <yes / no> · **Migrations:** `<migrations/0007_orders.sql>` or —
+
+## Manifest W1
+
+<!-- Written by the orchestrator at dispatch, one per wave. /br-wave {wave: "W1"} reads it. step: red, green, refactor, fix-tests, fix-code, check.
+agent is optional (defaults by step and file extension). Parts of one task must not share files. At most 15 agents per run. Task Status must match the steps. -->
+
+```json
+{ "wave": "W1", "items": [
+  { "id": "T1a", "task": "T1", "step": "red", "files": ["src/orders/tests/services/test_order_service.py"],
+    "brief": "AC1-AC2: create and cancel order", "expect_green": [], "after": [] },
+  { "id": "T1b", "task": "T1", "step": "red", "files": ["src/orders/tests/api/test_orders_api.py"],
+    "brief": "AC3: HTTP errors", "after": ["T1a"] }
+] }
+```
 
 ---
 

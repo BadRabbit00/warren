@@ -13,10 +13,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, Event, git_branch, is_test_path
+from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, Event, git_branch, is_test_path, rel
+from .write_checks import _explicit_write, _is_temp, check_write
 
 # Split a command line into simple commands on ; && || | & and newlines (good enough for policy checks).
-SEPARATOR = r"&&|\|\||;|\||(?<![>&])&(?![>&])|\n"
+SEPARATOR = r"&&|\|\||;|(?<!>)\||(?<![>&])&(?![>&])|\n"      # `>|` is a redirection, not a pipe
 SPLIT = re.compile(rf"\s*(?:{SEPARATOR})\s*")
 WRAPPERS = {"sudo", "doas", "command", "exec", "time", "nohup", "nice", "env",
             "timeout", "setsid", "stdbuf", "ionice", "chrt", "flock"}
@@ -741,8 +742,16 @@ def check_destructive(ev: Event, cmd: str) -> str | None:
                             "with a named list. Temp dirs and rebuildable caches (node_modules, dist, target, result…) are fine.")
         if w[0] == "find" and ("-delete" in w or ("-exec" in w and "rm" in w)):
             return "Bulk delete with find needs the user's explicit «да» with a named list."
-        if re.search(r"docker[\s-]compose\b.*\bdown\b.*(\s-v\b|--volumes)", line) or \
-           re.search(r"docker\s+(volume\s+(rm|prune)|system\s+prune\b.*--volumes)", line):
+        # the janitor gate already accepted `docker volume rm NAME...` with explicit names
+        if w[0] == "docker":                       # `docker --context x volume rm …`: look past the global flags
+            i = 1
+            while i < len(w) and w[i].startswith("-"):
+                i += 2 if w[i] in READER_VALUE_FLAGS and "=" not in w[i] else 1
+            if not any(a.partition("=")[0] in {"-H", "--host", "--context", "-c"} for a in w[1:i]):
+                line = " ".join(["docker", *w[i:]])      # a remote host or context is the stand/janitor gates' business
+        janitor_volume = ev.agent == "janitor" and re.fullmatch(r"docker\s+volume\s+rm(\s+(-f|--force))?(\s+[\w.-]+)+", line)
+        if not janitor_volume and (re.search(r"docker[\s-]compose\b.*\bdown\b.*(\s-v\b|--volumes)", line) or
+                                   re.search(r"docker\s+(volume\s+(rm|prune)|system\s+prune\b.*--volumes)", line)):
             return "This destroys Docker volumes (databases of this and other projects). Ask the user with a named list first."
         if re.search(r"nix-collect-garbage\s+(-d|--delete-old)|nix\s+profile\s+wipe-history|nix-store\s+--delete", line):
             return "Deleting old generations removes system rollbacks. Only on the user's direct request."
@@ -849,14 +858,789 @@ def check_tests_via_bash(ev: Event, cmd: str) -> str | None:
     if ev.agent not in NO_TEST_WRITE:
         return None
     for seg in expand(cmd):
-        written = _test_paths_written(seg, ev.cwd)
+        written = [p for p in _test_paths_written(seg, ev.cwd)
+                   if not _explicit_write(ev.agent, rel(ev.cwd / p, ev.project_root), ev.project_root)]
         if written:
             return (f"`{ev.agent}` may read tests but never change them ({', '.join(written[:3])}). If a test looks "
                     "wrong, stop with STATUS: blocked and explain; the orchestrator returns it to test-writer.")
     return None
 
 
-CHECKS = [check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_tests_via_bash]
+# ---------------------------------------------------------------- writes via bash
+
+# Options that take a separate value, per command (so the value is not mistaken for a file).
+WRITE_VALUE_FLAGS = {"cp": {"-t", "--target-directory", "-S", "--suffix"},
+                     "mv": {"-t", "--target-directory", "-S", "--suffix"},
+                     "install": {"-m", "-o", "-g", "-t", "--target-directory", "-S", "--suffix"},
+                     "touch": {"-d", "-t", "-r", "--date", "--reference"},
+                     "truncate": {"-s", "-r", "--size", "--reference"},
+                     "sed": {"-e", "-f", "--expression", "--file"}, "perl": {"-e", "-E", "-I", "-M", "-m"},
+                     "awk": {"-v", "-f", "-i", "-F", "--file", "--assign", "--include", "--field-separator"}}
+UNRESOLVED = "$(unresolved)"      # stands for a redirection target the hook cannot know (substitution, missing word)
+UNKNOWN_DIR = "$UNKNOWN_DIR"      # the directory after `cd $VAR` / `cd -`
+DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr"}
+DUP_TARGET = re.compile(r"\d+|-")
+
+
+def _file_args(name: str, args: list[str]) -> list[str]:
+    out: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a.startswith("-") and a != "-":
+            skip = "=" not in a and a in WRITE_VALUE_FLAGS.get(name, set())
+        else:
+            out.append(a)
+    return out
+
+
+def _read_word(text: str, i: int) -> tuple[str, int]:
+    """The shell word that starts at `i` (quotes removed, `$(…)` kept whole) and the index after it."""
+    out: list[str] = []
+    quote = ""
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and quote != "'" and i + 1 < n:
+            out.append(text[i + 1])
+            i += 2
+        elif quote:
+            if c == quote:
+                quote = ""
+            else:
+                out.append(c)
+            i += 1
+        elif c in "'\"":
+            quote, i = c, i + 1
+        elif c == "$" and text.startswith("$(", i):
+            end = _matching_paren(text, i + 2)
+            out.append(text[i:end + 1])
+            i = end + 1
+        elif c in " \t\n;&|<>()":
+            break
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out), i
+
+
+def _scan_redirections(text: str) -> tuple[list[str], str]:
+    """Targets of unquoted `>` redirections (`>f`, `x>f`, `>>f`, `>|f`, `2>f`, `&>f`, `>&f`, `<<EOF>f`) and the
+    text without them. `>&2` / `>&-` duplicate a descriptor and `>(cmd)` is a process substitution: not files."""
+    out: list[str] = []
+    kept: list[str] = []
+    quote = ""
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and quote != "'":
+            kept.append(text[i:i + 2])
+            i += 2
+        elif quote:
+            quote = "" if c == quote else quote
+            kept.append(c)
+            i += 1
+        elif c in "'\"":
+            quote = c
+            kept.append(c)
+            i += 1
+        elif c == ">":
+            j = i + 1
+            j += text.startswith(">", j)
+            dup = text.startswith("&", j)
+            j += text.startswith(("&", "|"), j)
+            while j < n and text[j] in " \t":
+                j += 1
+            if text.startswith("(", j):
+                kept.append(text[i:j])
+                i = j
+                continue
+            word, end = _read_word(text, j)
+            if not word:
+                out.append(UNRESOLVED)
+            elif not (dup and DUP_TARGET.fullmatch(word)):
+                out.append(word)
+            prefix = re.search(r"(?:(?<=\s)|^)(?:\d+|&)$", "".join(kept))   # the `2` of `2>f`, the `&` of `&>f`
+            if prefix:
+                del kept[len(kept) - len(prefix.group()):]
+            kept.append(" ")
+            i = end
+        else:
+            kept.append(c)
+            i += 1
+    return out, "".join(kept)
+
+
+def _strip_redirections(w: list[str]) -> list[str]:
+    """Drop redirection words (`>f`, `2>`, `>&2`, `<in`, `<<EOF`) and the target word of a bare operator."""
+    out: list[str] = []
+    skip = False
+    for a in w:
+        if skip:
+            skip = False
+        elif REDIRECT_WORD.fullmatch(a) or re.fullmatch(r"&>>?\S*", a):
+            skip = REDIRECT_OPERATOR.fullmatch(a) is not None or a in {"&>", "&>>"}
+        else:
+            out.append(a)
+    return out
+
+
+def _under(cwd: str, target: str) -> str:
+    if cwd == "." or target.startswith(("/", "~", "$")):
+        return target
+    return posixpath.join(cwd, target)
+
+
+def _cd(cwd: str, arg: str) -> str:
+    if not arg or arg == "-":
+        return UNKNOWN_DIR
+    if arg.startswith(("/", "~", "$")):
+        return arg
+    return posixpath.normpath(posixpath.join(cwd, arg))
+
+
+DEST_SHORT_VALUE = {"cp": "St", "mv": "St", "install": "mogSt", "ln": "St"}   # short options that take a value
+DEST_LONG_VALUE = {"--suffix", "--mode", "--owner", "--group", "--strip-program", "--context"}
+
+
+def _dest_args(name: str, args: list[str]) -> tuple[str | None, list[str], bool]:
+    """(directory of -t / --target-directory, positional words, -d given) of cp, mv, install, ln."""
+    short = DEST_SHORT_VALUE[name]
+    target: str | None = None
+    pos: list[str] = []
+    directories = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            pos += args[i + 1:]
+            break
+        if a.startswith("--"):
+            flag, eq, value = a.partition("=")
+            if flag == "--target-directory":
+                if eq:
+                    target = value
+                elif i + 1 < len(args):
+                    i += 1
+                    target = args[i]
+            elif flag in DEST_LONG_VALUE and not eq:
+                i += 1
+        elif a.startswith("-") and a != "-":
+            for j, ch in enumerate(a[1:], 1):
+                if ch == "d" and name == "install":
+                    directories = True
+                if ch in short:
+                    value = a[j + 1:]
+                    if not value and i + 1 < len(args):
+                        i += 1
+                        value = args[i]
+                    if ch == "t":
+                        target = value or None
+                    break
+        else:
+            pos.append(a)
+        i += 1
+    return target, pos, directories
+
+
+def _into(directory: str, sources: list[str]) -> list[str]:
+    """Files created in `directory` by copying or linking `sources` (a source that is not a literal gives `_`)."""
+    names = [posixpath.basename(p.rstrip("/")) if not re.search(r"[$`]", p) else "" for p in sources]
+    return [posixpath.join(directory, n or "_") for n in names or [""]]
+
+
+def _copy_writes(name: str, args: list[str]) -> list[str]:
+    """Paths written by cp, mv, install and ln: the destination, with -t the directory; mv also removes its
+    sources, ln writes the link name."""
+    target, pos, directories = _dest_args(name, args)
+    if name == "install" and directories:
+        return pos
+    if target is not None:
+        return _into(target, pos) + (pos if name == "mv" else [])
+    if name == "mv":
+        return pos
+    if name == "ln":
+        return [posixpath.basename(pos[0].rstrip("/")) or "_"] if len(pos) == 1 else pos[-1:]
+    return pos[-1:]
+
+
+def _command_writes(w: list[str], cwd: str, depth: int) -> list[str]:
+    """Files written by one resolved command (redirections are handled by the caller)."""
+    if not w:
+        return []
+    name, args = Path(w[0]).name, w[1:]
+    files = _file_args(name, args)
+    if name in SHELLS:
+        script = _shell_script(w)
+        return _written_files(script, depth + 1, cwd) if script is not None else []
+    if name == "eval":
+        return _written_files(" ".join(args), depth + 1, cwd)
+    if name == "xargs":
+        i = 0
+        while i < len(args) and args[i].startswith("-"):
+            i += 2 if args[i] in XARGS_VALUE_OPTIONS else 1
+        return _command_writes(_resolve(_strip_redirections(args[i:]))[0], cwd, depth + 1)
+    if name == "find":
+        return [t for c in _find_exec_commands(w) for t in _command_writes(_resolve(c)[0], cwd, depth + 1)]
+    if name == "tee":
+        return files
+    if name in {"sed", "perl"} and any(re.fullmatch(r"-[A-Za-z]*i\S*|--in-place.*", a) for a in args):
+        has_script = any(a in WRITE_VALUE_FLAGS[name] for a in args)
+        return files if has_script else files[1:]
+    if name in {"awk", "gawk"} and any(a == "-iinplace" or a == "inplace" or a.startswith("--include=inplace")
+                                       for a in args):
+        return files if any(a in {"-f", "--file"} for a in args) else files[1:]
+    if name in {"cp", "install", "mv", "ln"}:
+        return _copy_writes(name, args)
+    if name in {"touch", "truncate"}:
+        return files
+    if name == "dd":
+        return [a[3:] for a in args if a.startswith("of=")]
+    return []
+
+
+def _written_files(text: str, depth: int = 0, cwd: str = ".") -> list[str]:
+    """Paths a command line writes to: redirections, tee, sed/perl -i, awk -i inplace, cp/mv/install, touch,
+    truncate, dd. Relative paths are resolved against the directory set by earlier `cd`s (`cwd`, relative to
+    the session directory); a path that cannot be known contains `$` or starts with `~`."""
+    if depth > MAX_DEPTH:
+        return []
+    try:
+        commands = _split_commands(text.replace("\\\n", " "))
+    except NestingError:
+        return []
+    out: list[str] = []
+    for command in commands:
+        redirected, bare = _scan_redirections(command.text)
+        w = _strip_redirections(_resolve(split_words(bare, comments=False))[0])
+        if w and Path(w[0]).name in {"cd", "pushd"}:
+            cwd = _cd(cwd, _first_argument(w[1:]))
+        targets = redirected + _command_writes(w, cwd, depth)
+        out += [_under(cwd, t) for t in targets]
+    return out
+
+
+def _expand_home(target: str) -> str | None:
+    """`~/x`, `$HOME/x`, `${HOME}/x` with the real home directory; None if HOME is unknown."""
+    m = re.match(r"(~|\$HOME|\$\{HOME\})(?=/|$)", target)
+    if not m:
+        return target
+    home = os.environ.get("HOME", "").rstrip("/")
+    return home + target[m.end():] if home.startswith("/") else None
+
+
+def check_bash_writes(ev: Event, cmd: str) -> str | None:
+    """Bash writes follow the rules of Write/Edit for the same agent."""
+    if not ev.agent:
+        return None
+    reader = ev.agent in READER_AGENTS | {"stand-operator", "janitor"}
+    for target in _written_files(cmd):
+        unresolved = not target or re.search(r"[$`]", target) is not None or target.startswith("~")
+        if reader:
+            if target in DEVICES:
+                continue
+            if unresolved:
+                return (f"`{ev.agent}` is read-only: the Bash write target `{target or '(missing)'}` cannot be resolved, "
+                        "so it is refused. Write only to a literal path under /tmp, /var/tmp or the scratchpad.")
+        else:
+            expanded = _expand_home(target)
+            if expanded is None:
+                return (f"`{ev.agent}` writes only inside the project: the Bash write target `{target}` is in the home "
+                        "directory, which is unknown here, so it is refused.")
+            target = expanded
+            if not target or re.search(r"[$`]", target) or target.startswith(("~", "/dev/")):
+                continue
+        r = rel(ev.cwd / target, ev.project_root)
+        if reader:
+            if r.startswith("/") and _is_temp(r):
+                continue
+            return (f"`{ev.agent}` is read-only: the Bash write to `{r}` is refused. Only /tmp, /var/tmp and the "
+                    "scratchpad are writable; report what you found in the answer.")
+        if r.startswith("/") and _is_temp(r):
+            continue                      # temp dirs are free for every subagent
+        probe = Event(raw={}, tool="Write", tool_input={"file_path": r}, agent=ev.agent, cwd=ev.cwd)
+        reason = check_write(probe)
+        if reason:
+            return f"Bash write to `{r}` is refused: {reason}"
+    return None
+
+
+# ---------------------------------------------------------------- reader gate (D4, D11)
+# deny-by-default: a command of deploy-error-reader / log-collector runs only if every resolved command word is
+# an allowed read/status subcommand of a deploy CLI or a read utility.
+READER_AGENTS = {"deploy-error-reader", "log-collector"}
+READER_ALLOWED = {
+    "gh": [("auth", "status"), ("run", "list"), ("run", "view")],
+    "railway": [("whoami",), ("logs",), ("status",), ("deployment", "list")],
+    "gcloud": [("auth", "list"), ("logging", "read"), ("run", "services", "logs", "read")],
+    "doctl": [("account", "get"), ("apps", "logs"), ("apps", "list"), ("apps", "get"), ("apps", "list-deployments"),
+              ("apps", "get-deployment")],
+    "yc": [("iam", "whoami"), ("config", "get", "folder-id"), ("config", "get", "cloud-id"), ("logging", "read"),
+           ("logging", "group", "list")],
+    "wrangler": [("whoami",), ("tail",)],
+    "cf": [("auth", "whoami"), ("auth", "list"), ("docs", "search"), ("cli", "search"), ("schema",),
+           ("workers", "list"), ("workers", "get"), ("workers", "deployments"), ("workers", "versions")],
+    "docker": [("compose", "ps"), ("compose", "logs"), ("logs",), ("version",), ("ps",), ("container", "ls"),
+               ("volume", "ls"), ("network", "ls"), ("compose", "ls")],
+}
+# Global flags that take a separate value / flags without one. Any other flag before the subcommand is refused.
+READER_VALUE_FLAGS = {"-R", "--repo", "-f", "--file", "-p", "--project-name", "--context", "-H", "--host",
+                      "-c", "--config", "--profile", "--project-directory", "--env-file", "--project", "--account",
+                      "--configuration", "-t", "--access-token", "-z", "--folder-id", "--cloud-id"}
+READER_BOOL_FLAGS = {"--help", "-h", "--version", "--debug", "-D", "--quiet", "-q", "--verbose"}
+READER_UTILS = {"date", "echo", "printf", "test", "[", "[[", "true", "sleep", "fi", "done", "ss"}
+READER_FILTERS = {"head", "tail", "grep", "jq", "wc", "sort", "uniq", "cut", "tr"}   # stdin only, no file operands
+TRUSTED_BIN = ("/nix/store/", "/usr/bin/", "/bin/", "/run/current-system/sw/bin/")
+AWK_UNSAFE = re.compile(r"system\s*\(|\|\s*getline|getline\s*<|\bprintf?\b[^;}]*(\||>>?\s*[\"\w$(])")
+
+
+def _reader_cli_allowed(name: str, args: list[str]) -> bool:
+    """The first positional words of `args` form an allowed subcommand; flags before it must be known."""
+    allowed = READER_ALLOWED[name]
+    pos: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("-") and a != "-":
+            flag = a.partition("=")[0]
+            if flag in READER_VALUE_FLAGS:
+                i += 1 if "=" in a else 2
+            elif flag in READER_BOOL_FLAGS:
+                i += 1
+            else:
+                return False
+            continue
+        pos.append(a)
+        i += 1
+        if any(tuple(pos[:len(p)]) == p for p in allowed):
+            return True
+    return False
+
+
+SECRET_COMMANDS = [
+    (("yc", "config", "list"), "prints the profile with the token"),
+    (("yc", "iam", "create-token"), "prints a token"),
+    (("gh", "auth", "token"), "prints a token"),
+    (("railway", "variable", "list"), "prints variable values"),
+    (("railway", "variables"), "prints variable values"),
+    (("doctl", "auth", "token"), "prints a token"),
+    (("doctl", "databases", "connection"), "prints a connection string with the password"),
+]
+
+
+def _positionals(args: list[str]) -> list[str]:
+    """Words that are not flags or flag values (the global flags of the deploy CLIs take a value)."""
+    out: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("-") and a != "-":
+            i += 2 if a in READER_VALUE_FLAGS else 1
+        else:
+            out.append(a)
+            i += 1
+    return out
+
+
+def _secret_reason(name: str, args: list[str], agent: str, shown: str) -> str | None:
+    """Readers never print secrets (AC15)."""
+    why = None
+    if name == "printenv" or (name == "env" and not [a for a in args if not a.startswith("-") and "=" not in a]):
+        why = "dumps the environment"
+    else:
+        pos = _positionals(args)
+        for head, text in SECRET_COMMANDS:
+            if name == head[0] and tuple(pos[:len(head) - 1]) == head[1:]:
+                why = text
+        if name == "gh" and pos[:2] == ["auth", "status"] and any(
+                a.startswith("--show-token") or (a.startswith("-") and not a.startswith("--") and "t" in a)
+                for a in args):
+            why = "prints a token"
+    if why is None:
+        return None
+    return f"`{agent}` never prints secrets: `{shown}` {why} and is refused."
+
+
+SS_ARGS = re.compile(r"-[a-zA-Z]*|--(listening|numeric|tcp|udp|processes|all|summary|ipv4|ipv6|unix)")
+SED_BAD = "sed {} runs a command or writes a file (e, w, W, s///e, s///w and -f are refused)"
+
+
+def _sed_script_reason(script: str) -> str | None:
+    """Walk a sed script command by command: the e, w and W commands and the e and w flags of s///."""
+    i, n = 0, len(script)
+    while i < n:
+        while i < n and script[i] in " \t\n;{}!":
+            i += 1
+        while i < n:                                    # the address
+            c = script[i]
+            if c == "/" or (c == "\\" and i + 1 < n):
+                delim = c if c == "/" else script[i + 1]
+                i += 1 if c == "/" else 2
+                while i < n and script[i] != delim:
+                    i += 2 if script[i] == "\\" else 1
+                i += 1
+            elif c.isdigit() or c in "$,~+IM \t!":
+                i += 1
+            else:
+                break
+        if i >= n:
+            break
+        cmd = script[i]
+        i += 1
+        if cmd in "ewW":
+            return f"the `{cmd}` command"
+        if cmd in "sy" and i < n:
+            delim = script[i]
+            i += 1
+            for _ in range(2):
+                while i < n and script[i] != delim:
+                    i += 2 if script[i] == "\\" else 1
+                i += 1
+            end = i
+            while end < n and script[end] not in ";\n}":
+                end += 1
+            if cmd == "s" and re.search(r"[ew]", script[i:end]):
+                return "an `e` or `w` flag of s///"
+            i = end
+        elif cmd == "#" or cmd in "aicrR:btTlLqQ":      # text, file or label up to the end of the line / command
+            while i < n and script[i] not in ("\n" if cmd in "aicrR#" else ";\n"):
+                i += 1
+    return None
+
+
+def _sed_reason(args: list[str]) -> str | None:
+    scripts: list[str] = []
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            positional += args[i + 1:]
+            break
+        if a.startswith("--"):
+            flag, eq, value = a.partition("=")
+            if len(flag) >= 4 and "--file".startswith(flag):
+                return SED_BAD.format("-f / --file")
+            if len(flag) >= 3 and "--expression".startswith(flag):
+                if not eq and i + 1 < len(args):
+                    i += 1
+                    value = args[i]
+                scripts.append(value)
+        elif a.startswith("-") and a != "-":
+            for j, ch in enumerate(a[1:], 1):
+                if ch == "f":
+                    return SED_BAD.format("-f / --file")
+                if ch in "el":
+                    value = a[j + 1:]
+                    if not value and i + 1 < len(args):
+                        i += 1
+                        value = args[i]
+                    if ch == "e":
+                        scripts.append(value)
+                    break
+                if ch == "i":
+                    break
+        else:
+            positional.append(a)
+        i += 1
+    if not scripts and positional:
+        scripts = [positional[0]]
+    for script in scripts:
+        why = _sed_script_reason(script)
+        if why:
+            return SED_BAD.format(f"with {why}")
+    return None
+
+
+def _reader_util_reason(name: str, args: list[str]) -> str | None:
+    """Why a read utility is refused with these arguments, or None."""
+    if name == "sort" and any(re.fullmatch(r"-[A-Za-z]*o\S*|--output.*", a) for a in args):
+        return "sort -o writes a file"
+    if name == "uniq" and len(_file_args("uniq", [a for a in args if a != "-f"])) > 2:
+        return "uniq with an output file writes it"
+    if name == "rg" and any(a.startswith("--pre") for a in args):
+        return "rg --pre runs a command"
+    if name == "date" and any(a in {"-s", "--set"} or a.startswith("--set=") for a in args):
+        return "date -s changes the clock"
+    if name == "sort" and any(a.startswith("--compress") for a in args):
+        return "sort --compress-program runs a command"
+    if name == "awk" and any(re.fullmatch(r"-[fiE]\S*|--(file|include|exec|source)\S*", a) for a in args):
+        return "awk -f, -i and --include load a program or extension"
+    if name == "awk" and any(AWK_UNSAFE.search(a) for a in args):
+        return "awk program runs commands or writes files"
+    if name == "sed":
+        return _sed_reason(args)
+    if name == "ss" and not all(SS_ARGS.fullmatch(a) or not a.startswith("-") for a in args):
+        return "ss options other than the listing ones can kill sockets or write files"
+    return None
+
+
+# per filter: (short options with a value, short flags, long options with a value, long flags, max positionals)
+_F = {
+    "head": ("nc", "qvz0123456789", {"--lines", "--bytes"}, {"--quiet", "--silent", "--verbose", "--zero-terminated"}, 0),
+    "tail": ("ncs", "qvzfF0123456789", {"--lines", "--bytes", "--pid", "--sleep-interval"},
+             {"--quiet", "--silent", "--verbose", "--zero-terminated", "--follow", "--retry"}, 0),
+    "grep": ("eAmBC", "EFGPiIvwxcLlnoqsHhTaUzVb", {"--regexp", "--max-count", "--after-context", "--before-context",
+                                                    "--context", "--label"},
+             {"--extended-regexp", "--fixed-strings", "--basic-regexp", "--perl-regexp", "--ignore-case",
+              "--no-ignore-case", "--invert-match", "--word-regexp", "--line-regexp", "--count", "--files-with-matches",
+              "--files-without-match", "--line-number", "--only-matching", "--quiet", "--silent", "--no-messages",
+              "--with-filename", "--no-filename", "--text", "--null", "--null-data", "--byte-offset", "--initial-tab",
+              "--binary", "--line-buffered", "--color", "--colour"}, 1),
+    "jq": ("", "cCrjasSneRM", {"--indent"}, {"--null-input", "--raw-input", "--slurp", "--compact-output",
+                                            "--raw-output", "--join-output", "--ascii-output", "--sort-keys",
+                                            "--color-output", "--monochrome-output", "--tab", "--exit-status",
+                                            "--seq", "--stream", "--unbuffered"}, 1),
+    "wc": ("", "clmLw", set(), {"--bytes", "--chars", "--lines", "--words", "--max-line-length"}, 0),
+    "sort": ("ktSTo", "bdfghiMnRrsuVzcCm", {"--key", "--field-separator", "--buffer-size", "--temporary-directory",
+                                            "--parallel", "--batch-size"},
+             {"--reverse", "--numeric-sort", "--unique", "--ignore-case", "--stable", "--human-numeric-sort",
+              "--version-sort", "--month-sort", "--general-numeric-sort", "--ignore-leading-blanks",
+              "--dictionary-order", "--ignore-nonprinting", "--check", "--zero-terminated", "--merge", "--debug",
+              "--random-sort"}, 0),
+    "uniq": ("fsw", "cdDuiz", {"--skip-fields", "--skip-chars", "--check-chars"},
+             {"--count", "--repeated", "--unique", "--ignore-case", "--zero-terminated"}, 0),
+    "cut": ("dfcb", "snz", {"--delimiter", "--fields", "--characters", "--bytes", "--output-delimiter"},
+            {"--complement", "--only-delimited", "--zero-terminated"}, 0),
+    "tr": ("", "cCdst", set(), {"--complement", "--delete", "--squeeze-repeats", "--truncate-set1"}, 2),
+}
+JQ_FILE_WORDS = re.compile(r"\benv\b|\$ENV|input_filename|\bimport\b|\binclude\b|\$__prog|get_search_list")
+
+
+def _filter_reason(name: str, args: list[str]) -> str | None:
+    """A stdin filter reads its standard input only: no file operand, no option that reads or runs a file."""
+    short_val, short_flag, long_val, long_flag, max_pos = _F[name]
+    pos: list[str] = []
+    patterns = 0
+    i = 0
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a == "--":
+            pos += args[i:]
+            break
+        if a.startswith("--"):
+            flag, eq, _ = a.partition("=")
+            if flag in long_val:
+                if not eq:
+                    i += 1
+                if flag == "--regexp":
+                    patterns += 1
+            elif flag not in long_flag:
+                return f"the option `{a}` is not a plain stdin filter option"
+        elif a.startswith("-") and a != "-":
+            for j, ch in enumerate(a[1:], 1):
+                if ch in short_val:
+                    if j == len(a) - 1:
+                        i += 1
+                    if ch == "e" and name == "grep":
+                        patterns += 1
+                    break
+                if ch not in short_flag:
+                    return f"the option `{a}` is not a plain stdin filter option"
+        else:
+            pos.append(a)
+    if name == "grep":
+        if (patterns and pos) or len(pos) > 1:
+            return "grep reads its standard input only; a file operand is refused"
+        return None
+    if name == "jq" and any(JQ_FILE_WORDS.search(p) for p in pos[:1]):
+        return "the jq program reads the environment or a file"
+    if len(pos) > max_pos:
+        return f"{name} reads its standard input only; the file operand is refused"
+    return None
+
+
+def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
+    """Reason to refuse one resolved command (word list), or None."""
+    if depth > MAX_DEPTH:
+        return NIX_DEPTH_REASON
+    if not w:
+        return None
+    head = w[0]
+    shown = " ".join(w)[:200]
+    deny = (f"`{agent}` is read-only: `{shown}` is not an allowed read/status command. Allowed: auth checks and "
+            "run/log/status listings of gh, railway, gcloud, doctl, yc, wrangler, cf, docker, plus grep, jq, head, "
+            "tail, wc, sort, uniq, cut, tr as filters on a pipe. Files are read with Read, Grep and Glob. "
+            "Report what must be done to the orchestrator.")
+    if re.search(r"[$`*?]", head) or ("/" in head and not head.startswith(TRUSTED_BIN)):
+        return f"`{agent}` is read-only: the command word `{head}` cannot be resolved, `{shown}` is refused."
+    name = Path(head).name
+    args = w[1:]
+    secret = _secret_reason(name, args, agent, shown)
+    if secret:
+        return secret
+    if name in SHELLS:
+        script = _shell_script(w)
+        return _reader_reason(script, agent, depth + 1) if script is not None else deny
+    if name == "eval":
+        return _reader_reason(" ".join(args), agent, depth + 1)
+    if name == "xargs":
+        i = 0
+        while i < len(args) and args[i].startswith("-"):
+            i += 2 if args[i] in XARGS_VALUE_OPTIONS else 1
+        return _reader_words(_resolve(_strip_redirections(args[i:]))[0], agent, depth + 1)
+    if name in READER_ALLOWED or name == "docker-compose":
+        if name == "docker-compose":
+            name, args = "docker", ["compose", *args]
+        return None if _reader_cli_allowed(name, args) else deny
+    if name in READER_FILTERS:
+        why = _reader_util_reason(name, args) or _filter_reason(name, args)
+        return f"`{agent}` is read-only: `{shown}` is refused ({why})." if why else None
+    if name in READER_UTILS:
+        why = _reader_util_reason(name, args)
+        return f"`{agent}` is read-only: `{shown}` is refused ({why})." if why else None
+    return deny
+
+
+def _reader_reason(cmd: str, agent: str, depth: int = 0) -> str | None:
+    if depth > MAX_DEPTH:
+        return NIX_DEPTH_REASON
+    try:
+        commands = _split_commands(cmd.replace("\\\n", " "))
+    except NestingError:
+        return NIX_DEPTH_REASON
+    for command in commands:
+        raw = split_words(_scan_redirections(command.text)[1], comments=False)
+        lead = next((a for a in raw if not re.fullmatch(r"\w+=.*", a) and a not in KEYWORDS), "")
+        if Path(lead).name in {"sudo", "doas"}:
+            return f"`{agent}` is read-only: `{' '.join(raw[:4])}` runs with elevated rights and is refused."
+        final = _strip_redirections(_resolve(raw)[0])
+        reason = _reader_words(final, agent, depth)
+        if reason:
+            return reason
+    return None
+
+
+def check_deploy_reader(ev: Event, cmd: str) -> str | None:
+    if ev.agent not in READER_AGENTS:
+        return None
+    return _reader_reason(cmd, ev.agent)
+
+
+# ---------------------------------------------------------------- reader inputs (AC20)
+# Every agent that runs "what a reader may run": environment prefixes and credential files are refused for all four.
+ALL_READER_AGENTS = READER_AGENTS | {"stand-operator", "janitor"}
+SAFE_ENV = re.compile(r"TZ|NO_COLOR|LC_\w+")
+LOCAL_VAR = re.compile(r"(?![a-z0-9_]*_proxy$)[a-z][a-z0-9_]*")      # lowercase names mean nothing to a shell or a CLI
+CREDENTIAL_DIRS = (r"(?:\.config/(?:gh|gcloud|yandex-cloud|doctl|\.wrangler)(?![\w-])|\.railway(?![\w-])"
+                   r"|\.wrangler(?![\w-])|\.docker/config\.json|\.kube/config(?![\w-]))[^\s;&|)]*")
+
+
+@lru_cache(maxsize=4)
+def _credential_path(home: str) -> re.Pattern[str]:
+    homes = [r"~[^/\s]*", r"\$HOME", r"\$\{HOME\}", r"/home/[^/\s]+", r"/root"]
+    if home.startswith("/") and home.strip("/"):
+        homes.append(re.escape(home.rstrip("/")))
+    return re.compile("(?:" + "|".join(homes) + ")/" + CREDENTIAL_DIRS)
+
+
+def _env_reason_words(w: list[str], agent: str, depth: int) -> str | None:
+    """Assignments in front of the command (also behind env, nix shell -c, bash -c) other than TZ, LC_*, NO_COLOR."""
+    if depth > MAX_DEPTH:
+        return NIX_DEPTH_REASON
+    shown = " ".join(w)[:200]
+    for _ in range(MAX_DEPTH):
+        stripped = strip_env_and_wrappers(w)
+        dropped = w[:max(0, len(w) - len(stripped))]
+        if any(a.startswith("-S") for a in dropped if not a.startswith("--")):
+            return f"`{agent}` is read-only: `{shown}` uses `env -S`, which hides assignments, and is refused."
+        for a in dropped:
+            m = re.fullmatch(r"(\w+)=.*", a)
+            if m and not stripped and LOCAL_VAR.fullmatch(m.group(1)):
+                continue        # `out=$(…)` alone sets a shell variable for the later commands, not an environment
+            if m and not SAFE_ENV.fullmatch(m.group(1)):
+                return (f"`{agent}` is read-only: `{shown}` sets {m.group(1)} in front of the command and is refused. "
+                        "Only TZ, LC_* and NO_COLOR may be set.")
+        w = stripped
+        inner = _unwrap_nix(w) if w else None
+        if inner is not None:
+            w = inner[0]
+        elif w and Path(w[0]).name == "busybox":
+            w = w[1:]
+        else:
+            break
+    if not w:
+        return None
+    name, args = Path(w[0]).name, w[1:]
+    if name in SHELLS:
+        script = _shell_script(w)
+        return _env_reason(script, agent, depth + 1) if script is not None else None
+    if name == "eval":
+        return _env_reason(" ".join(args), agent, depth + 1)
+    if name == "xargs":
+        i = 0
+        while i < len(args) and args[i].startswith("-"):
+            i += 2 if args[i] in XARGS_VALUE_OPTIONS else 1
+        return _env_reason_words(_strip_redirections(args[i:]), agent, depth + 1)
+    if name == "find":
+        return next(filter(None, (_env_reason_words(_strip_redirections(c), agent, depth + 1)
+                                  for c in _find_exec_commands(w))), None)
+    return None
+
+
+def _env_reason(cmd: str, agent: str, depth: int = 0) -> str | None:
+    if depth > MAX_DEPTH:
+        return NIX_DEPTH_REASON
+    try:
+        commands = _split_commands(cmd.replace("\\\n", " "))
+    except NestingError:
+        return NIX_DEPTH_REASON
+    for command in commands:
+        raw = split_words(_scan_redirections(command.text)[1], comments=False)
+        reason = _env_reason_words([a for a in raw if a not in KEYWORDS], agent, depth)
+        if reason:
+            return reason
+    return None
+
+
+def _cd_reason(ev: Event, cmd: str) -> str | None:
+    """Readers may `cd` only inside the project and the temp dirs: no `cd ~`, `cd $HOME`, bare `cd`, `cd -`."""
+    try:
+        commands = _split_commands(cmd.replace("\\\n", " "))
+    except NestingError:
+        return NIX_DEPTH_REASON
+    root = str(ev.project_root).rstrip("/")
+    cwd = "."
+    for command in commands:
+        w = [a for a in split_words(_scan_redirections(command.text)[1], comments=False) if a not in KEYWORDS]
+        if not w or Path(w[0]).name not in {"cd", "pushd"}:
+            continue
+        arg = _first_argument(w[1:])
+        shown = " ".join(w)[:200]
+        why = f"`{ev.agent}` may not `{shown}`: cd only inside the project or /tmp, /var/tmp and the scratchpad."
+        if not arg or arg == "-" or arg.startswith(("~", "$")) or re.search(r"[`$*?]", arg):
+            return why
+        if arg.startswith("/"):
+            path = posixpath.normpath(arg)
+            if not (path == root or path.startswith(root + "/") or path.startswith(TMP_PREFIXES)
+                    or path in {"/tmp", "/var/tmp"} or "/scratchpad" in path):
+                return why
+            cwd = "."
+            continue
+        cwd = posixpath.normpath(posixpath.join(cwd, arg))
+        if cwd == ".." or cwd.startswith("../"):
+            return why
+    return None
+
+
+def check_reader_inputs(ev: Event, cmd: str) -> str | None:
+    """Readers run nothing through the environment and never read the credential files of the deploy CLIs."""
+    if ev.agent not in ALL_READER_AGENTS:
+        return None
+    text = cmd.replace('"', "").replace("'", "")
+    hit = _credential_path(os.environ.get("HOME", "")).search(text)
+    if hit:
+        return (f"`{ev.agent}` never reads the credential files of the deploy CLIs: `{hit.group()}` is refused. "
+                "Check access with the auth/whoami commands instead.")
+    return _cd_reason(ev, cmd) or _env_reason(cmd, ev.agent or "")
+
+
+from .infra_checks import check_infra  # noqa: E402 — after the checks above on purpose (import cycle)
+from .stand_janitor_checks import check_janitor, check_stand_operator  # noqa: E402
+
+CHECKS = [check_infra, check_reader_inputs, check_deploy_reader, check_stand_operator, check_janitor, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_bash_writes, check_tests_via_bash]
 
 
 def run(ev: Event) -> str | None:

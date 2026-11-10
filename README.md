@@ -17,11 +17,11 @@ style and in the subagent contract.
 │   ├── CLAUDE.md                # always-on core for the MAIN session → ~/.claude/CLAUDE.md
 │   └── subagent-contract.md     # injected into EVERY agent right after its frontmatter at build time
 ├── output-styles/orchestrator.md  # the orchestrator; main session only, subagents never see it
-├── agents/                      # 23 subagents → ~/.claude/agents/
+├── agents/                      # 34 subagents → ~/.claude/agents/
 ├── rules/                       # 16 path-scoped rules → ~/.claude/rules/br/
-├── skills/                      # 37 skills → ~/.claude/skills/
+├── skills/                      # 55 skills → ~/.claude/skills/
 ├── commands/                    # 23 slash commands → ~/.claude/commands/
-├── workflows/                   # 3 saved workflows (br-red, br-green, br-review) → ~/.claude/workflows/
+├── workflows/                   # 8 saved workflows (br-wave, br-review, br-research, br-diagnose, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
 ├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests
 ├── tools/                       # validate.py (structure checks), measure_tokens.py, tests
@@ -53,7 +53,7 @@ lives in that agent, not in a rule.
 | `architect-critic` | attacks a proposed architecture | nothing |
 | `presenter` | Russian HTML slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | tests from acceptance criteria | test files of its task |
-| `coder` | makes the tests pass | the task's exclusive write set |
+| `coder`, `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | makes the tests pass (`/br-wave` picks the language coder by file extension, `coder` otherwise) | the task's exclusive write set |
 | `refactorer` | cleans up with tests green | the task's exclusive write set |
 | `test-runner` | runs the affected tests or the full suite, reports numbers | nothing |
 | `build-fixer` | minimal fix for a broken build or type check | code, never tests |
@@ -61,6 +61,13 @@ lives in that agent, not in a rule.
 | `db-reviewer`, `security-reviewer`, `optimizer` | data access, security, performance review | nothing |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | temp folder only |
 | `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
+| `deploy-engineer` | Dockerfile, compose, Nix images, OpenTofu, the Railway dev stand; prepares apply and deploy commands, never runs them | its task's write set |
+| `ci-engineer` | GitHub Actions pipelines (`-br` files), the only agent that may change lint and CI configs | its task's write set |
+| `stand-operator` | up, health, logs, down of an existing stand (compose with `-p`, `nix run` targets named in the plan) | nothing |
+| `log-collector` | bounded raw log excerpts from CI and platforms through the `cli-*` skills, no reasoning | nothing |
+| `deploy-error-reader` | cause, quoted evidence and a fix proposal from the collected logs | nothing |
+| `web-researcher` | answers from official docs, issues and changelogs, every fact with a URL | nothing |
+| `janitor` | proposes a garbage list; deletes only the exact list the user approved | only the approved list |
 
 Every agent frontmatter has `omitClaudeMd: true`, an explicit `tools:` allowlist,
 `disallowedTools: Agent, Skill, mcp__*` and `maxTurns:`. Nested subagents are also disabled globally
@@ -80,8 +87,12 @@ in `agent-models.json`; the build fails if an agent is missing there.
 
 Own: `architecture-guide`, `auth-service`, `deploy-variants`, `design-system`, `project-docs`,
 `security-review`, `sops`, `stack-choice`; Nix: `nix-debugging`, `nix-flake-patterns`, `nix-packaging`,
-`nix-testing`, `nix-toolkit`, `nixos-module-patterns`, `project-flake`. The 22 reference skills from ECC
-are listed below.
+`nix-testing`, `nix-toolkit`, `nixos-module-patterns`, `project-flake`; services and frontend:
+`python-service`, `frontend-data-layer`, `user-flows`; delivery: `iac` (OpenTofu), `ci-github-actions`,
+`registry-dockerhub-ghcr`, `cloud-cloudflare`, `cloud-railway`, `cloud-gcp`, `cloud-digitalocean`, `cloud-yandex`;
+CLIs (login check first, every command marked read / effect / mutating): `cli-gh`, `cli-docker`, `cli-cloudflare`,
+`cli-railway`, `cli-doctl`, `cli-gcloud`, `cli-yc`. `cloud-cloudflare/references/official/` vendors the official
+Cloudflare skills (Apache-2.0, license file next to them). The 22 reference skills from ECC are listed below.
 
 ## Rules about code have examples
 
@@ -140,23 +151,28 @@ makes agy drop the agent. The build fails when an agent lacks these fields, when
 block scalar, when a description or body contains a control character or `'''`, or when a generated TOML file does
 not parse back with the expected keys. Agent names must match `[a-z][a-z0-9-]*` and must not collide with a codex
 `[agents]` field after `-` becomes `_`.
+
 ## Workflows
 
-Three saved Claude Code workflows run one plan step for every task of a wave in parallel. The orchestrator
-asks before any code whether to use them or to dispatch agents by hand, and records the answer in
-`.plan/PLAN.md` → Status.
+Eight saved Claude Code workflows, each a slash command. The orchestrator asks before any code whether to
+use them or to dispatch agents by hand, and records the answer in `.plan/PLAN.md` → Status.
 
-| Command | What runs, per task |
-|---|---|
-| `/br-red` | `test-writer` → `test-runner`: the new tests fail for the right reason; returns the tests hash |
-| `/br-green` | per task by Status: `green` → `coder` → `test-runner`; `refactor` → `refactorer` → `test-runner`. Run it at Status green, then again at Status refactor (the write hook lets `refactorer` write only under `refactor`). Stops a task when a test fails, is skipped, or the tests hash changed |
-| `/br-review` | `code-reviewer`, the language reviewers picked by file extension, `security-reviewer` when the task is flagged; each must-fix is checked by three refuters and kept when two of them cannot refute it |
+| Command | What runs | Stops for the user |
+|---|---|---|
+| `/br-wave` | one wave from `## Manifest <id>` in the plan: per item `step` (red, green, refactor, fix-tests, fix-code, check) → its agent, then one `test-runner` per task with the tests-hash guard | a stopped task; a missing CLI login |
+| `/br-review` | checkpoint review from `## Checkpoint <id>`: deep pass (code, security, language reviewers) on risky paths, broad pass, `db-reviewer`, migrations-only `db-reviewer`; security must-fix checked by three refuters; returns `fix_items` for the next manifest | none |
+| `/br-research` | `web-researcher`s per question group (up to 5), then a cross-check of low-confidence or conflicting answers | none |
+| `/br-diagnose` | `log-collector` per source group, one `deploy-error-reader`: cause, evidence, fix proposal | missing login; prod sources only with `prod: true` and every command approved |
+| `/br-ci` | `ci-engineer` writes `-br` pipelines, local checks (actionlint, zizmor); after the user pushes `ci-test`, reads the failed runs and fixes, at most 2 rounds | the push of `ci-test` |
+| `/br-deploy` | `deploy-engineer` writes Dockerfile, compose, Nix image or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are returned, never run |
+| `/br-e2e` | user flows, stand, e2e harness, contract and journey tests in parallel, a final run classified app / test / stand with p50/p95 | stand will not start; unclear behaviour |
+| `/br-janitor` | `survey` lists garbage; `delete` removes only the approved entries, then surveys again | always: the user's «да» on the exact list |
 
-Each workflow first reads `.plan/PLAN.md` through `researcher`. It takes `args = { tasks: ["T3"] }`, or
-every task whose Status matches the step (`red`; `green` or `refactor`; `review`). Every agent runs by `agentType`, so the
-agent's model pin, the subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too
-(checked live: a workflow `test-writer` writing outside tests is denied by `br-hook`). Workflows never commit
-and never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
+`/br-wave` and `/br-review` first read `.plan/PLAN.md` through `researcher`. A run uses at most 15 agents,
+runners included; a larger wave is split. Every agent runs by `agentType`, so the agent's model pin, the
+subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too (checked live: a workflow
+`test-writer` writing outside tests is denied by `br-hook`). Workflows never commit, push, deploy or apply, and
+never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
 
 A workflow agent without `agentType` would see the user `CLAUDE.md` and no subagent contract, so the
 validator rejects any `agent(` call in `workflows/*.js` without one.

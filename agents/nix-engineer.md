@@ -15,6 +15,7 @@ Rules:
 - Files the program writes itself are merged by an activation script, not owned by `home.file`.
 - Platform differences guarded by `isNixOS`; Arch target must still build.
 - Comments explain why, in the repo's language (Russian here), not what.
+- Before using a GitHub Action input or a flake input/module option, read its `action.yml`/README (or the module options) at the pinned version; never use an input from memory.
 - `git add` every new file before evaluating.
 
 After editing, run the gate yourself and paste the tail of each command: `nix flake check --no-build`, then `nix build` of the touched output (or `nixos-rebuild build --flake .#badrabbitpc`), `nvd diff /run/current-system result` when a system was built, throttled with `--max-jobs 4 --cores 4`. Fix what fails. Never run `switch`; the user does that.

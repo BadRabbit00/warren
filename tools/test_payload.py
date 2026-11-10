@@ -22,7 +22,10 @@ COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
-WORKFLOWS = ("br-red.js", "br-green.js", "br-review.js")
+WORKFLOWS = (
+    "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+    "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
+)
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 AGENTS_MD_LIMIT = 24_000
@@ -205,8 +208,10 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
-                "build-fixer", "coder", "nix-build-resolver", "nix-engineer", "nix-test-runner",
-                "presenter", "refactorer", "test-writer", "ui-verifier",
+                "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
+                "nix-build-resolver", "nix-engineer", "nix-test-runner", "presenter",
+                "python-coder", "refactorer", "rust-coder", "test-writer", "ts-coder",
+                "ui-verifier",
             ],
         )
         for name, mode in expected.items():
@@ -438,15 +443,15 @@ class ExportInstalledWorkflowsTest(unittest.TestCase):
         self.assertNotIn("Traceback", proc.stderr)
 
     def test_payload_rejects_missing_installed_workflow(self) -> None:
-        proc = self.run_broken(lambda claude: (claude / "workflows" / "br-green.js").unlink())
-        self.assert_rejected(proc, "br-green.js")
+        proc = self.run_broken(lambda claude: (claude / "workflows" / "br-review.js").unlink())
+        self.assert_rejected(proc, "br-review.js")
 
     def test_payload_rejects_modified_installed_workflow(self) -> None:
         def modify(claude: Path) -> None:
-            path = claude / "workflows" / "br-green.js"
+            path = claude / "workflows" / "br-review.js"
             path.write_bytes(path.read_bytes() + b" ")
 
-        self.assert_rejected(self.run_broken(modify), "br-green.js")
+        self.assert_rejected(self.run_broken(modify), "br-review.js")
 
     def test_payload_rejects_extra_installed_file(self) -> None:
         def add(claude: Path) -> None:
@@ -469,10 +474,10 @@ class ExportInstalledWorkflowsTest(unittest.TestCase):
             (claude / "workflows" / "folder.js").mkdir()
 
         def source_replaced_by_binary(claude: Path) -> None:
-            (claude / "workflows" / "br-green.js").write_bytes(b"\xff\xfe\x00\x80")
+            (claude / "workflows" / "br-review.js").write_bytes(b"\xff\xfe\x00\x80")
 
         def source_replaced_by_dir(claude: Path) -> None:
-            path = claude / "workflows" / "br-green.js"
+            path = claude / "workflows" / "br-review.js"
             path.unlink()
             path.mkdir()
 
@@ -481,8 +486,8 @@ class ExportInstalledWorkflowsTest(unittest.TestCase):
             ("blob.bin", stray_binary_other_ext),
             ("subdir", stray_dir),
             ("folder.js", stray_dir_named_js),
-            ("br-green.js", source_replaced_by_binary),
-            ("br-green.js", source_replaced_by_dir),
+            ("br-review.js", source_replaced_by_binary),
+            ("br-review.js", source_replaced_by_dir),
         )
         for name, break_installed in cases:
             with self.subTest(case=break_installed.__name__):

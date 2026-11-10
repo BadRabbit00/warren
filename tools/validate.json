@@ -4,7 +4,7 @@
     "contract": 40,
     "rule": 120,
     "agent": 300,
-    "outputStyle": 220
+    "outputStyle": 260
   },
   "allowedModels": [
     "sonnet",

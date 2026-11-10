@@ -4,7 +4,7 @@ description: Reviews .nix changes for correctness, purity, security and repo con
 tools: Read, Glob, Grep, Bash
 disallowedTools: Agent, Skill, mcp__*, Write, Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch
 omitClaudeMd: true
-maxTurns: 30
+maxTurns: 40
 model: opus
 effort: high
 ---
