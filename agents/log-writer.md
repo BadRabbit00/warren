@@ -35,7 +35,7 @@ On the plan step `log` (task status `log`) you add logging to the code of one ta
 
    Masking goes only through the shared module.
 4. **No new dependencies.** A library you think is missing goes under NOTES.
-5. **Run the task's tests** with the project's own test command (through `nix develop -c`) and the linters of the component. They must stay green with the same numbers as before your change.
+5. **Run the task's tests** with the project's own test command and the linters of the component. They must stay green with the same numbers as before your change.
 6. **Report.**
 
 ## Must
