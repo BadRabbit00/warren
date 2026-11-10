@@ -19,11 +19,11 @@ style and in the subagent contract.
 │   ├── CLAUDE.md                # always-on core for the MAIN session → ~/.claude/CLAUDE.md
 │   └── subagent-contract.md     # injected into EVERY agent right after its frontmatter at build time
 ├── output-styles/orchestrator.md  # the orchestrator; main session only, subagents never see it
-├── agents/                      # 30 subagents → ~/.claude/agents/
+├── agents/                      # 35 subagents → ~/.claude/agents/
 ├── rules/                       # 15 path-scoped rules → ~/.claude/rules/br/
-├── skills/                      # 53 skills → ~/.claude/skills/
+├── skills/                      # 57 skills → ~/.claude/skills/
 ├── commands/                    # 9 slash commands → ~/.claude/commands/
-├── workflows/                   # 8 saved workflows (br-wave, br-review, br-research, br-diagnose, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
+├── workflows/                   # 9 saved workflows (br-wave, br-review, br-research, br-diagnose, br-debug, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
 ├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests → ~/.claude/br/hooks/
 ├── tools/                       # install.py, build.py, validate.py (structure checks), measure_tokens.py, tests
@@ -58,11 +58,14 @@ lives in that agent, not in a rule.
 | `test-writer` | tests from acceptance criteria | test files of its task |
 | `coder`, `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | makes the tests pass (`/br-wave` picks the language coder by file extension, `coder` otherwise) | the task's exclusive write set |
 | `log-writer` | adds logging after green by skill `logging` (levels, file/function/class, UTC time, masking); behaviour and tests unchanged | the task's exclusive write set (status `log`) |
+| `metrics-writer` | on demand: metrics through one connector module per service (OpenTelemetry), `/health` and `/ready`; behaviour and tests unchanged | the task's exclusive write set (status `metrics`) |
+| `observability-engineer` | Prometheus, alert and recording rules, Alertmanager, Grafana provisioning as files, checked with promtool/amtool; never deploys (hand-off to `/br-deploy`) | the task's exclusive write set (status `green`) |
+| `bug-reproducer`, `repro-runner`, `root-cause-analyst` | `/br-debug`: exact reproduction of a reported bug, N runs of it (Haiku), root cause with file:line (Opus); nobody fixes code | temp files only |
 | `refactorer` | cleans up with tests green | the task's exclusive write set |
 | `test-runner` | runs the affected tests or the full suite, reports numbers | nothing |
 | `build-fixer` | minimal fix for a broken build or type check | code, never tests |
 | `code-reviewer`, `python-reviewer`, `go-reviewer`, `rust-reviewer`, `ts-react-reviewer`, `flutter-dart-reviewer` | review of a task diff | nothing |
-| `db-reviewer`, `security-reviewer`, `optimizer` | data access, security, performance review | nothing |
+| `db-reviewer`, `security-reviewer`, `optimizer` | data access, security, performance review (`optimizer` measures with skill `profiling`: py-spy, pprof, flamegraph) | nothing (`optimizer`: temp files only) |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | temp folder only |
 | `deploy-engineer` | Dockerfile, compose, multi-stage images, OpenTofu, the Railway dev stand; prepares apply and deploy commands, never runs them | its task's write set |
 | `ci-engineer` | GitHub Actions pipelines (`-br` files), the only agent that may change lint and CI configs | its task's write set |
@@ -167,6 +170,7 @@ use them or to dispatch agents by hand, and records the answer in `.plan/PLAN.md
 | `/br-ci` | `ci-engineer` writes `-br` pipelines, local checks (actionlint, zizmor); after the user pushes `ci-test`, reads the failed runs and fixes, at most 2 rounds | the push of `ci-test` |
 | `/br-deploy` | `deploy-engineer` writes Dockerfile, compose or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are returned, never run |
 | `/br-e2e` | user flows, stand, e2e harness, contract and journey tests in parallel, a final run classified app / test / stand with p50/p95 | stand will not start; unclear behaviour |
+| `/br-debug` | a reported bug with an unknown cause: reproduction package, N runs, root cause and the failing test to write | none; returns a report, then test-writer and red → green |
 | `/br-janitor` | `survey` lists garbage; `delete` removes only the approved entries, then surveys again | always: the user's «да» on the exact list |
 
 `/br-wave` and `/br-review` first read `.plan/PLAN.md` through `researcher`. A run uses at most 15 agents,
