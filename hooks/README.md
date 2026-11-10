@@ -28,6 +28,7 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | `deploy-engineer` | anything except test paths | only `Writes (exclusive)` of tasks with status `green`, like `coder` |
 | `ci-engineer` | anything except test paths; may edit linter/formatter/type-check configs | only `Writes (exclusive)` of tasks with status `green`; configs only if inside that write set |
 | `refactorer` | anything except test paths | only `Writes (exclusive)` of tasks with status `refactor` |
+| `log-writer` | anything except test paths | only `Writes (exclusive)` of tasks with status `log`; never test files |
 | `build-fixer` | anything except test paths | same, not limited by the plan |
 | `presenter` | `docs/slides/**`, `.plan/PLAN.html` | same |
 | `deploy-error-reader`, `log-collector`, `web-researcher`, `stand-operator`, `janitor` | nothing (no Write/Edit) | nothing |

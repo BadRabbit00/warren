@@ -262,6 +262,75 @@ class TestPlanStatusAndUnion(unittest.TestCase):
                 self.assertTrue(denied(write(r / p, "test-writer", r)), p)
 
 
+LOG_PLAN = """# Plan
+
+### T1 — order service
+- **Status:** log
+- **Writes (exclusive):** `src/app/order_service.py`
+- **Tests (test-writer):** `tests/test_order.py`, `src/app/order_test.go`
+
+### T2 — user service
+- **Status:** green
+- **Writes (exclusive):** `src/app/user_service.py`
+- **Tests (test-writer):** `tests/test_user.py`
+"""
+
+LOG_ONLY_PLAN = """# Plan
+
+### T1 — order service
+- **Status:** `log`
+- **Writes (exclusive):** `src/app/order_service.py`
+- **Tests (test-writer):** `tests/test_order.py`
+"""
+
+
+class TestLogWriter(unittest.TestCase):
+    def test_log_writer_limited_to_log_tasks(self):
+        r = project(LOG_PLAN)
+        for tool in ("Write", "Edit"):
+            res = write(r / "src/app/order_service.py", "log-writer", r, tool=tool)    # T1 is in `log`
+            self.assertFalse(denied(res), reason(res))
+        res = write(r / "src/app/user_service.py", "log-writer", r)                    # T2 is green, not log
+        self.assertTrue(denied(res))
+        self.assertIn("outside the write set", reason(res))
+        self.assertIn("T1", reason(res))
+        self.assertTrue(denied(write(r / "src/app/other.py", "log-writer", r)))        # in no write set
+
+    def test_log_writer_without_log_task(self):
+        r = project()   # T1 green, T2 red, T3 todo: nothing in `log`
+        res = write(r / "src/orders/app/services/order_service.py", "log-writer", r)
+        self.assertTrue(denied(res))
+        self.assertIn("No task in .plan/PLAN.md has status", reason(res))
+
+    def test_log_writer_never_writes_tests(self):
+        r = project(LOG_PLAN)
+        for p in ["tests/test_order.py", "src/app/order_test.go"]:                     # listed in Tests of the `log` task
+            with self.subTest(denied=p):
+                res = write(r / p, "log-writer", r)
+                self.assertTrue(denied(res), p)
+                self.assertIn("never change them", reason(res))
+        self.assertTrue(denied(write(r / "tests/test_other.py", "log-writer", r)))
+        self.assertFalse(denied(write(r / "src/app/order_service.py", "log-writer", r)))
+
+    def test_log_status_is_log_writer_only(self):
+        r = project(LOG_ONLY_PLAN)
+        for agent in ["coder", "refactorer", "test-writer", *LANGUAGE_CODERS]:
+            with self.subTest(agent=agent):
+                self.assertTrue(denied(write(r / "src/app/order_service.py", agent, r)))
+        for agent in ["coder", "refactorer"]:
+            with self.subTest(agent=agent, message=True):
+                res = write(r / "src/app/order_service.py", agent, r)
+                self.assertIn("No task in .plan/PLAN.md has status", reason(res))
+        self.assertFalse(denied(write(r / "src/app/order_service.py", "log-writer", r)))
+
+    def test_log_task_does_not_widen_coder_scope_next_to_a_green_task(self):
+        r = project(LOG_PLAN)
+        self.assertFalse(denied(write(r / "src/app/user_service.py", "coder", r)))     # T2 green
+        res = write(r / "src/app/order_service.py", "coder", r)                        # T1 log
+        self.assertTrue(denied(res))
+        self.assertIn("outside the write set of T2", reason(res))
+
+
 class TestExplicitWriteBeatsTestPattern(unittest.TestCase):
     def setUp(self):
         self.root = project(EXPLICIT_PLAN)

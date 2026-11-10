@@ -1,8 +1,8 @@
 // br-review: checkpoint review. Deep pass on risky areas, broad pass over the whole diff,
-// db review of accumulated DB work, migrations-only "must not take prod down" review.
+// logging pass against skill logging, db review of accumulated DB work, migrations-only "must not take prod down" review.
 export const meta = {
   name: 'br-review',
-  description: 'Checkpoint review: deep pass (code, security, language reviewers) on risky paths, broad pass for small bugs, db-reviewer, migrations-only db-reviewer; refuters only for security must-fix; returns fix items for the next wave',
+  description: 'Checkpoint review: deep pass (code, security, language reviewers) on risky paths, broad pass for small bugs, logging pass (skill logging), db-reviewer, migrations-only db-reviewer; refuters only for security must-fix; returns fix items for the next wave',
   whenToUse: 'At a plan Checkpoint, in the background while coding continues; args = { checkpoint, base?, tasks?, risky?, db?, migrations? }',
   phases: ['Plan', 'Review', 'Verify'],
 }
@@ -175,26 +175,30 @@ function covers(entry, file) {
   return file === entry || file.startsWith(dir)
 }
 
-// Owning task and step per file: test files go to fix-tests, everything else to fix-code.
-function ownerOf(tasks, file) {
+// Owning task and step per file: test files go to fix-tests, everything else to fix-code (fix-log for logging findings).
+function ownerOf(tasks, file, codeStep) {
   const test = tasks.find((t) => strings(t.tests).some((e) => covers(e, file)))
   if (test) return { task: test.id, step: 'fix-tests' }
   const code = tasks.find((t) => strings(t.writes).some((e) => covers(e, file)))
-  return { task: code ? code.id : '', step: 'fix-code' }
+  return { task: code ? code.id : '', step: codeStep }
 }
 
-// One fix item per file, so parts of the next wave never share files.
+// One fix item per file, so parts of the next wave never share files. A file with only logging findings gets fix-log;
+// any other finding on a file makes it fix-code (a logging finding on a test file never becomes a fix item).
 function fixItems(tasks, sections) {
   const byFile = {}
+  const onlyLogging = {}
   for (const [section, list] of Object.entries(sections)) {
     list.forEach((f) => {
+      if (section === 'logging' && ownerOf(tasks, f.file, 'fix-log').step === 'fix-tests') return
       byFile[f.file] = byFile[f.file] || []
       byFile[f.file].push(`[${section}] ${f.title} (line ${f.line}): ${f.fix}`)
+      onlyLogging[f.file] = (onlyLogging[f.file] === undefined || onlyLogging[f.file]) && section === 'logging'
     })
   }
   return Object.keys(byFile).map((file, i) => ({
     id: `F${i + 1}`,
-    ...ownerOf(tasks, file),
+    ...ownerOf(tasks, file, onlyLogging[file] ? 'fix-log' : 'fix-code'),
     files: [file],
     brief: byFile[file].join('\n'),
     after: [],
@@ -242,6 +246,16 @@ specs.push({
   focus: 'broad pass over the whole checkpoint diff for small bugs',
   severity: 'Severity is mostly suboptimal or nit; must_fix only for real bugs.',
 })
+specs.push({
+  pass: 'logging',
+  agentType: 'code-reviewer',
+  paths: cp.paths,
+  label: 'logging code-reviewer',
+  focus: 'logging pass: read ~/.claude/skills/logging/SKILL.md and the reference for each file\'s language under ~/.claude/skills/logging/references/, ' +
+    'then check levels, canonical fields from the logger config, masking of secrets and personal data, boundary/external-call/entity-change logging, ' +
+    'errors logged once, panic hook, and that logging changes no behaviour. Skip test files',
+  severity: 'must_fix only for real defects with evidence.',
+})
 if (cp.db) {
   specs.push({
     pass: 'db',
@@ -264,7 +278,7 @@ if (cp.migrations.length > 0) {
 } else log('migrations review skipped: no migration paths')
 
 const outcomes = await review(BASE, cp, specs)
-const sections = { deep: [], broad: [], db: [], migrations: [] }
+const sections = { deep: [], broad: [], logging: [], db: [], migrations: [] }
 outcomes.forEach((o, i) => {
   if (!o) return log(`${specs[i].label} returned nothing`)
   o.findings.forEach((f) => sections[specs[i].pass].push({ ...f, reviewer: specs[i].agentType }))
@@ -281,6 +295,7 @@ return {
   checkpoint: args.checkpoint,
   deep: sections.deep,
   broad: sections.broad,
+  logging: sections.logging,
   db: sections.db,
   migrations: sections.migrations,
   refuted: dropped,
@@ -288,6 +303,7 @@ return {
   fix_items: fixItems(cp.tasks, {
     deep: mustFix(sections.deep),
     broad: mustFix(sections.broad),
+    logging: mustFix(sections.logging),
     db: mustFix(sections.db),
     migrations: mustFix(sections.migrations),
   }),

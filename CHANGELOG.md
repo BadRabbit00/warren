@@ -2,6 +2,13 @@
 
 ## 0.3.0 — unreleased
 
+- Logging as its own step: agent `log-writer` adds logging after green (status `log`, `/br-wave` steps `log` and
+  `fix-log`), never touching behaviour or tests; skill `logging` holds the levels (DEBUG, INFO, WARNING, ERROR,
+  PANIC), the fields of every line (UTC time, file:line, module, function with class, request and trace ids),
+  masking (secrets always, personal data outside DEBUG) and templates for structlog, slog, tracing, pino in the
+  browser and OpenTelemetry; `/br-review` gets a logging pass. Hooks know the `log` status.
+- Janitor lists the project (`ls`, `find` without exec/delete, `stat`, `readlink`, `du`) inside the root and reads
+  `docker volume inspect`; `docker inspect` stays refused (it prints the container Env).
 - Saved workflows in `workflows/`, installed to `$out/claude/workflows/`, every agent by `agentType` (pins,
   contract, hooks apply), at most 15 agents per run:
   - `/br-wave` runs one wave from a manifest in the plan (red, green, refactor, fix-tests, fix-code, check items,
