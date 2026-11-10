@@ -23,7 +23,7 @@ COPIED = (
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
 WORKFLOWS = (
-    "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+    "br-ci.js", "br-debug.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
     "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
 )
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}

@@ -830,7 +830,7 @@ class WorkflowTest(unittest.TestCase):
     def test_shipped_workflows_are_clean(self) -> None:
         shipped = sorted(p.name for p in (self.root / "workflows").glob("*.js"))
         self.assertEqual(shipped, [
-            "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+            "br-ci.js", "br-debug.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
             "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
         ])
         self.assertEqual(validate.Validator(self.root).run(), [])
