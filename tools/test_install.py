@@ -41,7 +41,7 @@ def source_hooks() -> dict[str, list[dict[str, object]]]:
 
 def command_for(python: str, claude: Path, source_command: str) -> str:
     """The command install.py must write into settings.json for a hooks.json source command
-    (`@BR_HOOK@ guard_bash`): the installing interpreter, then the copied hook file (D4)."""
+    (`@BR_HOOK@ guard_bash`): the interpreter name, then the copied hook file (D9: always `python3`)."""
     script = source_command.split()[-1]
     return f'"{python}" -I -B "{claude}/br/hooks/{script}.py"'
 
@@ -158,7 +158,7 @@ class InstallTest(InstallCase):
                 hooks = installed[entry["id"]]["hooks"]
                 self.assertEqual(
                     [h["command"] for h in hooks],
-                    [command_for(sys.executable, claude, h["command"]) for h in entry["hooks"]],  # type: ignore[index]
+                    [command_for("python3", claude, h["command"]) for h in entry["hooks"]],  # type: ignore[index]
                     entry["id"],
                 )
 
@@ -191,7 +191,7 @@ class InstallTest(InstallCase):
         replaced = next(e for e in pre if e.get("id") == "br:guard:bash")
         self.assertEqual(
             replaced["hooks"][0]["command"],
-            f'"{sys.executable}" -I -B "{self.claude}/br/hooks/guard_bash.py"',
+            f'"python3" -I -B "{self.claude}/br/hooks/guard_bash.py"',
         )
 
     # AC2: a second run changes nothing
@@ -429,11 +429,11 @@ class InstallSafetyTest(InstallCase):
         leftovers = [str(p) for p in self.dest.rglob("*") if ".tmp" in p.name]
         self.assertEqual(leftovers, [])
 
-    # AC10: the hook commands in settings.json are the built hooks.json commands, one substitution
+    # AC10, T7 AC1: the hook commands in settings.json are the built hooks.json commands (python3), one substitution
     def test_install_hook_commands_match_build(self) -> None:
         built = self.tmp / "built"
         proc = subprocess.run(
-            [sys.executable, "-B", str(REPO / "tools" / "build.py"), str(built), str(REPO), sys.executable],
+            [sys.executable, "-B", str(REPO / "tools" / "build.py"), str(built), str(REPO), "python3"],
             capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT,
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -453,8 +453,8 @@ class InstallSafetyTest(InstallCase):
                 count += len(want)
         self.assertGreater(count, 0)
 
-    # AC10: a hook python in a temporary path is warned about (the installed hooks would break)
-    def test_install_warns_when_hook_python_is_temporary(self) -> None:
+    # T7 AC3: the hook python is always `python3`, so the installing interpreter's location is not warned about
+    def test_install_does_not_warn_about_hook_python(self) -> None:
         link = self.tmp / "venv-like" / "bin" / "python"
         link.parent.mkdir(parents=True)
         link.symlink_to(sys.executable)
@@ -465,7 +465,44 @@ class InstallSafetyTest(InstallCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
-        self.assertIn("warning", (proc.stdout + proc.stderr).lower())
+        self.assertNotIn("warning", (proc.stdout + proc.stderr).lower())
+
+    def run_with_path(self, path_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        """install.py run by the absolute interpreter, with PATH holding only `path_dir`."""
+        env = {**os.environ, "HOME": str(self.home), "USERPROFILE": str(self.home), "PATH": str(path_dir)}
+        return subprocess.run(
+            [sys.executable, "-B", str(INSTALL), "--dest", str(self.dest), *args],
+            capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT, env=env, cwd=self.tmp,
+        )
+
+    def assert_stopped_before_writing(self, proc: subprocess.CompletedProcess[str], *reason_words: str) -> None:
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("python3", proc.stderr)
+        for word in reason_words:
+            self.assertIn(word, proc.stderr, "the message does not give the reason")
+        self.assertFalse(self.dest.exists(), "install.py created --dest despite the missing python3")
+        self.assert_nothing_outside_dest()
+
+    # T7 AC2: no python3 on PATH stops the run (also --dry-run) with nothing written
+    def test_install_stops_without_python3(self) -> None:
+        empty = self.tmp / "empty-path"
+        empty.mkdir()
+        for flags in ((), ("--dry-run",)):
+            with self.subTest(flags=flags):
+                self.assert_stopped_before_writing(self.run_with_path(empty, *flags))
+
+    # T7 AC2: a python3 below 3.11 stops the run (also --dry-run) with nothing written
+    @unittest.skipUnless(os.name == "posix", "the fake python3 is a #!/bin/sh script")
+    def test_install_stops_on_old_python3(self) -> None:
+        fake_dir = self.tmp / "old-python-path"
+        fake_dir.mkdir()
+        fake = fake_dir / "python3"
+        fake.write_text("#!/bin/sh\necho 'Python 3.10.12'\n", encoding="utf-8")
+        fake.chmod(0o755)
+        for flags in ((), ("--dry-run",)):
+            with self.subTest(flags=flags):
+                self.assert_stopped_before_writing(self.run_with_path(fake_dir, *flags), "3.11")
 
 
 class InstallCheckTest(InstallCase):
