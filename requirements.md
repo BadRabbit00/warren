@@ -53,6 +53,15 @@ Agents run a project's own commands — the ones its README, Makefile or manifes
 | Flutter / Dart | Flutter SDK | `flutter-dart-reviewer` |
 | End-to-end tests | Playwright with its browsers (`npx playwright install`) | `/br-e2e`, `ui-verifier`, skill `e2e-testing` |
 
+## Optional: profiling and observability checks
+
+| Tool | Used by | Why |
+|---|---|---|
+| `py-spy` | `optimizer`, skill `profiling` | sampling profiler for Python programs |
+| Go toolchain (`go tool pprof`) and Graphviz | `optimizer`, skill `profiling` | Go CPU and memory profiles; Graphviz draws the graph reports |
+| `cargo-flamegraph` and `perf` (Linux) | `optimizer`, skill `profiling` | Rust flame graphs; cargo-flamegraph uses `perf` |
+| `promtool` (from Prometheus) and `amtool` (from Alertmanager) | `observability-engineer`, skill `observability-infra` | check Prometheus configs and rules, Alertmanager configs |
+
 ## Optional: second opinions
 
 | Tool | Used by |

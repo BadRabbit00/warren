@@ -25,29 +25,30 @@ COPIED = (
     "agent-models.json", "settings.fragment.json", "LICENSE",
 )
 WORKFLOWS = (
-    "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
+    "br-ci.js", "br-debug.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
     "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
 )
 # Pins (P261110 D2): the shipped agents, skills and commands after the removal of everything Nix.
 AGENTS_PINNED = (
-    "architect-critic", "build-fixer", "ci-engineer", "code-reviewer", "coder", "db-reviewer",
-    "deploy-engineer", "deploy-error-reader", "flutter-dart-reviewer", "go-coder", "go-reviewer",
-    "janitor", "log-collector", "log-writer", "optimizer", "presenter", "python-coder", "python-reviewer",
-    "refactorer", "researcher", "rust-coder", "rust-reviewer", "security-reviewer", "stand-operator",
-    "test-runner", "test-writer", "ts-coder", "ts-react-reviewer", "ui-verifier", "web-researcher",
+    "architect-critic", "bug-reproducer", "build-fixer", "ci-engineer", "code-reviewer", "coder",
+    "db-reviewer", "deploy-engineer", "deploy-error-reader", "flutter-dart-reviewer", "go-coder",
+    "go-reviewer", "janitor", "log-collector", "log-writer", "metrics-writer", "observability-engineer",
+    "optimizer", "presenter", "python-coder", "python-reviewer", "refactorer", "repro-runner", "researcher",
+    "root-cause-analyst", "rust-coder", "rust-reviewer", "security-reviewer", "stand-operator", "test-runner",
+    "test-writer", "ts-coder", "ts-react-reviewer", "ui-verifier", "web-researcher",
 )
 SKILLS_PINNED = (
-    "api-design", "architecture-guide", "auth-service", "ci-github-actions", "cli-cloudflare",
-    "cli-docker", "cli-doctl", "cli-gcloud", "cli-gh", "cli-railway", "cli-yc", "cloud-cloudflare",
-    "cloud-digitalocean", "cloud-gcp", "cloud-railway", "cloud-yandex", "cost-aware-llm-pipeline",
-    "dart-flutter-patterns", "database-migrations", "deploy-variants", "design-system",
-    "docker-patterns", "documentation-lookup", "e2e-testing", "frontend-data-layer",
-    "golang-patterns", "homelab-network-readiness", "homelab-network-setup", "homelab-pihole-dns",
-    "homelab-vlan-segmentation", "homelab-wireguard-vpn", "iac", "logging", "mcp-server-patterns",
-    "network-config-validation", "postgres-patterns", "project-docs", "prompt-caching-strategy",
+    "api-design", "architecture-guide", "auth-service", "ci-github-actions", "cli-cloudflare", "cli-docker",
+    "cli-doctl", "cli-gcloud", "cli-gh", "cli-railway", "cli-yc", "cloud-cloudflare", "cloud-digitalocean",
+    "cloud-gcp", "cloud-railway", "cloud-yandex", "cost-aware-llm-pipeline", "dart-flutter-patterns",
+    "database-migrations", "debugging", "deploy-variants", "design-system", "docker-patterns",
+    "documentation-lookup", "e2e-testing", "frontend-data-layer", "golang-patterns",
+    "homelab-network-readiness", "homelab-network-setup", "homelab-pihole-dns", "homelab-vlan-segmentation",
+    "homelab-wireguard-vpn", "iac", "logging", "mcp-server-patterns", "metrics", "network-config-validation",
+    "observability-infra", "postgres-patterns", "profiling", "project-docs", "prompt-caching-strategy",
     "python-service", "react-patterns", "recsys-pipeline-architect", "redis-patterns",
-    "registry-dockerhub-ghcr", "rust-patterns", "security-review", "sops", "stack-choice",
-    "user-flows", "vite-patterns",
+    "registry-dockerhub-ghcr", "rust-patterns", "security-review", "sops", "stack-choice", "user-flows",
+    "vite-patterns",
 )
 COMMANDS_PINNED = (
     "ask-agy", "ask-argon", "ask-astra", "optimize", "policy-review", "test-affected",
@@ -297,7 +298,7 @@ class ExportTest(unittest.TestCase):
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
                 "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
-                "log-writer",
+                "log-writer", "metrics-writer", "observability-engineer",
                 "presenter", "python-coder", "refactorer", "rust-coder", "test-writer",
                 "ts-coder", "ui-verifier",
             ],
