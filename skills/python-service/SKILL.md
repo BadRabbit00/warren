@@ -68,7 +68,7 @@ Details and examples: `references/config-and-logging.md`.
 
 - R-PYS-CONFIG: one module reads env (`core/config.py`, pydantic-settings); nothing else calls `os.getenv`. Variables carry a service prefix. A new variable goes into the config module and `.env.example` in the same change. Required values fail at startup.
 - R-PYS-LOGGING: `structlog.get_logger(__name__)`, key-value fields, no `print`, no secrets or personal data in logs.
-- R-PYS-NIX: no venv, no `pip install`. Run everything as `nix develop -c <cmd>`. A new dependency is reported, not added.
+- R-PYS-ENV: no venv, no `pip install` outside the project's own toolchain. Use the project's locked environment (`uv sync --frozen`). A new dependency is reported, not added.
 
 ## Tests
 
@@ -82,7 +82,7 @@ Details and examples: `references/testing.md`.
 
 ## Checks before you hand back
 
-1. `nix develop -c pytest <task tests> -q` - numbers in the report; no skipped.
-2. `nix develop -c ruff check <path>` and `nix develop -c ruff format --check <path>`.
-3. `nix develop -c mypy --strict <package>` - clean, no new `# type: ignore` without a one-line reason.
+1. `pytest <task tests> -q` - numbers in the report; no skipped.
+2. `ruff check <path>` and `ruff format --check <path>`.
+3. `mypy --strict <package>` - clean, no new `# type: ignore` without a one-line reason.
 4. `git diff`: only files of the write set; no `print`, no `Any`, no `os.getenv` outside config, no `commit` in a repository, no `HTTPException` in a service.

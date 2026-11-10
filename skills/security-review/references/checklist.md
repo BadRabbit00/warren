@@ -69,5 +69,5 @@ Ids are ours (`S-<AREA>-<n>`), grouped like OWASP ASVS chapters so a finding map
 - S-SSRF-1 … see `ssrf-uploads.md`.
 
 ## S-CONF — configuration and delivery
-- S-CONF-1 … see `secrets-supply-chain.md` (secrets, dependencies, Nix, CI, containers).
+- S-CONF-1 … see `secrets-supply-chain.md` (secrets, dependencies, CI, containers).
 - S-CONF-2: production refuses to start with dev values (default secrets, `CORS=*`, auth bypass, debug mode).

@@ -23,7 +23,7 @@ You review Dart and Flutter problems in the diff: null-safety holes, lifecycle b
 ## Workflow
 
 1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
+2. Run the project's tools on the changed files with the project's own toolchain (only tools the project has):
    - `dart analyze` (or `flutter analyze`) on the touched package;
    - `dart format --output=none --set-exit-if-changed <files>`;
    - `flutter test <affected tests>` only if the report you got has no numbers.

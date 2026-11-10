@@ -1,6 +1,5 @@
 ---
 paths:
-  - "nix/**"
   - "deploy/**"
   - ".github/workflows/**"
 ---
@@ -13,11 +12,11 @@ Build variants, CI, publishing, and rollout. Compose and local run are in `compo
 
 ## Rules
 
-- R-DEPLOY-SURVEY-FIRST: before touching the build, look at what exists: `flake.nix` outputs, `nix/`, Dockerfiles, compose files, `deploy/`, CI. Continue with what is there. Add a new way only on request.
-- R-DEPLOY-DEFAULT: for Alexey's projects, the Nix package + distroless `dockerTools` image, published to GHCR. For other projects, Dockerfile + compose, still distroless and non-root.
+- R-DEPLOY-SURVEY-FIRST: before touching the build, look at what exists: build scripts, Dockerfiles, compose files, `deploy/`, CI. Continue with what is there. Add a new way only on request.
+- R-DEPLOY-DEFAULT: for Alexey's projects, a multi-stage Dockerfile to a distroless (or slim) non-root image, published to GHCR.
 - R-DEPLOY-ALL-VARIANTS: when several build variants exist, one change updates all of them in the same commit: dependencies, runtime version, env, ports, entrypoint, healthcheck, user, volumes. Each touched variant is checked.
 - R-DEPLOY-BUILD-ONCE: CI builds the artifact once and deploys by digest. The server never builds from `git pull`.
-- R-DEPLOY-CI: on PR, run lint, types, tests with a real DB, `nix flake check`, every build variant, and an image smoke test. Actions and tools are pinned to versions. The publishing workflow is separate from the checking one; `pull_request_target` never runs PR code.
+- R-DEPLOY-CI: on PR, run lint, types, tests with a real DB, every build variant, and an image smoke test. Actions and tools are pinned to versions. The publishing workflow is separate from the checking one; `pull_request_target` never runs PR code.
 - R-DEPLOY-TAGS: image tags `sha-<short>`, `main`, `vX.Y.Z`; releases happen only from `main` after full CI, set by a human.
 - R-DEPLOY-ROLLOUT: backup → migrations as a separate step → version switch → health check → main scenario. The rollback (previous digest or generation) is known before rollout. Production only with explicit permission.
 
@@ -53,5 +52,5 @@ Why: CI breaks or changes behaviour without any change in the repo.
 Good:
 ```yaml
 - uses: actions/checkout@<commit-sha>      # pinned; Dependabot bumps it
-- run: nix develop -c golangci-lint run    # version comes from flake.lock
+- run: golangci-lint run    # version pinned in the toolchain file
 ```

@@ -27,10 +27,10 @@ If an AC is ambiguous or contradicts the docs, stop with `STATUS: blocked` and q
 
 ## Workflow
 
-1. **Learn the project's test setup.** Find the runner, `conftest.py`/helpers, factories, how the test DB starts (compose service, testcontainers, Nix), and the CI test command. New tests follow the existing style.
+1. **Learn the project's test setup.** Find the runner, `conftest.py`/helpers, factories, how the test DB starts (compose service, testcontainers), and the CI test command. New tests follow the existing style.
 2. **Map AC → tests.** One rule = one test; inputs that vary go into parametrization or a table. Choose the layer where the rule lives (domain unit → service with fake repo → repository on the real DB → API with the role matrix). Fill the "must cover" list below for the layer.
 3. **Write the tests** in the task's test paths. Shared fixtures go to the nearest `conftest.py` / helper inside your write set. Fakes of external systems are built from the contract in `docs/API.md`, never from imagination.
-4. **Run only your tests** through the dev shell, the way CI runs them: `nix develop -c pytest src/orders/tests/services/test_order_service.py -q`, `nix develop -c go test -race ./src/orders/tests/...`, `nix develop -c cargo test -p orders --test api`, `nix develop -c npx vitest run src/web/tests/OrderTable.test.tsx`, `nix develop -c flutter test test/order_test.dart`.
+4. **Run only your tests**, the way CI runs them: `pytest src/orders/tests/services/test_order_service.py -q`, `go test -race ./src/orders/tests/...`, `cargo test -p orders --test api`, `npx vitest run src/web/tests/OrderTable.test.tsx`, `flutter test test/order_test.dart`.
 5. **Check the reason.**
    - tests-first: every new test must fail for the **right reason** (see R-TW-RIGHT-REASON). A test that passes before the code exists is either testing existing behaviour (say so) or too weak (fix it).
    - code-first: every new test must pass; for each, name the line of production code whose removal would make it fail.

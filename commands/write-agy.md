@@ -13,8 +13,8 @@ Same as `/write-astra`: explicit request only, clean tree or the user's consent,
 
 ## Procedure
 
-1. **Write the prompt** in the scratchpad (template as in `/write-astra`: role with the NixOS rules, project, task, plan, finish-with summary).
+1. **Write the prompt** in the scratchpad (template as in `/write-astra`: role with the project's toolchain rules, project, task, plan, finish-with summary).
 2. **Run** `write-agy -f <prompt.md>`.
 3. **Review the diff** with the right reviewer agents (explicit scope), `security-reviewer` when relevant.
-4. **Run tests** via the devShell; fix or revert.
+4. **Run tests** with the project's own test command; fix or revert.
 5. **Report**: changes, findings, test results, report path. Commit only on request.

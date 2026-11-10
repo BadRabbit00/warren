@@ -78,6 +78,6 @@ Read only the ones the flows need.
 |---|---|
 | `references/checklist.md` | the ASVS-L2-style checklist with `S-*` ids: architecture, authN, sessions, access control, input and output, crypto, errors and logs, data protection, API and web, files, config |
 | `references/auth-jwt.md` | the project's auth model (`06-auth`): JWKS verification, claims, cookies + CSRF, refresh rotation, rate limits, enumeration, service tokens |
-| `references/secrets-supply-chain.md` | secrets (`10-secrets`), dependencies and lock files, Nix pins, GitHub Actions, containers and compose |
+| `references/secrets-supply-chain.md` | secrets (`10-secrets`), dependencies and lock files, GitHub Actions, containers and compose |
 | `references/ssrf-uploads.md` | outgoing requests to user-influenced URLs, webhooks, file uploads and downloads, archives, images |
 | `references/examples.md` | vulnerable → fixed pairs in Python, Go, and TypeScript |

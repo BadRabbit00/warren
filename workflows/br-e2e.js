@@ -2,7 +2,7 @@
 export const meta = {
   name: 'br-e2e',
   description: 'End-to-end testing of a stand: user flows from the docs, stand up, harness, contract and journey tests in parallel, one final run with app/test/stand classification and p50/p95 timings',
-  whenToUse: 'When the app has docs and a way to start a stand and you want the whole system exercised; args = { stand: "docker"|"nix", target: "local"|"dev-stand", flows_doc?, new_stand? }. No deploys; the stand stays up. `tests/e2e/**` must be in the Tests of a task in red (the write hook lets test-writer write only there). The result carries flows_md: the orchestrator saves it to flows_path (docs/temp/e2e-<id>/flows.md).',
+  whenToUse: 'When the app has docs and a way to start a stand and you want the whole system exercised; args = { stand: "docker"|"script", target: "local"|"dev-stand", flows_doc?, new_stand? }. No deploys; the stand stays up. `tests/e2e/**` must be in the Tests of a task in red (the write hook lets test-writer write only there). The result carries flows_md: the orchestrator saves it to flows_path (docs/temp/e2e-<id>/flows.md).',
   phases: ['Preflight', 'Flows', 'Stand', 'Harness', 'Tests', 'Run'],
 }
 
@@ -169,9 +169,9 @@ function allocate(endpoints, flows, slots) {
 const OUT = typeof args === 'object' && args !== null ? args : {}
 const stand = OUT.stand
 const target = OUT.target
-if (!['docker', 'nix'].includes(stand) || !['local', 'dev-stand'].includes(target)) {
-  log('stopped: args.stand must be docker|nix and args.target local|dev-stand')
-  return { stopped: true, problems: ['args.stand must be docker|nix and args.target local|dev-stand'] }
+if (!['docker', 'script'].includes(stand) || !['local', 'dev-stand'].includes(target)) {
+  log('stopped: args.stand must be docker|script and args.target local|dev-stand')
+  return { stopped: true, problems: ['args.stand must be docker|script and args.target local|dev-stand'] }
 }
 const newStand = OUT.new_stand === true
 const flowsDoc = typeof OUT.flows_doc === 'string' ? OUT.flows_doc : ''
@@ -185,10 +185,10 @@ let used = 0
 used += 1
 const pre = await agent(
   'Preflight, read-only. Check: ' +
-    `the docker daemon (run \`docker version\`), free ports (read-only \`ss -ltn\`) and free subnets (read-only \`docker network ls\` and \`docker network inspect\`) for the compose files of the stand (${stand === 'nix' ? 'the nix stand target' : 'docker-compose*.yaml'}), nix develop works` +
-    (target === 'dev-stand' ? ', and the Railway login (`railway status`, through `nix shell nixpkgs#railway -c railway status`)' : '') +
+    `the docker daemon (run \`docker version\`), free ports (read-only \`ss -ltn\`) and free subnets (read-only \`docker network ls\` and \`docker network inspect\`) for the compose files of the stand (${stand === 'script' ? 'the stand start script' : 'docker-compose*.yaml'})` +
+    (target === 'dev-stand' ? ', and the Railway login (`railway status`)' : '') +
     '. Also run `date +%Y%m%d-%H%M%S` (create nothing, you cannot write files) and return "dir: docs/temp/e2e-<id>" with <id> = that output in problems as the FIRST entry. ' +
-    'For each CLI that is not logged in return user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`. Any other missing tool or busy port goes into problems.',
+    'For each CLI that is not logged in return user_command: the exact one command the user runs as `! <cmd>`. Any other missing tool or busy port goes into problems.',
   { agentType: 'log-collector', label: 'preflight', phase: 'Preflight', schema: LOGIN_SCHEMA },
 )
 if (!pre) {
@@ -227,7 +227,7 @@ if (!flows || flows.flows.length === 0) {
 async function standFailure(what, detail) {
   used += 1
   const logs = await agent(
-    `The e2e stand failed (${what}). Collect bounded raw excerpts (no reasoning): \`docker compose -p <project> ps\`, \`logs --tail 200\` per failing service, the compose file or nix stand target. Return them as text in excerpts; you cannot write files.`,
+    `The e2e stand failed (${what}). Collect bounded raw excerpts (no reasoning): \`docker compose -p <project> ps\`, \`logs --tail 200\` per failing service, the compose file or stand script. Return them as text in excerpts; you cannot write files.`,
     { agentType: 'log-collector', label: 'stand logs', phase: 'Stand', schema: LOGS_SCHEMA },
   )
   used += logs ? 1 : 0
@@ -249,7 +249,7 @@ let standInfo = null
 if (newStand) {
   used += 1
   const written = await agent(
-    `Write the local stand for the e2e run: ${stand === 'nix' ? 'a nix stand target (flake output)' : 'docker-compose.dev.yaml'} with every service the app needs, healthchecks, and no host-port clashes. ` +
+    `Write the local stand for the e2e run: ${stand === 'script' ? 'a stand start script' : 'docker-compose.dev.yaml'} with every service the app needs, healthchecks, and no host-port clashes. ` +
       'Write only the stand files. Do not apply anything beyond a local `docker compose config --quiet` check; the stand-operator starts it. Return up false, the files, project_name (a unique -p name), base_url, services (healthy false), notes.',
     { agentType: 'deploy-engineer', label: 'new stand', phase: 'Stand', schema: STAND_SCHEMA },
   )
@@ -262,7 +262,7 @@ used += 1
 standInfo = await agent(
   target === 'dev-stand'
     ? 'Verify the Railway dev stand is reachable (`railway status`, health URL from docs), read-only. Do not deploy. Return up, files [], project_name, base_url, services with healthy, notes.'
-    : `Bring the ${stand} stand up with a unique project name (\`docker compose -p <name> up -d --wait\` or the nix stand target) and wait until every service is healthy. Leave it up. Return up, files, project_name, base_url, services with healthy, notes.`,
+    : `Bring the ${stand} stand up with a unique project name (\`docker compose -p <name> up -d --wait\` or the stand script) and wait until every service is healthy. Leave it up. Return up, files, project_name, base_url, services with healthy, notes.`,
   { agentType: 'stand-operator', label: 'stand up', phase: 'Stand', schema: STAND_SCHEMA },
 )
 if (!standInfo || !standInfo.up || standInfo.services.some((s) => !s.healthy)) {
@@ -275,7 +275,7 @@ used += 1
 const harness = await agent(
   `Read the skill ~/.claude/skills/e2e-testing/SKILL.md first. ${standLine} ` +
     `User flows (inline, for reference):\n${flowsInline}\n` +
-    'Write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures using the browsers from nixpkgs. No tests of your own beyond a smoke check that the harness imports and reaches the stand. Put all files under the root tests/e2e/, the harness in tests/e2e/harness/. ' +
+    'Write the e2e harness only (base part): API clients, personas with roles, a DB inspector to assert rows written at each step, timing capture (p50/p95), Playwright fixtures. No tests of your own beyond a smoke check that the harness imports and reaches the stand. Put all files under the root tests/e2e/, the harness in tests/e2e/harness/. ' +
     'Return {status: done|blocked, files, tests: [], app_failures: [], notes}.',
   { agentType: 'test-writer', label: 'harness', phase: 'Harness', schema: WRITER_SCHEMA },
 )
@@ -328,7 +328,7 @@ if (okWriters.length === 0) {
 const testFiles = [...harness.files, ...okWriters.flatMap((w) => w.files)]
 used += 1
 const run = await agent(
-  `${standLine} Do not edit files. Run ALL e2e phases in order: api (contract), access (role matrix), journeys, with the project's commands through \`nix develop -c\`. Test files: ${testFiles.map(shellQuote).join(' ')}. ` +
+  `${standLine} Do not edit files. Run ALL e2e phases in order: api (contract), access (role matrix), journeys, with the project's commands. Test files: ${testFiles.map(shellQuote).join(' ')}. ` +
     'Return every test with pass/fail/error/skip and, for a non-pass, a classification: app (the application is wrong), test (the test is wrong: collection, fixture, selector, bad assumption), stand (the stand or environment broke) and the file the fix belongs in (application source for app). ' +
     `Return a timings table of p50 and p95 per step against the budgets in docs/POLICY.md (over_budget is reported, not a failure). You cannot write files: put the full report in summary. Put in questions every place where the expected behaviour is unclear from the docs.`,
   { agentType: 'test-runner', label: 'final run', phase: 'Run', schema: RUN_SCHEMA },

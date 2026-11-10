@@ -12,7 +12,7 @@ Auth and every consumer run in N replicas without code changes.
 - Check: `docker compose up -d --scale auth=3` and "login → request → refresh → logout" behaves as with one replica.
 
 ## Compose
-The whole stack: `cp .env.example .env && nix run .#images && docker compose up -d`. The example below is the Dockerfile variant (`build:`); with Nix images use `image:` from `nix run .#images`, and commands/healthchecks are the package's own entry points (distroless has no `python` or `curl`).
+The whole stack: `cp .env.example .env && docker compose up -d --build`. The example below uses `build:`; with a distroless image, commands/healthchecks are the package's own entry points (distroless has no `python` or `curl`).
 
 ```yaml
 x-auth-env: &auth-env
@@ -82,7 +82,7 @@ volumes:
 
 - Pinned tags; data in named volumes; healthchecks; `depends_on` with conditions.
 - Services reach each other by name (`auth:8000`), never `localhost`. Auth is not published: the reverse proxy (Caddy/nginx) sends `/api/auth/*` and `/.well-known/*` to `auth:8000`. A debug DB port only as `127.0.0.1:${AUTH_DB_HOST_PORT:-15433}:5432`.
-- Image built with Nix (`nix/auth.nix`): non-root, `/keys` a mounted volume, key file mode `600`. Dockerfile variant: pinned `python:3.13-slim`; manifest and `uv sync --frozen --no-dev` before the code; non-root user (`useradd --uid 10001 app`); `/keys` owned by `app`; exec-form `CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]`.
+- Dockerfile: non-root, `/keys` a mounted volume, key file mode `600`; pinned `python:3.13-slim`; manifest and `uv sync --frozen --no-dev` before the code; non-root user (`useradd --uid 10001 app`); `/keys` owned by `app`; exec-form `CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]`.
 - Never keys or secrets through `ARG`/`ENV`; never `COPY .env`. `.dockerignore` and `.gitignore` list `.env`, `.env.*` (except `.env.example`), `*.key`, `*.pem`, `keys/`, `.venv`.
 - `keygen` is idempotent. Deleting the `auth-keys` volume logs everyone out; like `docker compose down -v`, only with the user's explicit confirmation.
 - Prod: a separate `docker-compose.prod.yml` with registry `image:` by version, no `auth-keygen`, `AUTH_ENV=prod`, the key through `secrets:` or a platform secret at `/run/secrets/jwt_private_key`. Auth checks at start that the key exists, is readable, and matches the algorithm.

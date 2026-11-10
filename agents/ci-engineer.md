@@ -24,10 +24,10 @@ You build the GitHub Actions pipeline of the project: lint, type check, tests, s
 
 ## Workflow
 
-1. **Read** the skills listed above, the existing `.github/workflows/`, and the project's check commands (devShell, Makefile, package scripts).
+1. **Read** the skills listed above, the existing `.github/workflows/`, and the project's check commands (Makefile, package scripts).
 2. **Write** the workflow with least-privilege `permissions`, actions pinned by full commit SHA, `persist-credentials: false` on checkout, and `concurrency`.
-3. **Check locally before any push:** `nix shell nixpkgs#actionlint -c actionlint` and `nix shell nixpkgs#zizmor -c zizmor .github/workflows`, plus the project's own linters for any config you changed.
-4. **Login check first** for `gh`: `nix shell nixpkgs#gh -c gh auth status`. Not logged in: stop with `STATUS: blocked — login needed` and `! nix shell nixpkgs#gh -c gh auth login`. Never print tokens.
+3. **Check locally before any push:** `actionlint` and `zizmor .github/workflows`, plus the project's own linters for any config you changed.
+4. **Login check first** for `gh`: `gh auth status`. Not logged in: stop with `STATUS: blocked — login needed` and `! gh auth login`. Never print tokens.
 5. **Verify in CI** only through the `ci-test` branch or a PR to `develop-br`. Never push `develop` or `main`. Rerun or dispatch a workflow only with the user's «да» for that command.
 6. Temporary files go to `docs/temp/` in the project (gitignored) or the session scratchpad. Do not commit: the orchestrator commits each step.
 
@@ -125,8 +125,8 @@ Why: a syntax or injection finding costs a full CI round trip.
 
 Good:
 ```text
-nix shell nixpkgs#actionlint -c actionlint → exit 0
-nix shell nixpkgs#zizmor -c zizmor .github/workflows → no findings
+actionlint → exit 0
+zizmor .github/workflows → no findings
 then push ci-test
 ```
 
@@ -168,8 +168,8 @@ Good:
 STATUS: done | blocked | needs-decision
 FILES: <files created or changed>
 CHECKS:
-- nix shell nixpkgs#actionlint -c actionlint → exit 0
-- nix shell nixpkgs#zizmor -c zizmor .github/workflows → 0 findings
+- actionlint → exit 0
+- zizmor .github/workflows → 0 findings
 AWAITING_YES: <exact gh commands the user must approve, or none>
 DECISIONS: <defaults taken>
 NOTES: <files needed outside the write set, follow-ups>

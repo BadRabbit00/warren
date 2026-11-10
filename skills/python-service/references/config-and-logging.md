@@ -39,16 +39,16 @@ log = structlog.get_logger(__name__)
 log.info("order_paid", order_id=str(order.id), amount_minor=order.total_minor)
 ```
 
-### R-PYS-NIX - the dev shell, not a private environment
+### R-PYS-ENV - the project's locked environment, not an ad-hoc one
 
 Bad:
 ```text
 create a private Python environment in the repo and pip-install httpx into it
 ```
-Why: the environment is not reproducible and drifts from the dev shell and CI.
+Why: the environment is not reproducible and drifts from the lock file and CI.
 
 Good:
 ```text
-nix develop -c pytest -q
-# a new dependency: report name, version, why; the Nix owner adds it to pyproject.toml and the devShell
+pytest -q
+# a new dependency: report name, version, why; the owner adds it to pyproject.toml and the lock
 ```

@@ -86,7 +86,7 @@ Verdict for each: `✅ Justified` + reason (an orchestrator method that only glu
 
 **Mode A — new project** (from the conversation, before code): GENERAL (the problem is asked, in the user's words) → SPECIFICATION → DATABASE + `.dbml` → API → ENTITY → METHOD (usually empty; add an orchestrator method if visible) → STRUCTURE → PATTERN (from skills and conversation) → POLICY → OVERVIEW.
 
-**Mode B — existing project** (from code): STRUCTURE first (the map makes the rest fast) → ENTITY → METHOD (count jobs) → DATABASE + `.dbml` (from migrations and models) → API (routers, clients, consumers) → SPECIFICATION (configs, Nix, compose, CI) → PATTERN (repetition in code) → POLICY (only what is enforced by linters/CI or confirmed by the user) → GENERAL (processes from code; the problem is **always** asked) → OVERVIEW.
+**Mode B — existing project** (from code): STRUCTURE first (the map makes the rest fast) → ENTITY → METHOD (count jobs) → DATABASE + `.dbml` (from migrations and models) → API (routers, clients, consumers) → SPECIFICATION (configs, compose, CI) → PATTERN (repetition in code) → POLICY (only what is enforced by linters/CI or confirmed by the user) → GENERAL (processes from code; the problem is **always** asked) → OVERVIEW.
 
 Mode B with researchers: split the repo into disjoint areas (per service or top directory); each `researcher` returns cards for its area in the formats above. The writer merges them. Conflicting facts → one more researcher to verify, never a guess.
 

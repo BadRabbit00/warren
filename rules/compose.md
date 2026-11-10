@@ -18,8 +18,8 @@ How a project starts locally and what the containers look like. Build variants a
 
 ## Rules
 
-- R-COMPOSE-THREE-COMMANDS: `cp .env.example .env && nix run .#images && docker compose up -d` brings up everything: services, DB, cache, workers, proxy, plus applied migrations and seeds. Anything else needed is a bug.
-- R-COMPOSE-OWN-IMAGES: our services use `image:` built by `nix run .#images` (distroless `dockerTools`). Use `build:` + Dockerfile only for projects that are not Alexey's, or on explicit request, and those images are distroless too.
+- R-COMPOSE-THREE-COMMANDS: `cp .env.example .env && docker compose build && docker compose up -d` brings up everything: services, DB, cache, workers, proxy, plus applied migrations and seeds. Anything else needed is a bug.
+- R-COMPOSE-OWN-IMAGES: our services use `build:` with a multi-stage Dockerfile to a distroless (or slim) non-root image; third-party services use `image:`.
 - R-COMPOSE-PINNED: third-party images carry an exact tag (`postgres:17-alpine`). Never `latest` or a tag without a version.
 - R-COMPOSE-HEALTH: every long-running service has a `healthcheck`. `depends_on` uses `condition: service_healthy`, or `service_completed_successfully` for one-shot jobs (`migrate`, bucket init), which get `restart: "no"`.
 - R-COMPOSE-MIGRATE-STEP: migrations and idempotent seeds run in a separate `migrate` service that API and workers depend on. Replicas never migrate on startup.

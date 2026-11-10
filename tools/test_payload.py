@@ -1,4 +1,4 @@
-"""Tests for the codex and agy exports of nix/payload.py. Run: python3 -I -B -m unittest discover -s tools -p test_*.py"""
+"""Tests for tools/build.py: the br payload tree and the codex and agy exports. Run: python3 -I -B -m unittest discover -s tools -p test_*.py"""
 from __future__ import annotations
 
 import importlib.util
@@ -16,7 +16,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-PAYLOAD = REPO / "nix" / "payload.py"
+BUILD = REPO / "tools" / "build.py"
+# Absolute path of the interpreter the hooks run with; the space proves that build.py quotes it.
+HOOK_PYTHON = "/opt/br test/bin/python3"
 
 COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools",
@@ -25,6 +27,31 @@ COPIED = (
 WORKFLOWS = (
     "br-ci.js", "br-deploy.js", "br-diagnose.js", "br-e2e.js",
     "br-janitor.js", "br-research.js", "br-review.js", "br-wave.js",
+)
+# Pins (P261110 D2): the shipped agents, skills and commands after the removal of everything Nix.
+AGENTS_PINNED = (
+    "architect-critic", "build-fixer", "ci-engineer", "code-reviewer", "coder", "db-reviewer",
+    "deploy-engineer", "deploy-error-reader", "flutter-dart-reviewer", "go-coder", "go-reviewer",
+    "janitor", "log-collector", "optimizer", "presenter", "python-coder", "python-reviewer",
+    "refactorer", "researcher", "rust-coder", "rust-reviewer", "security-reviewer", "stand-operator",
+    "test-runner", "test-writer", "ts-coder", "ts-react-reviewer", "ui-verifier", "web-researcher",
+)
+SKILLS_PINNED = (
+    "api-design", "architecture-guide", "auth-service", "ci-github-actions", "cli-cloudflare",
+    "cli-docker", "cli-doctl", "cli-gcloud", "cli-gh", "cli-railway", "cli-yc", "cloud-cloudflare",
+    "cloud-digitalocean", "cloud-gcp", "cloud-railway", "cloud-yandex", "cost-aware-llm-pipeline",
+    "dart-flutter-patterns", "database-migrations", "deploy-variants", "design-system",
+    "docker-patterns", "documentation-lookup", "e2e-testing", "frontend-data-layer",
+    "golang-patterns", "homelab-network-readiness", "homelab-network-setup", "homelab-pihole-dns",
+    "homelab-vlan-segmentation", "homelab-wireguard-vpn", "iac", "mcp-server-patterns",
+    "network-config-validation", "postgres-patterns", "project-docs", "prompt-caching-strategy",
+    "python-service", "react-patterns", "recsys-pipeline-architect", "redis-patterns",
+    "registry-dockerhub-ghcr", "rust-patterns", "security-review", "sops", "stack-choice",
+    "user-flows", "vite-patterns",
+)
+COMMANDS_PINNED = (
+    "ask-agy", "ask-argon", "ask-astra", "optimize", "policy-review", "test-affected",
+    "write-agy", "write-argon", "write-astra",
 )
 SKIPPED_PROMPTS = {"ask-astra", "write-astra"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -78,30 +105,14 @@ def make_tree(tmp: Path) -> Path:
     return root
 
 
-def run_exporter(
-    root: Path, out: Path, between: Callable[[Path], None] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Lays out the Claude tree like nix/payload.nix installPhase, then runs payload.py on it.
+def run_exporter(root: Path, out: Path) -> subprocess.CompletedProcess[str]:
+    """Runs `python3 tools/build.py <out> <repo> <hook-python>` on the source tree `root`.
 
-    `between` gets the finished claude dir after the copies and before payload.py runs, so a test can
-    break the installed tree the way a wrong installPhase would.
+    build.py lays out the whole tree itself (the old Nix installPhase did the copying),
+    so there is nothing to prepare in `out`.
     """
-    claude = out / "claude"
-    for src, dst in (
-        ("agents", "agents"), ("skills", "skills"), ("rules", "rules/br"), ("commands", "commands"),
-        ("output-styles", "output-styles"), ("templates", "br/templates"),
-    ):
-        shutil.copytree(root / src, claude / dst, copy_function=shutil.copyfile)
-    (claude / "workflows").mkdir()
-    for script in sorted((root / "workflows").glob("*.js")):
-        shutil.copyfile(script, claude / "workflows" / script.name)
-    shutil.copyfile(root / "core" / "CLAUDE.md", claude / "CLAUDE.md")
-    shutil.copyfile(root / "LICENSE", out / "LICENSE")
-    shutil.copyfile(root / "settings.fragment.json", out / "settings.fragment.json")
-    if between is not None:
-        between(claude)
     return subprocess.run(
-        [sys.executable, "-I", "-B", str(PAYLOAD), str(out), str(root), "/x/br-hook"],
+        [sys.executable, "-I", "-B", str(BUILD), str(out), str(root), HOOK_PYTHON],
         capture_output=True, text=True, check=False, timeout=EXPORTER_TIMEOUT,
     )
 
@@ -176,6 +187,82 @@ class ExportTest(unittest.TestCase):
         self.assertTrue(path.is_file(), f"{path} missing; exporter stderr: {self.proc.stderr!r}")
         return tomllib.loads(path.read_text(encoding="utf-8"))
 
+    # AC1: the tree the Nix payload produced, with hooks called through the given interpreter
+    def test_build_tree(self) -> None:
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
+        self.assertEqual(
+            sorted(p.name for p in self.out.iterdir()),
+            ["LICENSE", "agy", "claude", "codex", "hooks.json", "settings.fragment.json"],
+        )
+        claude = self.out / "claude"
+        self.assertEqual(
+            sorted(p.name for p in claude.iterdir()),
+            ["CLAUDE.md", "agents", "br", "commands", "output-styles", "rules", "skills", "workflows"],
+        )
+        self.assertEqual(sorted(p.name for p in (claude / "br").iterdir()), ["hooks", "templates"])
+        self.assertEqual((claude / "CLAUDE.md").read_bytes(), (self.root / "core" / "CLAUDE.md").read_bytes())
+        self.assertEqual((self.out / "LICENSE").read_bytes(), (self.root / "LICENSE").read_bytes())
+        self.assertEqual(
+            (self.out / "settings.fragment.json").read_bytes(), (self.root / "settings.fragment.json").read_bytes(),
+        )
+        self.assertEqual(
+            sorted(p.name for p in (claude / "rules" / "br").iterdir()),
+            sorted(p.name for p in (self.root / "rules").glob("*.md")),
+        )
+        self.assertEqual(
+            files_of(claude / "output-styles"), files_of(self.root / "output-styles"),
+        )
+        self.assertEqual(files_of(claude / "br" / "templates"), files_of(self.root / "templates"))
+
+        # The hook files are copied next to the commands that call them.
+        installed = claude / "br" / "hooks"
+        sources = sorted(self.root.joinpath("hooks").glob("*.py")) + sorted(self.root.joinpath("hooks", "brhooks").glob("*.py"))
+        self.assertGreaterEqual(len(sources), 5)
+        for src in sources:
+            rel = src.relative_to(self.root / "hooks")
+            copy = installed / rel
+            self.assertTrue(copy.is_file(), f"{copy} missing")
+            self.assertEqual(copy.read_bytes(), src.read_bytes(), str(rel))
+
+        # hooks.json: same ids and events as the source, commands through the interpreter, no placeholder.
+        source_hooks = json.loads((self.root / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        built = json.loads((self.out / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        self.assertEqual(sorted(built), sorted(source_hooks))
+        checked = 0
+        for event, entries in source_hooks.items():
+            self.assertEqual([e["id"] for e in built[event]], [e["id"] for e in entries], event)
+            for src_entry, entry in zip(entries, built[event]):
+                self.assertEqual(len(entry["hooks"]), len(src_entry["hooks"]))
+                for src_hook, hook in zip(src_entry["hooks"], entry["hooks"]):
+                    script = src_hook["command"].split()[-1]
+                    want = f'"{HOOK_PYTHON}" -I -B "{self.out}/claude/br/hooks/{script}.py"'
+                    self.assertEqual(hook["command"], want, entry["id"])
+                    self.assertTrue((installed / f"{script}.py").is_file(), script)
+                    checked += 1
+        self.assertGreaterEqual(checked, 4)
+        self.assertNotIn("@BR_HOOK@", (self.out / "hooks.json").read_text(encoding="utf-8"))
+
+    # AC5: the pinned lists, without the Nix agents, skills and commands (D2)
+    def test_payload_pins_agents_skills_commands(self) -> None:
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
+        claude = self.out / "claude"
+        self.assertEqual(sorted(p.stem for p in (claude / "agents").glob("*.md")), sorted(AGENTS_PINNED))
+        self.assertEqual(sorted(p.name for p in (claude / "skills").iterdir()), sorted(SKILLS_PINNED))
+        self.assertEqual(sorted(p.stem for p in (claude / "commands").glob("*.md")), sorted(COMMANDS_PINNED))
+        self.assertEqual(self.names, sorted(AGENTS_PINNED))
+        self.assertEqual(sorted(p.stem for p in (self.out / "codex" / "agents").glob("*.toml")), sorted(AGENTS_PINNED))
+        self.assertEqual(sorted(p.stem for p in (self.out / "agy" / "agents").glob("*.md")), sorted(AGENTS_PINNED))
+        self.assertEqual(
+            sorted(p.stem for p in (self.out / "codex" / "prompts").glob("*.md")),
+            sorted(set(COMMANDS_PINNED) - SKIPPED_PROMPTS),
+        )
+        self.assertEqual(sorted(p.name for p in (self.out / "codex" / "skills").iterdir()), sorted(SKILLS_PINNED))
+        self.assertEqual(
+            sorted(p.stem for p in (claude / "rules" / "br").glob("*.md")),
+            sorted(p.stem for p in (self.root / "rules").glob("*.md")),
+        )
+        self.assertFalse((claude / "rules" / "br" / "nix.md").exists())
+
     def test_codex_agent_toml(self) -> None:
         self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
         produced = sorted(p.stem for p in (self.out / "codex" / "agents").glob("*.toml"))
@@ -195,6 +282,7 @@ class ExportTest(unittest.TestCase):
             self.assertEqual(instructions.strip(), body.strip(), name)
 
     def test_codex_sandbox_mode(self) -> None:
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr)
         expected: dict[str, str] = {}
         for name in self.names:
             fm, _ = self.claude_agent(name)
@@ -209,9 +297,8 @@ class ExportTest(unittest.TestCase):
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
                 "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
-                "nix-build-resolver", "nix-engineer", "nix-test-runner", "presenter",
-                "python-coder", "refactorer", "rust-coder", "test-writer", "ts-coder",
-                "ui-verifier",
+                "presenter", "python-coder", "refactorer", "rust-coder", "test-writer",
+                "ts-coder", "ui-verifier",
             ],
         )
         for name, mode in expected.items():
@@ -239,9 +326,9 @@ class ExportTest(unittest.TestCase):
 
     def test_codex_toml_self_check_rejects_bad_files(self) -> None:
         self.assertIn("codex toml ok", self.proc.stdout)
-        spec = importlib.util.spec_from_file_location("br_payload_under_test", PAYLOAD)
+        spec = importlib.util.spec_from_file_location("br_build_under_test", BUILD)
         if spec is None or spec.loader is None:
-            self.fail(f"cannot load {PAYLOAD}")
+            self.fail(f"cannot load {BUILD}")
         payload: types.ModuleType = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(payload)
         expected = len(self.names)
@@ -427,71 +514,36 @@ class ExportWorkflowFailureTest(unittest.TestCase):
         self.assertIn("bad.js", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
+    # build.py copies the workflows itself now, so the old "installed tree was broken between the
+    # copy and the check" tests (missing, modified, extra installed file) cannot be expressed: a
+    # broken source workflow is the remaining way to hand it unreadable entries (AC1).
+    def test_payload_rejects_binary_or_dir_source_workflow(self) -> None:
+        def binary_js(workflows: Path) -> None:
+            (workflows / "blob.js").write_bytes(b"\xff\xfe\x00\x80 not utf-8")
 
-class ExportInstalledWorkflowsTest(unittest.TestCase):
-    """payload.py runs inside the real installPhase, so it must verify what was actually installed."""
+        def known_workflow_replaced_by_binary(workflows: Path) -> None:
+            (workflows / "br-review.js").write_bytes(b"\xff\xfe\x00\x80")
 
-    def run_broken(self, break_installed: Callable[[Path], None]) -> subprocess.CompletedProcess[str]:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        root = make_tree(tmp)
-        return run_exporter(root, tmp / "out", between=break_installed)
-
-    def assert_rejected(self, proc: subprocess.CompletedProcess[str], name: str) -> None:
-        self.assertNotEqual(proc.returncode, 0, proc.stdout)
-        self.assertIn(name, proc.stderr)
-        self.assertNotIn("Traceback", proc.stderr)
-
-    def test_payload_rejects_missing_installed_workflow(self) -> None:
-        proc = self.run_broken(lambda claude: (claude / "workflows" / "br-review.js").unlink())
-        self.assert_rejected(proc, "br-review.js")
-
-    def test_payload_rejects_modified_installed_workflow(self) -> None:
-        def modify(claude: Path) -> None:
-            path = claude / "workflows" / "br-review.js"
-            path.write_bytes(path.read_bytes() + b" ")
-
-        self.assert_rejected(self.run_broken(modify), "br-review.js")
-
-    def test_payload_rejects_extra_installed_file(self) -> None:
-        def add(claude: Path) -> None:
-            (claude / "workflows" / "notes.txt").write_text("stray\n", encoding="utf-8")
-
-        self.assert_rejected(self.run_broken(add), "notes.txt")
-
-    # AC3: stray entries that are not readable text must be named in the failure, without a traceback
-    def test_payload_rejects_binary_or_dir_installed_entry(self) -> None:
-        def stray_binary_js(claude: Path) -> None:
-            (claude / "workflows" / "blob.js").write_bytes(b"\xff\xfe\x00\x80 not utf-8")
-
-        def stray_binary_other_ext(claude: Path) -> None:
-            (claude / "workflows" / "blob.bin").write_bytes(b"\xff\xfe\x00\x80")
-
-        def stray_dir(claude: Path) -> None:
-            (claude / "workflows" / "subdir").mkdir()
-
-        def stray_dir_named_js(claude: Path) -> None:
-            (claude / "workflows" / "folder.js").mkdir()
-
-        def source_replaced_by_binary(claude: Path) -> None:
-            (claude / "workflows" / "br-review.js").write_bytes(b"\xff\xfe\x00\x80")
-
-        def source_replaced_by_dir(claude: Path) -> None:
-            path = claude / "workflows" / "br-review.js"
+        def known_workflow_replaced_by_dir(workflows: Path) -> None:
+            path = workflows / "br-review.js"
             path.unlink()
             path.mkdir()
 
         cases = (
-            ("blob.js", stray_binary_js),
-            ("blob.bin", stray_binary_other_ext),
-            ("subdir", stray_dir),
-            ("folder.js", stray_dir_named_js),
-            ("br-review.js", source_replaced_by_binary),
-            ("br-review.js", source_replaced_by_dir),
+            ("blob.js", binary_js),
+            ("br-review.js", known_workflow_replaced_by_binary),
+            ("br-review.js", known_workflow_replaced_by_dir),
         )
-        for name, break_installed in cases:
-            with self.subTest(case=break_installed.__name__):
-                self.assert_rejected(self.run_broken(break_installed), name)
+        for name, break_source in cases:
+            with self.subTest(case=break_source.__name__):
+                tmp = Path(tempfile.mkdtemp())
+                self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+                root = make_tree(tmp)
+                break_source(root / "workflows")
+                proc = run_exporter(root, tmp / "out")
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn(name, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
 
     def test_payload_accepts_block_comment_before_meta(self) -> None:
         tmp = Path(tempfile.mkdtemp())

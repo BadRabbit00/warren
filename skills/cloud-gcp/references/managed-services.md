@@ -11,4 +11,4 @@ Create through IaC (`references/iac.md`); the gcloud forms below are for one-off
 
 Secrets: never in the repo or in image env. Keep values in Secret Manager and pass `--set-secrets=ENV=secret:version`, or encrypt repo files with `sops` (see that skill). The Cloud SQL password is a secret; the connection name is not.
 
-Backups: Cloud SQL `gcloud sql backups list --instance=NAME`; point-in-time clone `gcloud sql instances clone SOURCE NEW --point-in-time 'TIMESTAMP'` (UTC RFC 3339). Local access for debugging: `nixpkgs#google-cloud-sql-proxy` (there is no `nixpkgs#cloud-sql-proxy`).
+Backups: Cloud SQL `gcloud sql backups list --instance=NAME`; point-in-time clone `gcloud sql instances clone SOURCE NEW --point-in-time 'TIMESTAMP'` (UTC RFC 3339). Local access for debugging: `cloud-sql-proxy` (Cloud SQL Auth Proxy).

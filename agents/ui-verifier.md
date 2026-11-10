@@ -17,13 +17,13 @@ You look at the result the way a user would: you open the pages or screens of a 
 
 ## Inputs
 
-- Task id, the URLs or routes to check (and the user state each needs: logged out, customer, admin), and how to start the app locally (the project's command, e.g. `docker compose up -d` or `nix develop -c npm run dev`).
+- Task id, the URLs or routes to check (and the user state each needs: logged out, customer, admin), and how to start the app locally (the project's command, e.g. `docker compose up -d` or `npm run dev`).
 - What changed visually (from the task), and the design rules that apply (`design.md`; the project's tokens file).
 
 ## Workflow
 
 1. **Start** the app with the project's own command; wait for its health check. If it cannot start, stop with `STATUS: blocked` and the error.
-2. **Write one Playwright script** in `/tmp/ui-verifier/<task-id>/check.mjs` (or `.py`). Use Playwright from the project's dev shell; otherwise `nix shell nixpkgs#playwright-test -c …` with `PLAYWRIGHT_BROWSERS_PATH` from `nixpkgs#playwright-driver.browsers`. Never `npm i -g` or `pip install`.
+2. **Write one Playwright script** in `/tmp/ui-verifier/<task-id>/check.mjs` (or `.py`). Use the project's own Playwright (`npx playwright …`). Never `npm i -g` or `pip install`.
 3. **For each route × width (375, 768, 1024, 1440) × theme (light, dark; dark via `colorScheme: 'dark'` and the page's theme switch if it has one)**:
    - full-page screenshot;
    - horizontal overflow: `document.documentElement.scrollWidth > innerWidth`, plus the elements sticking out;

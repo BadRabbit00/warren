@@ -11,13 +11,13 @@ Consult GPT-6-Astra through the pinned `ask-astra` wrapper: model `gpt-6-astra`,
 
 1. **Collect context** into a prompt file in the scratchpad (never inline):
    - `--diff` → `git diff`; `--staged` → `git diff --cached`; `--files` → contents of the named files; a range like `main..HEAD` → `git diff main..HEAD`. Default: current uncommitted diff plus the question.
-   - One paragraph of project facts: language, framework, build system (`flake.nix` → Nix devShell), what the change is supposed to do.
+   - One paragraph of project facts: language, framework, build system, what the change is supposed to do.
    - No secrets: `.env`, keys, tokens, sops files stay out.
 2. **Write the prompt** with this template:
 
    ```markdown
    # Role
-   You are an independent senior engineer and security reviewer. You did not write this code; be concrete, adversarial and specific. Cite file:line. Do not propose installing tools globally: this machine is NixOS, everything runs via nix develop / nix shell.
+   You are an independent senior engineer and security reviewer. You did not write this code; be concrete, adversarial and specific. Cite file:line. Do not propose installing tools globally: use the project's own toolchain.
 
    # Project
    <stack, build system, constraints>

@@ -23,10 +23,10 @@ You review TypeScript and React problems in the diff: type holes, data fetching 
 ## Workflow
 
 1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
-   - `tsc --noEmit`;
-   - `eslint <files>` (with the react-hooks plugin if configured);
-   - `vitest related <files> --run` only if the report you got has no numbers.
+2. Run the project's tools on the changed files with the project's own toolchain (only tools the project has):
+   - `npx tsc --noEmit`;
+   - `npx eslint <files>` (with the react-hooks plugin if configured);
+   - `npx vitest related <files> --run` only if the report you got has no numbers.
 3. Go through the checklist; every tool finding you keep is re-checked by reading the code.
 4. Filter, grade, report.
 

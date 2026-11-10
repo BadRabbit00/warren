@@ -8,7 +8,7 @@ export const meta = {
 
 const STEPS = ['red', 'green', 'refactor', 'fix-tests', 'fix-code', 'check']
 const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder', 'python-coder', 'go-coder', 'ts-coder', 'rust-coder',
-  'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
+  'build-fixer', 'optimizer', 'ui-verifier']
 const MAX_AGENTS = 15
 const strArr = { type: 'array', items: { type: 'string' } }
 
@@ -252,8 +252,8 @@ async function preflight(items) {
   const clis = [...new Set(items.flatMap((i) => i.needs_login))]
   if (clis.length === 0) return null
   const got = await agent(
-    `Check the login of each CLI: ${clis.join(', ')}. Use the status commands from the cli-* skills, through \`nix shell nixpkgs#<pkg> -c <cmd>\`; read-only. ` +
-      'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`.',
+    `Check the login of each CLI: ${clis.join(', ')}. Use the status commands from the cli-* skills (run the CLI directly; a missing CLI means install_needed with the requirements.md hint); read-only. ` +
+      'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! <cmd>`.',
     { agentType: 'log-collector', label: 'login preflight', phase: 'Preflight', schema: LOGIN_SCHEMA },
   )
   if (!got) return { stopped: true, problems: ['login preflight returned nothing'] }
@@ -340,7 +340,7 @@ async function checkTask(task, own, done) {
       (noTests
         ? 'This task has no Tests: do not run tests, only carry out the check brief; return ran, passed, failed, errors, skipped, files_hashed as 0, per_test [], tests_hash "", command "". '
         : `Tests: ${task.tests.join(', ')}\n` +
-          'Run the task\'s tests with the project\'s command (through `nix develop -c`) and report the exact numbers. Report test names as the bare test function name. ' +
+          'Run the task\'s tests with the project\'s command and report the exact numbers. Report test names as the bare test function name. ' +
           (red ? 'For every failing test give a verdict: right_reason (fails on an assertion about missing behaviour) or wrong_reason (import, syntax or fixture error); n/a for tests that do not fail. ' : '') +
           `Compute tests_hash with exactly this command and return the first field of its output: ${hashCommand(task.tests)}\n` +
           `Also return files_hashed, the number of files matched, from this command: ${countCommand(task.tests)}\n`),

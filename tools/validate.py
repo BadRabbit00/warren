@@ -17,6 +17,15 @@ import re
 import sys
 from pathlib import Path
 
+# Text agents read: Nix wording and nix-named files are refused there. hooks/ and tools/ are exempt.
+NIX_DIRS = ("agents", "skills", "commands", "rules", "core", "output-styles", "workflows", "templates")
+NIX_TEXT = re.compile(
+    r"\bnix\s+(?:develop|shell|run|build|flake)\b|\bnixpkgs#|\bflake\.nix\b|\bdevShell\b|\bdockerTools\b"
+    r"|(?<![\w-])nix(?:os)?-[a-z]|(?<![\w-])project-flake\b",
+    re.I,
+)
+NIX_NAME = re.compile(r"^(?:nix(?:os)?|project-flake)(?:[-._]|$)", re.I)
+
 CONTENT_DIRS = ("agents", "rules", "skills", "commands", "core", "templates", "hooks")
 RULE_HEADING = re.compile(r"^###\s+(R-[A-Z0-9]+(?:-[A-Z0-9]+)+)\b", re.M)
 # Applied to one section at a time (see check_examples), so a Bad: of one rule can never
@@ -173,7 +182,7 @@ def split_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
 
 
 def block_list_keys(raw: str) -> list[str]:
-    """Keys written as `key:` followed by an indented or `- ` line. nix/payload.py cannot edit
+    """Keys written as `key:` followed by an indented or `- ` line. tools/build.py cannot edit
     such lists, so agents must use the inline form."""
     lines = raw.splitlines()
     keys = []
@@ -395,11 +404,11 @@ class Validator:
                 self.err(p, "description must be one plain line (no block scalar)")
             elif YAML_ESCAPES.fullmatch(raw_description):
                 self.err(p, "description uses YAML escapes; write it plainly or without quotes")
-            # buildIsolated agents get isolation fields from nix/payload.py at build time.
+            # buildIsolated agents get isolation fields from tools/build.py at build time.
             built = name in self.cfg.get("buildIsolated", [])
             checked = desc
             if built:
-                # Same substitution as nix/payload.py (one pattern in validate.json): the build strips this sentence.
+                # Same substitution as tools/build.py (one pattern in validate.json): the build strips this sentence.
                 checked = re.sub(self.cfg["proactivelyPattern"], "", desc)
             for word in self.cfg["forbiddenDescriptionWords"]:
                 if word.lower() in checked.lower():
@@ -486,7 +495,7 @@ class Validator:
                 self.err(p, f"missing marker {self.cfg['styleMarker']}")
         marker = self.cfg["styleMarker"]
         # Only the installed content is scanned (output-styles/ is not in CONTENT_DIRS): README,
-        # .plan and nix/ may name the marker.
+        # .plan may name the marker.
         scanned = [d for d in CONTENT_DIRS if (self.root / d).is_dir()]
         for p in sorted(f for d in scanned for f in (self.root / d).rglob("*")):
             if p.is_file() and p.suffix in {".md", ".html", ".json"} \
@@ -686,6 +695,31 @@ class Validator:
             for hit in pattern.finditer(masked):
                 self.err(p, f"line {line_at(text, hit.start())}: {token} is not allowed in a workflow script")
 
+    def check_nix(self) -> None:
+        """No Nix in the text agents read: wording, and files or directories named nix-*."""
+        targets = [self.root / "settings.fragment.json"]
+        for d in NIX_DIRS:
+            if (self.root / d).is_dir():
+                targets += sorted((self.root / d).rglob("*"))
+        reported: set[Path] = set()
+        for p in targets:
+            rel = p.relative_to(self.root)
+            for i, part in enumerate(rel.parts[1:], 1):
+                shown = self.root.joinpath(*rel.parts[: i + 1])
+                if NIX_NAME.match(part.removesuffix(".md")) and shown not in reported:
+                    reported.add(shown)
+                    self.err(shown, f"nix-named path '{part}' is not allowed")
+            if not p.is_file():
+                continue
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                m = NIX_TEXT.search(line)
+                if m:
+                    self.err(p, f"line {n}: Nix mention '{m.group(0)}' is not allowed")
+
     def check_exemptions(self) -> None:
         """Stale exemptions silently weaken the checks, so every listed name must still exist."""
         cfg_path = self.root / "tools" / "validate.json"
@@ -728,6 +762,7 @@ class Validator:
         self.check_commands()
         self.check_agent_skills()
         self.check_workflows()
+        self.check_nix()
         self.check_exemptions()
         return self.errors
 

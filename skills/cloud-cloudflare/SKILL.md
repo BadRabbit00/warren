@@ -27,18 +27,19 @@ Copied from github.com/cloudflare/skills (Apache-2.0), see `references/official/
 
 Warren rules override the official text where they differ:
 
-- Run tools only as `nix shell nixpkgs#wrangler -c wrangler ...` or `nix shell nixpkgs#cf -c cf ...`. The official skills suggest `npm install --global cf` and `npx wrangler`; do not do that here. If the project pins wrangler in `node_modules`, the official skill prefers that version; use the project script, never a global install.
+- Run tools only as `wrangler ...` or `cf ...`. The official skills suggest `npm install --global cf` and `npx wrangler`; do not do that here. If the project pins wrangler in `node_modules`, the official skill prefers that version; use the project script, never a global install.
 - Login is checked first and done only by the user (below).
 - The `skill-feedback.md` files describe posting public GitHub issues. Do it only if the user asks and approves the exact text.
 - IaC is OpenTofu; apply only by a human (below).
 
 ## Login check (D3)
 
-1. `nix shell nixpkgs#wrangler -c wrangler whoami --json` (non-zero exit = not logged in) [source](https://developers.cloudflare.com/workers/wrangler/commands/general/). For `cf`: `nix shell nixpkgs#cf -c cf auth whoami`. The two tools do not share credentials; check the one you will use [source](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md).
+0. CLI installed? `wrangler --version` / `cf --version`; missing: `STATUS: blocked — install needed (requirements.md)`.
+1. `wrangler whoami --json` (non-zero exit = not logged in) [source](https://developers.cloudflare.com/workers/wrangler/commands/general/). For `cf`: `cf auth whoami`. The two tools do not share credentials; check the one you will use [source](https://raw.githubusercontent.com/cloudflare/skills/main/skills/cf-cli/SKILL.md).
 2. If `CLOUDFLARE_API_TOKEN` is set it overrides the stored login, so `whoami` may show another identity than expected [source](https://developers.cloudflare.com/workers/wrangler/commands/general/). Note which one you are on.
 3. Not logged in: stop with `STATUS: blocked — login needed` and give the user the command:
-   - `! nix shell nixpkgs#wrangler -c wrangler login --device` (device flow, works over SSH)
-   - or `! nix shell nixpkgs#cf -c cf auth login --no-browser`
+   - `! wrangler login --device` (device flow, works over SSH)
+   - or `! cf auth login --no-browser`
 4. Never run the login, never ask for a token in chat. CI uses `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` from CI secrets.
 
 ## Deploy and rollback

@@ -23,17 +23,17 @@ You are the first, cheap step of a diagnosis. The brief lists places (CI runs, s
 
 ## Procedure
 
-Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (through `nix shell` / `nix develop` / `timeout`), with stdin filters such as `| tail -n 200` in pipes.
+Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (with `timeout` before streaming reads), with stdin filters such as `| tail -n 200` in pipes.
 
 1. For each source pick the matching `cli-*` skill and read its login check and its read-only (`R`) commands. Use only those commands.
-2. Run the login check first. Not logged in → stop with `STATUS: blocked — login needed` and give the user the login command from the skill, as `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
-3. Fetch the log with a bound: `--limit`, `--since`, `--tail`, or `| tail -n 200`; put `timeout 60` in front of `nix shell` for anything that streams.
+2. Run the login check first. Not logged in → stop with `STATUS: blocked — login needed` and give the user the login command from the skill, as `! <cli> <login>`.
+3. Fetch the log with a bound: `--limit`, `--since`, `--tail`, or `| tail -n 200`; put `timeout 60` in front of the CLI for anything that streams.
 4. Cut the relevant excerpt (errors, the failing step, the last lines before the exit) with line numbers. If a result is empty or the command fails, report that as is.
 5. Write the report. Temporary files go to `docs/temp/` in the project or the session scratchpad.
 
 ## Must
 
-- R-LOG-LOGIN-FIRST: every CLI is run only as `nix shell nixpkgs#<pkg> -c <cli> …`, and its login check runs before any other command of that CLI.
+- R-LOG-LOGIN-FIRST: every CLI is run as a plain command (missing → `STATUS: blocked — install <cli> (requirements.md)`), and its login check runs before any other command of that CLI.
 - R-LOG-BOUNDED: every stream and every log is bounded by size or time. Never fetch a whole log, never follow (`-f`, `--follow`) without `timeout`.
 - R-LOG-NO-SECRETS: never run a command that prints secrets (`--show-token`, `env`, `printenv`, `docker inspect` of env, `railway variables`). If a secret shows up in an excerpt, replace it with `<redacted>` in the report.
 - R-LOG-NO-CAUSES: report facts only: command, exit code, time range, excerpt. No causes, no guesses, no fixes.
@@ -51,14 +51,14 @@ Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the
 
 Bad:
 ```bash
-nix shell nixpkgs#gh -c gh run view 123456 --log-failed
+gh run view 123456 --log-failed
 ```
 Why: with no login the call fails with a confusing error, and a retry loop may hammer the API.
 
 Good:
 ```bash
-nix shell nixpkgs#gh -c gh auth status \
-  && nix shell nixpkgs#gh -c gh run view 123456 --log-failed | tail -n 200
+gh auth status \
+  && gh run view 123456 --log-failed | tail -n 200
 ```
 
 ### R-LOG-BOUNDED — never the whole log
@@ -78,13 +78,13 @@ docker compose -p shop logs --no-color --since 15m --tail 200 api
 
 Bad:
 ```bash
-nix shell nixpkgs#railway -c railway variables
+railway variables
 ```
 Why: prints every secret of the service into the report and the transcript.
 
 Good:
 ```bash
-nix shell nixpkgs#railway -c railway logs --service api | tail -n 200
+railway logs --service api | tail -n 200
 ```
 
 ### R-LOG-NO-CAUSES — facts, not guesses

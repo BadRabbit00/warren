@@ -2,14 +2,12 @@
 
 Bad:
 ```
-nix shell nixpkgs#yandex-cloud -c yc version         # fails: unfree package
-# or: the vendor's install.sh from storage.yandexcloud.net run on the host (edits PATH and the system)
+# the vendor's install.sh from storage.yandexcloud.net run on the host (edits PATH and the system)
 ```
 Good:
 ```
-NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#yandex-cloud -c yc version
+yc version         # installed by the user per requirements.md; missing CLI: STATUS: blocked — install needed
 ```
-Flake mode ignores `~/.config/nixpkgs/config.nix`; alternatively use a devShell with `config.allowUnfree = true`. [source](https://raw.githubusercontent.com/NixOS/nixpkgs/master/pkgs/by-name/ya/yandex-cloud/package.nix)
 
 Bad:
 ```

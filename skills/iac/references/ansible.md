@@ -1,6 +1,6 @@
 # Ansible
 
-For non-NixOS VMs. Tools: `nix shell nixpkgs#ansible -c ansible-playbook ...` (ansible-core 2.21.5, GPL-3.0-or-later), `nix shell nixpkgs#ansible-lint -c ansible-lint` (MIT).
+For VMs. Tools: `ansible-playbook ...` (ansible-core 2.21.5, GPL-3.0-or-later), `ansible-lint` (MIT).
 
 ## Inventory
 

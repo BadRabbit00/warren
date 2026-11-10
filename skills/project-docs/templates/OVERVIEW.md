@@ -16,7 +16,7 @@ This is the first file an agent opens. -->
 
 ## Tech
 
-- **Stack:** <Python 3.12 · FastAPI · PostgreSQL 16 · RabbitMQ · Nix>
+- **Stack:** <Python 3.12 · FastAPI · PostgreSQL 16 · RabbitMQ>
 - **Services:**
   - `<svc-orders>` — <one line>
   - `<svc-billing>` — <one line>

@@ -27,15 +27,15 @@ You make the task's failing tests pass with the simplest correct code that fits 
 ## Workflow
 
 1. **Read** the task card, the tests, the doc anchors, and the files in your write set. Read neighbours you will call (repositories, clients, config) to reuse what exists.
-2. **Run the task's tests** through the dev shell and confirm they fail for the reason test-writer reported. If they fail for another reason, stop and report it.
+2. **Run the task's tests** through the project's own toolchain and confirm they fail for the reason test-writer reported. If they fail for another reason, stop and report it.
 3. **Implement the minimum** that turns them green, layer by layer: domain/model → repository → service → router. Follow the path rules for those files (`layers.md`, `db.md`, `auth.md`, `secrets.md`) and the ladder below.
-4. **Run** the task's tests, then the linters and type checks of the touched component: `ruff check` + `mypy`, `golangci-lint run`, `cargo clippy -- -D warnings`, `tsc --noEmit` + `eslint`, `dart analyze`. All through `nix develop -c`.
+4. **Run** the task's tests, then the linters and type checks of the touched component: `ruff check` + `mypy`, `golangci-lint run`, `cargo clippy -- -D warnings`, `tsc --noEmit` + `eslint`, `dart analyze`. Run them through the project's own toolchain (`uv run`, `npm`, `go`, `cargo`, as its README, Makefile or manifest names it).
 5. **Self-review the diff** (`git diff`) against "Must" before reporting. Do not commit: the orchestrator commits each step.
 
 
 ## Language checks
 
-Before hand-back run, all through `nix develop -c`:
+Before hand-back run, through the project's own toolchain:
 
 - `go test -race ./...` (touched packages)
 - `go vet ./...`
@@ -44,7 +44,7 @@ Before hand-back run, all through `nix develop -c`:
 ## Tooling
 
 - The subagent contract applies (it is injected at build).
-- CLIs only via `nix shell nixpkgs#<pkg> -c <cli> …`, login check first. Not logged in → `STATUS: blocked — login needed` with the command for the user: `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
+- CLIs are run as plain commands, login check first. CLI missing → `STATUS: blocked — install <cli> (requirements.md)`. Not logged in → `STATUS: blocked — login needed` with the command for the user: `! <cli> <login>`.
 - Never print secrets. Temporary files go to `docs/temp/` in the project (gitignored) or the session scratchpad.
 ## Model ladder
 
@@ -230,8 +230,8 @@ NOTES: T3 needs OrderRepository.ListForExport(filters) in internal/repository/or
 STATUS: done | blocked | needs-decision
 FILES: <files created or changed>
 CHECKS:
-- nix develop -c pytest src/orders/tests/services -q → 12 passed, 0 failed, 0 skipped
-- nix develop -c ruff check src/orders && nix develop -c mypy src/orders → clean
+- pytest src/orders/tests/services -q → 12 passed, 0 failed, 0 skipped
+- ruff check src/orders && mypy src/orders → clean
 DECISIONS: <ladder step chosen for new types and why; defaults taken>
 NOTES: <files needed outside the write set, dependencies to add, suspected wrong tests, follow-ups>
 ```

@@ -106,9 +106,9 @@ const scope = prod
 // Preflight: logins and tools.
 const clis = [...new Set(sources.map((s) => KIND_INFO[s.kind][0]))]
 const login = await agent(
-  `Check the login of each CLI: ${clis.join(', ')}. Use the status commands from the cli-* skills, through \`nix shell nixpkgs#<pkg> -c <cmd>\`; read-only. ` +
+  `Check the login of each CLI: ${clis.join(', ')}. Use the status commands from the cli-* skills (run the CLI directly; a missing CLI means install_needed with the requirements.md hint); read-only. ` +
     (clis.includes('docker') ? 'For docker also check the daemon answers `docker version`. ' : '') +
-    'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`. Put missing tools into problems.',
+    'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! <cmd>`. Put missing tools into problems.',
   { agentType: 'log-collector', label: 'login preflight', phase: 'Preflight', schema: LOGIN_SCHEMA },
 )
 if (!login) return { stopped: true, problems: ['login preflight returned nothing'] }
@@ -126,7 +126,7 @@ const collected = await parallel(
   groups.map((g, i) => () =>
     agent(
       `Collect raw, bounded log excerpts (last ~200 lines or the failing step, whichever is smaller) for each source. ${scope}\n` +
-        'Use the cli-* skills through `nix shell nixpkgs#<pkg> -c <cmd>`. Do not reason about causes; return the excerpts and every command you ran.\n' +
+        'Use the cli-* skills by running the CLI directly. Do not reason about causes; return the excerpts and every command you ran.\n' +
         g.map((s) => `- ${s.kind}: ${s.target}${s.since ? ` since ${s.since}` : ''}`).join('\n'),
       { agentType: 'log-collector', label: `collect ${g.map((s) => s.kind).join('+')}`, phase: 'Collect', schema: EXCERPTS_SCHEMA },
     )),

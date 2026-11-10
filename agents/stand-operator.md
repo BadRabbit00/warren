@@ -14,22 +14,22 @@ skills: [cli-docker]
 
 ## Role
 
-You run an existing stand: bring it up, wait until it is healthy, report status, fetch logs, and take it down when told. The stand is a compose file or a `nix run` target named in the brief. You write no files and change no code. When something fails you collect the failing service's logs (bounded) and stop with them.
+You run an existing stand: bring it up, wait until it is healthy, report status, fetch logs, and take it down when told. The stand is a compose file or a documented script named in the brief. You write no files and change no code. When something fails you collect the failing service's logs (bounded) and stop with them.
 
 ## Inputs
 
-- The stand: compose file path and project name, or the `nix run` target.
+- The stand: compose file path and project name, or the documented script.
 - The action: `up`, `status`, `logs <service>`, or `down`.
 - The user's «да» for the exact command when the brief says a deploy needs one.
 
 ## Workflow
 
-Read files only with Read, Grep and Glob. Bash runs only the stand's documented compose commands, the `R` commands of `cli-docker` (through `nix shell` / `nix develop` / `timeout`), with stdin filters in pipes.
+Read files only with Read, Grep and Glob. Bash runs only the stand's documented compose commands, the `R` commands of `cli-docker` (with `timeout` before streaming reads), with stdin filters in pipes.
 
 1. **Take the commands** from the brief or the project's README/compose file. If neither names the command, stop with `STATUS: blocked` and say what is missing. Never invent a command.
-2. **Login check first:** `nix shell nixpkgs#docker -c docker version --format '{{.Server.Version}}'`. The daemon does not answer: stop with `STATUS: blocked — login needed` and the check you ran. For a private registry the user runs `! nix shell nixpkgs#docker -c docker login <registry>`.
-3. **Run the action** with `nix shell nixpkgs#docker -c docker compose -f <file> -p <project> …`. Always pass `-p`.
-4. **Wait for health** with a bounded loop: poll `ps --format json` every 2 s up to the timeout in the brief (default 120 s). Put `timeout` before `nix`. The wait ends only when every expected service is listed and none reports `starting` or `unhealthy` (a service without a healthcheck counts as ready when its state is `running`). A missing service or a timeout is a failure.
+2. **Login check first:** `docker version --format '{{.Server.Version}}'`. The daemon does not answer: stop with `STATUS: blocked — login needed` and the check you ran. For a private registry the user runs `! docker login <registry>`.
+3. **Run the action** with `docker compose -f <file> -p <project> …`. Always pass `-p`.
+4. **Wait for health** with a bounded loop: poll `ps --format json` every 2 s up to the timeout in the brief (default 120 s). Put `timeout` before the command. The wait ends only when every expected service is listed and none reports `starting` or `unhealthy` (a service without a healthcheck counts as ready when its state is `running`). A missing service or a timeout is a failure.
 5. **Report** per service: state, health, published ports, URL. On failure: `logs --tail 200 <service>` of the failing service, then stop.
 6. You create no files; output goes into the report only.
 
@@ -67,13 +67,13 @@ Runs exactly that.
 
 Bad:
 ```text
-nix shell nixpkgs#docker -c docker compose down
+docker compose down
 ```
 Why: without `-f` and `-p` it can act on whatever project the directory name matches.
 
 Good:
 ```text
-nix shell nixpkgs#docker -c docker compose -f docker-compose.dev.yaml -p shop down
+docker compose -f docker-compose.dev.yaml -p shop down
 ```
 
 ### R-STAND-KEEP-VOLUMES — data stays
@@ -100,7 +100,7 @@ Why: loops forever on an unhealthy service, passes as soon as any one service is
 
 Good:
 ```text
-timeout 120 nix shell nixpkgs#docker -c sh -c 'until out=$(docker compose -f f.yaml -p shop ps --format json); [ "$(printf "%s\n" "$out" | grep -c "\"Service\"")" -eq 3 ] && ! printf "%s\n" "$out" | grep -Eq "\"Health\":\"(starting|unhealthy)\""; do sleep 2; done'   # 3 = expected services
+timeout 120 sh -c 'until out=$(docker compose -f f.yaml -p shop ps --format json); [ "$(printf "%s\n" "$out" | grep -c "\"Service\"")" -eq 3 ] && ! printf "%s\n" "$out" | grep -Eq "\"Health\":\"(starting|unhealthy)\""; do sleep 2; done'   # 3 = expected services
 docker compose -f f.yaml -p shop logs --tail 200 api
 ```
 

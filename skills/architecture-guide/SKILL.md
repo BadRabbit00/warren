@@ -81,7 +81,7 @@ search: not needed — catalog of 800 items, Postgres full text covers it
 | Observability | `layers/observability.md` | OpenTelemetry; RED metrics, JSON logs with `trace_id`, error tracker, external uptime; alert on user symptoms |
 | Realtime and comms | `layers/realtime.md` | SSE from the backend first; email through a delivery service; own media/TURN only with people to run UDP |
 | AI infrastructure | `layers/ai.md` | provider API before own GPUs; all LLM calls through one gateway with tracing and evals; pin AI deps by hash |
-| Platform and delivery | `layers/platform.md` | k8s only with many services, several teams and an owner; Compose + Kamal / NixOS for 1–3 servers; IaC and tested backups from day one |
+| Platform and delivery | `layers/platform.md` | k8s only with many services, several teams and an owner; Compose + Kamal for 1–3 servers; IaC and tested backups from day one |
 
 Each file has: concepts, Rule 0, classes with every option's licence, status, internals, good-for and bad-for, clouds, and the *Task → default → when to switch* table.
 
@@ -117,4 +117,4 @@ A draft that names one of these needs a stated reason:
 | `references/layers/observability.md` | metrics, logs, traces, all-in-one stacks, collectors, errors and uptime, dashboards and on-call; clouds; task table |
 | `references/layers/realtime.md` | WebSocket/pub-sub, sync and local-first, WebRTC and video, voice AI, email and notifications; clouds; task table |
 | `references/layers/ai.md` | inference, LLM gateways, agent infrastructure, LLM observability and evals, MLOps; clouds; task table |
-| `references/layers/platform.md` | orchestration, self-hosted PaaS, NixOS deploy, registries, CI/CD and GitOps, IaC, backups; clouds; task table |
+| `references/layers/platform.md` | orchestration, self-hosted PaaS, registries, CI/CD and GitOps, IaC, backups; clouds; task table |

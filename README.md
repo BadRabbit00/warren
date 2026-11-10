@@ -2,8 +2,10 @@
 
 warren is a Claude Code configuration layer: one **orchestrator** output style for the main session and a
 set of narrow, isolated **subagents** that do the actual work (research, tests, code, refactoring,
-review, slides), plus path-scoped rules, skills, Python hooks and templates. It is installed
-declaratively through Nix from the `nixos-conf` repository; nothing here is meant to be copied by hand.
+review, slides), plus path-scoped rules, skills, Python hooks and templates.
+
+This is the **`no-nix` branch**: it needs no Nix. Install what [requirements.md](requirements.md) lists
+(or ask Claude to), then run `python3 tools/install.py` — details in [install_guide.md](install_guide.md).
 
 Language: everything in this repository is **English** (cheaper in tokens, models follow it more
 precisely). Everything the agents say **to the user** is **Russian**; that is stated in the output
@@ -17,18 +19,19 @@ style and in the subagent contract.
 │   ├── CLAUDE.md                # always-on core for the MAIN session → ~/.claude/CLAUDE.md
 │   └── subagent-contract.md     # injected into EVERY agent right after its frontmatter at build time
 ├── output-styles/orchestrator.md  # the orchestrator; main session only, subagents never see it
-├── agents/                      # 34 subagents → ~/.claude/agents/
-├── rules/                       # 16 path-scoped rules → ~/.claude/rules/br/
-├── skills/                      # 55 skills → ~/.claude/skills/
-├── commands/                    # 23 slash commands → ~/.claude/commands/
+├── agents/                      # 29 subagents → ~/.claude/agents/
+├── rules/                       # 15 path-scoped rules → ~/.claude/rules/br/
+├── skills/                      # 48 skills → ~/.claude/skills/
+├── commands/                    # 9 slash commands → ~/.claude/commands/
 ├── workflows/                   # 8 saved workflows (br-wave, br-review, br-research, br-diagnose, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
-├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests
-├── tools/                       # validate.py (structure checks), measure_tokens.py, tests
+├── hooks/                       # Python hooks (guard_*.py, check_*.py), hooks.json, tests → ~/.claude/br/hooks/
+├── tools/                       # install.py, build.py, validate.py (structure checks), measure_tokens.py, tests
 ├── agent-models.json            # pinned model + effort per agent for Claude, Codex and agy; the build writes them into the exports
 ├── settings.fragment.json       # merged into ~/.claude/settings.json (env, outputStyle)
 ├── _templates/                  # how to write an agent / rule / skill — NOT installed
-└── nix/, flake.nix              # packaging
+├── requirements.md              # what to install on the machine (not how)
+└── install_guide.md             # install with the script or by hand
 ```
 
 ## How knowledge is layered
@@ -60,10 +63,9 @@ lives in that agent, not in a rule.
 | `code-reviewer`, `python-reviewer`, `go-reviewer`, `rust-reviewer`, `ts-react-reviewer`, `flutter-dart-reviewer` | review of a task diff | nothing |
 | `db-reviewer`, `security-reviewer`, `optimizer` | data access, security, performance review | nothing |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | temp folder only |
-| `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
-| `deploy-engineer` | Dockerfile, compose, Nix images, OpenTofu, the Railway dev stand; prepares apply and deploy commands, never runs them | its task's write set |
+| `deploy-engineer` | Dockerfile, compose, multi-stage images, OpenTofu, the Railway dev stand; prepares apply and deploy commands, never runs them | its task's write set |
 | `ci-engineer` | GitHub Actions pipelines (`-br` files), the only agent that may change lint and CI configs | its task's write set |
-| `stand-operator` | up, health, logs, down of an existing stand (compose with `-p`, `nix run` targets named in the plan) | nothing |
+| `stand-operator` | up, health, logs, down of an existing stand (compose with `-p`, stand scripts named in the plan) | nothing |
 | `log-collector` | bounded raw log excerpts from CI and platforms through the `cli-*` skills, no reasoning | nothing |
 | `deploy-error-reader` | cause, quoted evidence and a fix proposal from the collected logs | nothing |
 | `web-researcher` | answers from official docs, issues and changelogs, every fact with a URL | nothing |
@@ -76,18 +78,15 @@ in `agent-models.json`; the build fails if an agent is missing there.
 
 ## Commands
 
-- `nix-plan`, `nix-write`, `nix-review`, `nix-test`, `nix-fix`, `nix-build`, `nix-check`,
-  `nix-devshell`, `nix-docker`, `nix-package`, `nix-update`, `nix-search`, `nix-why`, `nix-gc` — the Nix toolkit.
 - `ask-astra`, `ask-agy`, `ask-argon` — second opinions from GPT-6-Astra, Gemini 3.8 Flash, Gemini 4 Argon
-  (read-only); `write-astra`, `write-agy`, `write-argon` — delegated implementation. The `ask-*` / `write-*`
-  wrappers themselves live in `nixos-conf`.
+  (read-only); `write-astra`, `write-agy`, `write-argon` — delegated implementation. They call wrapper
+  scripts of the same names that are not part of warren (optional, see requirements.md).
 - `optimize`, `policy-review`, `test-affected` — orchestrator helpers.
 
 ## Skills
 
 Own: `architecture-guide`, `auth-service`, `deploy-variants`, `design-system`, `project-docs`,
-`security-review`, `sops`, `stack-choice`; Nix: `nix-debugging`, `nix-flake-patterns`, `nix-packaging`,
-`nix-testing`, `nix-toolkit`, `nixos-module-patterns`, `project-flake`; services and frontend:
+`security-review`, `sops`, `stack-choice`; services and frontend:
 `python-service`, `frontend-data-layer`, `user-flows`; delivery: `iac` (OpenTofu), `ci-github-actions`,
 `registry-dockerhub-ghcr`, `cloud-cloudflare`, `cloud-railway`, `cloud-gcp`, `cloud-digitalocean`, `cloud-yandex`;
 CLIs (login check first, every command marked read / effect / mutating): `cli-gh`, `cli-docker`, `cli-cloudflare`,
@@ -128,10 +127,11 @@ the build if an agent or rule has no `Bad:`/`Good:` pair; exemptions live in `to
 ## Codex and Antigravity exports
 
 The same agents, commands and skills are exported for Codex CLI and for Antigravity CLI (`agy`), so a
-consumer can lay them out into `~/.codex` and `~/.gemini/config` next to the Claude tree. The payload
-writes them from the finished Claude tree, after the model pins and the subagent contract are in:
+consumer can lay them out into `~/.codex` and `~/.gemini/config` next to the Claude tree (`tools/install.py`
+does it). `tools/build.py` writes them from the finished Claude tree, after the model pins and the subagent
+contract are in:
 
-| Path in `$out` | Content |
+| Path in the build output | Content |
 |---|---|
 | `codex/agents/<name>.toml` | one Codex role per agent: `name`, `description`, `model`, `model_reasoning_effort`, `sandbox_mode`, `developer_instructions` (the agent body as a TOML literal string) |
 | `codex/agents.toml` | `[agents.<name>]` entries with `-` replaced by `_` in the key (`config_file`, `description`) to merge into `~/.codex/config.toml` |
@@ -164,14 +164,14 @@ use them or to dispatch agents by hand, and records the answer in `.plan/PLAN.md
 | `/br-research` | `web-researcher`s per question group (up to 5), then a cross-check of low-confidence or conflicting answers | none |
 | `/br-diagnose` | `log-collector` per source group, one `deploy-error-reader`: cause, evidence, fix proposal | missing login; prod sources only with `prod: true` and every command approved |
 | `/br-ci` | `ci-engineer` writes `-br` pipelines, local checks (actionlint, zizmor); after the user pushes `ci-test`, reads the failed runs and fixes, at most 2 rounds | the push of `ci-test` |
-| `/br-deploy` | `deploy-engineer` writes Dockerfile, compose, Nix image or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are returned, never run |
+| `/br-deploy` | `deploy-engineer` writes Dockerfile, compose or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are returned, never run |
 | `/br-e2e` | user flows, stand, e2e harness, contract and journey tests in parallel, a final run classified app / test / stand with p50/p95 | stand will not start; unclear behaviour |
 | `/br-janitor` | `survey` lists garbage; `delete` removes only the approved entries, then surveys again | always: the user's «да» on the exact list |
 
 `/br-wave` and `/br-review` first read `.plan/PLAN.md` through `researcher`. A run uses at most 15 agents,
 runners included; a larger wave is split. Every agent runs by `agentType`, so the agent's model pin, the
 subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too (checked live: a workflow
-`test-writer` writing outside tests is denied by `br-hook`). Workflows never commit, push, deploy or apply, and
+`test-writer` writing outside tests is denied by the write hook). Workflows never commit, push, deploy or apply, and
 never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
 
 A workflow agent without `agentType` would see the user `CLAUDE.md` and no subagent contract, so the
@@ -181,33 +181,17 @@ validator rejects any `agent(` call in `workflows/*.js` without one.
 
 1. Copy the matching file from `_templates/` and fill it in.
 2. For an agent, add its Claude model and effort plus the `codex` and `agy` entries to `agent-models.json`.
-3. `nix develop -c python3 tools/validate.py .` (it also runs inside the build).
-4. `nix build .#br-payload` and inspect `result/claude/`.
+3. `python3 tools/install.py --check` — the validator, the tools tests and the hooks tests.
+4. `python3 tools/install.py --dest /tmp/warren-home` and inspect the result before installing for real.
 
-## Nix
+## Build and install
 
-| Output | What |
+| Tool | What |
 |---|---|
-| `packages.br-payload` | `$out/claude/{CLAUDE.md,agents,skills,commands,workflows,rules/br,output-styles,br/templates}`, `$out/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `$out/agy/{agents,AGENTS.md}`, `$out/settings.fragment.json`, `$out/hooks.json`, `$out/LICENSE`. The validator and the Python test suites run in `checkPhase`; `installCheckPhase` runs `br-hook` once the way Claude Code does. |
-| `packages.br-hook` | `br-hook <entry>` wrapper for `hooks/*.py` with the pinned Python |
-| `lib.mk { pkgs, ... }` | `{ payload, hook, python }` for consumers; extra arguments such as `lib` are accepted and ignored |
-| `checks.payload` | the payload build |
-| `devShells.default` | Python, nixfmt, statix, deadnix |
+| `tools/build.py <out> <repo> <python>` | builds the tree: `<out>/claude/{CLAUDE.md,agents,skills,commands,workflows,rules/br,output-styles,br/templates,br/hooks}`, `<out>/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `<out>/agy/{agents,AGENTS.md}`, `<out>/settings.fragment.json`, `<out>/hooks.json`, `<out>/LICENSE`; every hook command is `"<python>" -I -B "<out>/claude/br/hooks/<entry>.py"` |
+| `tools/install.py [--dest <home>] [--dry-run] [--check]` | checks that `python3` on `PATH` is 3.11+ (the hooks run as `python3`), builds into a temp dir, copies into `~/.claude`, `~/.codex`, `~/.gemini/config`, merges `~/.claude/settings.json` (your keys and non-`br:` hooks stay) |
 
-Consumer (`nixos-conf`):
-
-```nix
-inputs.warren.url = "github:BadRabbit00/warren";
-# ...
-let warren = inputs.warren.lib.mk { inherit pkgs; };   # also accepts { inherit pkgs lib; }
-in {
-  # lay out warren.payload/claude/* into ~/.claude (workflows/ into ~/.claude/workflows), install core/CLAUDE.md as ~/.claude/CLAUDE.md,
-  # deep-merge warren.payload/settings.fragment.json and merge warren.payload/hooks.json by id into settings.json,
-  # put warren.hook on PATH for the hooks;
-  # lay out warren.payload/codex/* into ~/.codex (merge codex/agents.toml into config.toml)
-  # and warren.payload/agy/agents into ~/.gemini/config/agents
-}
-```
+Python 3.11+ and the standard library are all the build, the hooks and the tests need. [install_guide.md](install_guide.md) has the full walkthrough and the manual install.
 
 ## From ECC
 

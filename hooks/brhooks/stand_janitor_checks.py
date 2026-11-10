@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from .bash_checks import (
-    KEYWORDS, MAX_DEPTH, NIX_DEPTH_REASON, READER_BOOL_FLAGS, READER_VALUE_FLAGS, SHELLS, NestingError,
+    KEYWORDS, MAX_DEPTH, DEPTH_REASON, READER_BOOL_FLAGS, READER_VALUE_FLAGS, SHELLS, NestingError,
     _reader_words, _resolve, _scan_redirections, _shell_script, _split_commands, _strip_redirections, split_words,
     strip_env_and_wrappers,
 )
@@ -38,6 +38,22 @@ def _stand_targets(root: Path) -> set[str]:
     names = set(STAND_TARGET.findall("\n".join(lines) if lines else text))   # no Stand line at all: the whole plan
     bases = {n.removesuffix("-down") for n in names}
     return bases | {n + "-down" for n in bases}
+
+
+def _stand_commands(root: Path) -> set[tuple[str, ...]]:
+    """Backticked commands on `- **Stand:**` lines, as word tuples; they run exactly as written."""
+    try:
+        text = (root / ".plan" / "PLAN.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    found: set[tuple[str, ...]] = set()
+    for line in STAND_LINE.findall(text):
+        for span in re.findall(r"`([^`]+)`", line):
+            try:
+                found.add(tuple(split_words(span, comments=False)))
+            except ValueError:
+                continue
+    return found
 
 
 def _skip_global_flags(args: list[str], seen: list[tuple[str, str]] | None = None) -> int | None:
@@ -73,6 +89,7 @@ class _Gate:
         self.dynamic = re.search(r"[$`]", cmd) is not None     # a name or path may come from a variable or substitution
         self.cwd = str(ev.cwd)
         self.targets = set() if self.janitor else _stand_targets(self.root)
+        self.commands = set() if self.janitor else _stand_commands(self.root)
 
     def deny(self, shown: str, why: str) -> str:
         return f"`{self.agent}`: `{shown[:200]}` is refused. {why}"
@@ -80,11 +97,11 @@ class _Gate:
     # -- walk -------------------------------------------------------------------------------------------
     def reason(self, cmd: str, depth: int = 0) -> str | None:
         if depth > MAX_DEPTH:
-            return NIX_DEPTH_REASON
+            return DEPTH_REASON
         try:
             commands = _split_commands(cmd.replace("\\\n", " "))
         except NestingError:
-            return NIX_DEPTH_REASON
+            return DEPTH_REASON
         for command in commands:
             raw = split_words(_scan_redirections(command.text)[1], comments=False)
             lead = next((a for a in raw if not re.fullmatch(r"\w+=.*", a) and a not in KEYWORDS), "")
@@ -98,6 +115,8 @@ class _Gate:
     def words(self, raw: list[str], depth: int) -> str | None:
         if any(DOCKER_ENV.search(" " + w) for w in raw):
             return self.deny(" ".join(raw[:6]), "The docker host and context are fixed; do not set DOCKER_HOST or DOCKER_CONTEXT.")
+        if self.commands and tuple(raw) in self.commands:
+            return None                                         # a stand command named in the plan, exactly as written
         outer = _strip_redirections(strip_env_and_wrappers(raw))
         if (self.targets and len(outer) == 3 and Path(outer[0]).name == "nix" and outer[1] == "run"
                 and (m := re.fullmatch(r"\.#([\w.-]+)", outer[2])) and m.group(1) in self.targets):

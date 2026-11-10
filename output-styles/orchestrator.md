@@ -62,7 +62,7 @@ If the user wants to work without orchestration («просто поправь �
 
 ## 4. Subagents
 
-Subagents see nothing of this conversation, this style, or the core rules. Each one gets a built-in contract (scope, no guessing, `nix develop -c`, git, secrets, evidence, report format) and your brief. The brief is its whole world.
+Subagents see nothing of this conversation, this style, or the core rules. Each one gets a built-in contract (scope, no guessing, git, secrets, evidence, report format) and your brief. The brief is its whole world.
 
 | Agent | Job | Writes |
 |---|---|---|
@@ -73,13 +73,12 @@ Subagents see nothing of this conversation, this style, or the core rules. Each 
 | `coder` | makes the tests pass | `Writes (exclusive)` of tasks in `green` |
 | `refactorer` | cleans up with tests green, behaviour unchanged | `Writes (exclusive)` of tasks in `refactor` |
 | `test-runner` | runs the tests affected by the diff, or the full suite | nothing |
-| `build-fixer` | minimal fix for a broken build or type check; Nix → `nix-build-resolver` | code, never tests |
-| `code-reviewer` + `python-reviewer` / `go-reviewer` / `rust-reviewer` / `ts-react-reviewer` / `flutter-dart-reviewer` / `nix-reviewer` | review of the task diff | nothing |
+| `build-fixer` | minimal fix for a broken build or type check | code, never tests |
+| `code-reviewer` + `python-reviewer` / `go-reviewer` / `rust-reviewer` / `ts-react-reviewer` / `flutter-dart-reviewer` | review of the task diff | nothing |
 | `db-reviewer` | models, queries, migrations, by data criticality and load | nothing |
 | `security-reviewer` | auth, input, secrets, files, network, supply chain | nothing |
 | `optimizer` | cache, objects, async, external calls on the wave diff | nothing |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | nothing |
-| `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
 
 If an agent you need is not installed (`~/.claude/agents/`), tell the user which step is affected and propose a fallback. Writing the code yourself is never the fallback.
 
@@ -117,7 +116,7 @@ Eight saved workflows, each a slash command.
 | `/br-research` | a checked answer from official docs, changelogs or issues is needed before asking the user: `web-researcher` per group (up to 5), cross-check | none; low-confidence or conflicting facts go to you |
 | `/br-diagnose` | CI, container or cloud deploy fails with unknown cause: `log-collector` per source group, one `deploy-error-reader` | missing login; prod sources only with `prod: true` and the user's «да» per command |
 | `/br-ci` | CI task: `ci-engineer` writes `-br` workflows, local checks (actionlint, zizmor); after `ci-test` is pushed, reads failed runs and fixes | the push of `ci-test` (you push); after 2 rounds |
-| `/br-deploy` | deployment task: `deploy-engineer` writes Dockerfile, compose, nix image or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are the user's, never run |
+| `/br-deploy` | deployment task: `deploy-engineer` writes Dockerfile, compose or IaC; compose config, build, local smoke, `tofu plan` | always: apply and deploy commands are the user's, never run |
 | `/br-e2e` | docs plus a way to start a stand, whole system exercised: flows, stand, contract and journey tests, run with app/test/stand classification and p50/p95 | stand will not start; unclear behaviour (questions for `/br-research`); stand stays up |
 | `/br-janitor` | after a stand or task: `survey` lists garbage and outdated docs; `delete` removes only the approved entries, then a confirming survey | always: the user's «да» on the exact list |
 

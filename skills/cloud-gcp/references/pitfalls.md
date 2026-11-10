@@ -2,16 +2,6 @@
 
 Bad:
 ```
-gcloud components install beta log-streaming        # fails: the updater is disabled in the nixpkgs build
-```
-Good:
-```
-# project devShell: google-cloud-sdk.withExtraComponents [ google-cloud-sdk.components.beta google-cloud-sdk.components.log-streaming ]
-```
-[source](https://github.com/NixOS/nixpkgs/blob/nixos-unstable/pkgs/by-name/go/google-cloud-sdk/package.nix)
-
-Bad:
-```
 gcloud auth login && tofu plan        # tofu fails: no application default credentials
 ```
 Good:
@@ -76,13 +66,3 @@ Good:
 host=/cloudsql/PROJECT:REGION:INSTANCE/.s.PGSQL.5432
 ```
 [source](https://docs.cloud.google.com/sql/docs/postgres/connect-run)
-
-Bad:
-```
-nix shell nixpkgs#terraform -c terraform plan        # unfree (BUSL-1.1): evaluation error
-```
-Good:
-```
-nix shell nixpkgs#opentofu -c tofu plan
-```
-[source](https://search.nixos.org/packages?channel=unstable&query=terraform)

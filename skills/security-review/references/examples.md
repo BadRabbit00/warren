@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<full-commit-sha>   # pinned
-      - run: nix develop -c make test               # no secrets in PR checks
+      - run: make test               # no secrets in PR checks
 ```
 
 ### R-SEC-TOKEN-STORAGE — tokens readable by any script (S-SESS-1)

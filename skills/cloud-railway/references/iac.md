@@ -6,8 +6,8 @@ General workflow: `iac` skill.
 
 [source](https://docs.railway.com/cli/config)
 
-- npm package `railway`, imports from `railway/iac`; TypeScript is GA, Python and Go beta. The `config` subcommand is present in nixpkgs railway 5.30.4.
-- Commands: `railway config init`, `railway config pull`, `railway config plan [--detailed-exit-code]` (exit 0 no changes, 2 changes pending), `railway config apply --yes --confirm-destructive`. `railway config migrate` is in the docs only: `railway config --help` in nixpkgs railway 5.30.4 lists only plan, apply, init, pull, and `migrate` gives "unrecognized subcommand". For an existing project use `railway config pull` or `init` (import from the linked project).
+- npm package `railway`, imports from `railway/iac`; TypeScript is GA, Python and Go beta. The `config` subcommand is present in railway 5.30.4.
+- Commands: `railway config init`, `railway config pull`, `railway config plan [--detailed-exit-code]` (exit 0 no changes, 2 changes pending), `railway config apply --yes --confirm-destructive`. `railway config migrate` is in the docs only: `railway config --help` in railway 5.30.4 lists only plan, apply, init, pull, and `migrate` gives "unrecognized subcommand". For an existing project use `railway config pull` or `init` (import from the linked project).
 - CI: run `plan --detailed-exit-code` (which token type it accepts is not verified), publish the plan, stop. Apply: only a human with «да», stand and prod both. `apply --yes --confirm-destructive` must never be in a CI job.
 - Some settings may still need the dashboard; verify the ones you need are covered before relying on it [source](https://station.railway.com/feedback/iac-does-not-feel-production-ready-for-r-da53d29a).
 

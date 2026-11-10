@@ -1,7 +1,7 @@
 # Structure
 
 ## Ownership
-- `src/auth/` is self-contained: its code, `pyproject.toml`, `.env.example`, Alembic migrations, tests. Build recipe in `nix/auth.nix` (plus a Dockerfile with context `src/auth/` if the project builds that way). It could move to its own repo and still build and pass tests. Auth imports no other service's code, and nobody imports its code.
+- `src/auth/` is self-contained: its code, `pyproject.toml`, `.env.example`, Alembic migrations, tests. Build recipe: a Dockerfile with context `src/auth/`. It could move to its own repo and still build and pass tests. Auth imports no other service's code, and nobody imports its code.
 - Next to a modular monolith there is exactly one extra service — auth. No "users with passwords" module inside the monolith; the monolith verifies tokens like any consumer.
 - Auth owns accounts (login/email, password hash, status), user roles, refresh sessions, service clients, signing keys. Business profile data (name, address, avatar, settings) lives in a domain service, keyed by `sub`.
 - Own PostgreSQL database and DB user with rights only on it (one Postgres instance shared is fine, a shared superuser is not). Own Redis (container or ACL user limited to `auth:*`).
@@ -23,7 +23,7 @@
 | logs | structlog (JSON) | print |
 | tests | pytest, pytest-asyncio, httpx `AsyncClient`, real PostgreSQL | SQLite |
 
-Dependencies come from the devShell; `authx` is not in nixpkgs (at the time of writing) and is packaged in `nix/` with a pinned version and hash; `pwdlib` is in nixpkgs. Async code; hashing and other blocking calls through `run_in_threadpool`.
+Dependencies are pinned in `pyproject.toml` and `uv.lock` (`authx`, `pwdlib`). Async code; hashing and other blocking calls through `run_in_threadpool`.
 
 ## Layout
 

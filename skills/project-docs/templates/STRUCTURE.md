@@ -13,11 +13,11 @@ Tests (`tests/` folders), generated code and vendor: one line per folder, not pe
 │   │   ├── app/          # <router → service → repository → model>
 │   │   └── tests/        # <this service's tests>
 │   └── <billing>/        # <...>
-├── nix/                  # <package, images, NixOS module>
+├── deploy/               # <Dockerfiles, Quadlet/systemd units, install scripts>
 ├── docs/                 # this documentation
 ├── .plan/                # current change plan (temporary)
 ├── tests/                # <shared / cross-service tests>
-├── flake.nix, flake.lock
+├── pyproject.toml, uv.lock   # <or package.json, go.mod, Cargo.toml>
 └── compose.yaml          # <local stack>
 ```
 
@@ -63,6 +63,6 @@ Tests (`tests/` folders), generated code and vendor: one line per folder, not pe
 
 | File | Purpose |
 |---|---|
-| `<flake.nix>` | <dev environment and build> |
+| `<pyproject.toml>` | <dependencies and build> |
 | `<.env.example>` | <environment variables, no values> |
 | `<pyproject.toml>` | <Python deps, linter settings> |

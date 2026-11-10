@@ -1,7 +1,7 @@
-// br-deploy: write deploy artefacts (Dockerfile, compose, nix image, IaC), check them on a local stand, return the exact commands for the user. Never applies or deploys.
+// br-deploy: write deploy artefacts (Dockerfile, compose, IaC), check them on a local stand, return the exact commands for the user. Never applies or deploys.
 export const meta = {
   name: 'br-deploy',
-  description: 'Write Dockerfile / compose / nix image / IaC with deploy-engineer, check (compose config, image build, local smoke, tofu plan), then return the plan, the diff and the exact apply/deploy commands for the user; it never applies or deploys',
+  description: 'Write Dockerfile / compose / IaC with deploy-engineer, check (compose config, image build, local smoke, tofu plan), then return the plan, the diff and the exact apply/deploy commands for the user; it never applies or deploys',
   whenToUse: 'For a deployment task; args = { target: local|railway|gcp|digitalocean|yandex|cloudflare, files, brief, approved?, id? }',
   phases: ['Preflight', 'Write', 'Check', 'Collect', 'Analyse', 'Fix'],
 }
@@ -136,9 +136,9 @@ function engineerBrief(extra) {
 if (!take('preflight')) return { stopped: true, problems: ['agent cap reached'] }
 const cli = CLI_OF[target]
 const pre = await agent(
-  `Preflight, read-only. ${cli ? `Check the login of the ${cli} CLI with the status command from its cli-* skill, through \`nix shell nixpkgs#<pkg> -c <cmd>\`. ` : ''}` +
+  `Preflight, read-only. ${cli ? `Check the login of the ${cli} CLI with the status command from its cli-* skill. Run the CLI directly; a missing CLI means install_needed with the requirements.md hint. ` : ''}` +
     'Check that the docker daemon answers (`docker version`) and that the ports (read-only `ss -ltn`) and subnets (read-only `docker network ls` and `docker network inspect`) used by these files are free: ' + files.join(', ') + '. ' +
-    'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! nix shell nixpkgs#<pkg> -c <cmd>`. List every other missing tool or taken port/subnet in problems.',
+    'For each CLI return logged_in and, when not logged in, user_command: the exact one command the user runs as `! <cmd>`. List every other missing tool or taken port/subnet in problems.',
   { agentType: 'log-collector', phase: 'Preflight', label: 'preflight', schema: LOGIN_SCHEMA },
 )
 if (!pre) return { stopped: true, problems: ['preflight returned nothing'] }
@@ -163,8 +163,8 @@ async function checks() {
   const out = { ok: false, static: null, smoke: null }
   if (!take('static checks')) return out
   out.static = await agent(
-    `Do not edit source files. Check these deploy files: ${files.join(', ')}. Run what applies: \`docker compose config --quiet\` for compose files, the image build (docker build or the nix image build), ` +
-      `and \`tofu plan\` (never apply) with the plan text returned in plan_text (you cannot write files), through \`nix develop -c\` or \`nix shell nixpkgs#<pkg> -c\`. ` +
+    `Do not edit source files. Check these deploy files: ${files.join(', ')}. Run what applies: \`docker compose config --quiet\` for compose files, the image build (docker build), ` +
+      `and \`tofu plan\` (never apply) with the plan text returned in plan_text (you cannot write files). ` +
       'Return every command with ok and a bounded excerpt of the failure output, plan_text ("" without IaC) and diff_summary (`git diff --stat` of these files). ok is true only when every check passed.',
     { agentType: 'test-runner', phase: 'Check', label: 'static checks', schema: CHECK_SCHEMA },
   )

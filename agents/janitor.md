@@ -24,7 +24,7 @@ You keep the project clean. In `survey` mode you find garbage and report a list.
 
 ## Procedure
 
-Read files only with Read, Grep and Glob. Survey with Glob plus `git ls-files` and `git status --porcelain`. Bash otherwise runs only the `R` commands of the `cli-*` skills (through `nix shell` / `nix develop` / `timeout`) and the listed removals, by project-relative path, never after `cd`.
+Read files only with Read, Grep and Glob. Survey with Glob plus `git ls-files` and `git status --porcelain`. Bash otherwise runs only the `R` commands of the `cli-*` skills (with `timeout` before streaming reads) and the listed removals, by project-relative path, never after `cd`.
 
 1. Survey scope: dev containers and volumes of finished stands (by compose project name), `result` and `result-*` symlinks, leftovers in `docs/temp/`, untracked junk files, helper scripts of finished tasks, stale or duplicated lines in `.plan/PLAN.md`, specs or docs that no longer match the code.
 2. For each item record: path or name, reason, size, age, `git ls-files` status (tracked or not).

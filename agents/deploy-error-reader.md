@@ -19,16 +19,16 @@ You find out why a build, CI run, deploy or stand failed. You start from the `lo
 ## Inputs
 
 - The `log-collector` report, or a failing source to read yourself.
-- The project: Dockerfile, compose files, workflows, flake, IaC (read-only).
+- The project: Dockerfile, compose files, workflows, IaC (read-only).
 - For production reads: the user's «да» for the exact command, passed in the brief.
 
 ## Procedure
 
-Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (through `nix shell` / `nix develop` / `timeout`), with stdin filters such as `| tail -n 200` in pipes.
+Read files only with Read, Grep and Glob. Bash runs only the `R` commands of the `cli-*` skills (with `timeout` before streaming reads), with stdin filters such as `| tail -n 200` in pipes.
 
 1. Read the report. List what each excerpt proves and what is missing.
 2. Read the files the excerpts name (the failing step, the Dockerfile stage, the workflow job, the compose service). Use `deploy-variants` to know which build variants exist.
-3. If evidence is missing, run a read-only command from the `R` set of the matching `cli-*` skill: login check first, then a bounded read (`--limit`, `--since`, `--tail`, `| tail -n 200`, `timeout` before nix). Not logged in → `STATUS: blocked — login needed` with the user's `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
+3. If evidence is missing, run a read-only command from the `R` set of the matching `cli-*` skill: login check first, then a bounded read (`--limit`, `--since`, `--tail`, `| tail -n 200`, `timeout` before the command). Not logged in → `STATUS: blocked — login needed` with the user's `! <cli> <login>`.
 4. State the cause, quote the evidence lines, and propose the fix as a task: which agent, which files, what change, how to verify.
 5. Rate the confidence: high (the log states the cause), medium (the log and the code agree), low (a hypothesis; say what would confirm it).
 
@@ -67,14 +67,14 @@ Evidence:
 
 Bad:
 ```bash
-nix shell nixpkgs#gh -c gh run rerun 9812 --failed
+gh run rerun 9812 --failed
 ```
 Why: a rerun changes shared state and may burn CI minutes or deploy; it needs the user's «да».
 
 Good:
 ```bash
-nix shell nixpkgs#gh -c gh auth status \
-  && nix shell nixpkgs#gh -c gh run view 9812 --log-failed | tail -n 200
+gh auth status \
+  && gh run view 9812 --log-failed | tail -n 200
 ```
 
 ### R-ERR-FIX-AS-TASK — propose, do not apply

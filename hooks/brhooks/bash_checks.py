@@ -114,49 +114,98 @@ def expand(cmd: str) -> list[str]:
 # ---------------------------------------------------------------- host installs
 
 HOST_INSTALL = [
-    (re.compile(r"^(pip3?|python3?(\.\d+)?\s+-m\s+pip|uv\s+pip)\s+install\b"), "pip install"),
+    (re.compile(r"^(pip[\d.]*|python\s+-m\s+pip|uv\s+pip)\s+install\b"), "pip install"),
     (re.compile(r"^pipx\s+(install|run)\b"), "pipx"),
-    (re.compile(r"^uv\s+(sync|venv|add|tool\s+install)\b"), "uv sync/venv/add"),
-    (re.compile(r"^(python3?(\.\d+)?\s+-m\s+venv|virtualenv)\b"), "virtualenv"),
-    (re.compile(r"^(npm|pnpm)\s+(i|install|add)\b.*\s(-g|--global)\b"), "global npm/pnpm install"),
+    (re.compile(r"^uv\s+(venv|tool\s+install)\b"), "uv venv/tool install"),
+    (re.compile(r"^(python\s+-m\s+venv|virtualenv)\b"), "virtual environment creation"),
+    (re.compile(r"^(npm|pnpm|bun)\s+(i|install|add)\s+-g\b"), "global npm/pnpm/bun install"),
     (re.compile(r"^yarn\s+global\b"), "yarn global"),
     (re.compile(r"^go\s+install\b"), "go install"),
     (re.compile(r"^cargo\s+install\b"), "cargo install"),
     (re.compile(r"^rustup\s+(toolchain\s+install|component\s+add|target\s+add)\b"), "rustup"),
-    (re.compile(r"^nix-env\s+(-i|--install|-iA)\b"), "nix-env -i"),
-    (re.compile(r"^nix\s+profile\s+(install|add)\b"), "nix profile install"),
+    (re.compile(r"^nix-env\s+(-i|--install|-iA)\b"), "profile install"),
+    (re.compile(r"^nix\s+profile\s+(install|add)\b"), "profile install"),
     (re.compile(r"^(apt|apt-get|dnf|yum|zypper|apk)\s+(install|add)\b"), "system package manager"),
     (re.compile(r"^pacman\s+-S"), "pacman"),
-    (re.compile(r"^(brew|snap|flatpak|choco|winget)\s+install\b"), "system package manager"),
-    (re.compile(r"^python3?(\.\d+)?\s+-c\b"), "inline python (python -c)"),
-    (re.compile(r"^node\s+(-e|--eval|-p)\b"), "inline node (node -e)"),
+    (re.compile(r"^(brew|snap|flatpak|choco|winget|scoop)\s+install\b"), "system package manager"),
+    (re.compile(r"^python\s+-c\b"), "inline python (python -c)"),
+    (re.compile(r"^node\s+(-e|--eval|-p|--print)\b"), "inline node (node -e)"),
 ]
+GLOBAL_FLAGS = {"-g", "--global"}
+INSTALL_WORDS = {"i", "install", "add"}
+PYTHON_NAME = re.compile(r"(?:python|pypy)[\d.]*")
+VARIABLE_HEAD = re.compile(r"\$(?:(\w+)|\{(\w+)(?::?[-=][^}]*)?\})")
+
+
+def _assignments(seg: str, assigned: dict[str, str]) -> None:
+    w = split_words(seg)
+    while w and w[0] in DECLARATIONS:
+        w = w[1:]
+    for word in w:
+        m = re.fullmatch(r"(\w+)=(.*)", word)
+        if not m:
+            break
+        assigned[m.group(1)] = m.group(2)
+
+
+def _canonical(w: list[str], assigned: dict[str, str]) -> str:
+    """The command with the head reduced to its basename, interpreter flags folded away
+    (`/usr/bin/python3 -Im pip install x` -> `python -m pip install x`), a variable head resolved."""
+    if not w:
+        return ""
+    head, args = w[0], w[1:]
+    m = VARIABLE_HEAD.fullmatch(head)
+    if m:
+        head = assigned.get(m.group(1) or m.group(2), "")
+        if not head:                                   # unknown variable: judge by the arguments
+            head = "python" if ("-c" in args or "-m" in args) else "$"
+    name = Path(head).name
+    if PYTHON_NAME.fullmatch(name):
+        i = 0
+        while i < len(args) and args[i].startswith("-") and not args[i].startswith("--") and len(args[i]) > 1:
+            flag = args[i]
+            if flag.endswith("c"):
+                return "python -c"
+            if flag.endswith("m") and i + 1 < len(args):
+                return " ".join(["python", "-m", *args[i + 1:]])
+            i += 1
+        return " ".join(["python", *args[i:]])
+    if name == "nodejs":
+        name = "node"
+    if name in {"npm", "pnpm", "bun"} and GLOBAL_FLAGS & set(args):
+        positional = [a for a in args if not a.startswith("-")]
+        if positional and positional[0] in INSTALL_WORDS:
+            return f"{name} {positional[0]} -g"
+    return " ".join([name, *args])
 CURL_PIPE_SH = re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b")
+
+
+INSTALL_REASON = ("{what} is not allowed for subagents: nothing is installed on the host or into .venv. "
+                  "Report the missing tool; the main session installs it following requirements.md.")
 
 
 def check_host_install(ev: Event, cmd: str) -> str | None:
     if CURL_PIPE_SH.search(cmd):
-        return ("curl | sh installs software on the host. Add the tool to the project devShell "
-                "or use `nix shell nixpkgs#<pkg> -c …`.")
+        return ("Piping a download into a shell installs software on the host. The main session installs "
+                "tools following requirements.md.")
+    assigned: dict[str, str] = {}
     for seg in expand(cmd):
-        line = " ".join(words(seg))
+        _assignments(seg, assigned)
+        line = _canonical(words(seg), assigned)
         for rx, what in HOST_INSTALL:
             if rx.search(line):
                 if what.startswith("inline"):
-                    return f"{what} is not allowed: write the script to a file and run it through `nix develop -c`."
-                return (f"{what} is not allowed: nothing is installed on the host or into .venv. "
-                        "Add the dependency to the project flake/devShell (or pyproject + nixpkgs), "
-                        "or run a one-off tool with `nix shell nixpkgs#<pkg> -c <cmd>`.")
+                    return f"{what} is not allowed: write the script to a file and run it."
+                if not ev.is_main:
+                    return INSTALL_REASON.format(what=what)
     return None
 
 
-# ---------------------------------------------------------------- Nix only
+# ---------------------------------------------------------------- shell scan
 
 INTERPRETER = re.compile(
     r"(?:python|pypy|ruby|perl|php|lua|node(?:js)?)[\d.]*[a-z]?|luajit[\d.-]*|ipython[\d.]*|tsx|ts-node"
     r"|Rscript|julia|bun|deno")
-# A variable whose name or default value mentions one of these may hold an interpreter.
-INTERPRETER_HINT = re.compile(r"python|pypy|node|ruby|perl|php|lua|julia|deno|\bbun\b|interp|^py$|rscript", re.I)
 LAUNCHER = {"npx", "bunx", "uvx"}
 LAUNCHER_SUBCOMMANDS: dict[str, set[tuple[str, ...]]] = {
     "uv": {("run",), ("tool", "run")}, "pnpm": {("dlx",), ("exec",)}, "poetry": {("run",)},
@@ -434,12 +483,9 @@ def _shell_script(w: list[str]) -> str | None:
     return None
 
 
-NIX_SKILL_REASON = ("Skill scripts are not run from the skills directory. Use the skill's Nix wrapper "
-                    "(a /nix/store/…/bin/<name> command); SKILL.md of the skill says which one.")
-NIX_VARIABLE_REASON = ("The command comes from a variable or substitution that may hold an interpreter, so it "
-                       "cannot be checked. Write the command out and run it through the project environment: "
-                       "`nix develop -c …`.")
-NIX_DEPTH_REASON = "The command is too deeply nested (substitutions, shell -c inside shell -c …) to check. Simplify it."
+SKILL_REASON = ("Skill scripts are not run from the skills directory. Use the command the skill's "
+                "SKILL.md names for it.")
+DEPTH_REASON = "The command is too deeply nested (substitutions, shell -c inside shell -c …) to check. Simplify it."
 
 
 def _first_argument(args: list[str]) -> str:
@@ -486,29 +532,13 @@ def _herestrings(w: list[str]) -> list[str]:
     return out
 
 
-def _variable_head_reason(head: str, scan: Scan) -> str | None:
-    """Deny a command word that is a bare variable or substitution that may hold an interpreter."""
-    if head == SUBST or re.fullmatch(r"\$\(.*\)|`.*`", head):
-        return None if scan.substitution_ok else NIX_VARIABLE_REASON
-    m = re.fullmatch(r"\$(\w+)|\$\{([^}]*)\}", head)       # `$VAR/path` is a path, not a bare variable
-    if not m:
-        return None
-    text = m.group(1) or m.group(2)
-    value = scan.assigned.get(re.split(r"\W", text, maxsplit=1)[0])
-    if value is not None:
-        first = value.split()[0] if value.split() else ""
-        if "$" in value or "`" in value or (first and _is_interpreter([first])):
-            return NIX_VARIABLE_REASON
-    return NIX_VARIABLE_REASON if INTERPRETER_HINT.search(text) else None
-
-
-def _nix_commands(cmd: str, wrapped: bool, depth: int, cwd: str | None = None, eval_ok: bool = False) -> str | None:
+def _scan_commands(cmd: str, wrapped: bool, depth: int, cwd: str | None = None, eval_ok: bool = False) -> str | None:
     if depth > MAX_DEPTH:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     try:
         commands = _split_commands(cmd.replace("\\\n", " "))
     except NestingError:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     scan = Scan(cwd=cwd, substitution_ok=eval_ok)
     pipeline_has_skill = False
     pipeline_bodies: list[str] = []                            # heredoc bodies feeding the current pipeline
@@ -531,10 +561,10 @@ def _nix_commands(cmd: str, wrapped: bool, depth: int, cwd: str | None = None, e
             pipeline_bodies = list(command.heredocs)
         else:
             if pipeline_has_skill and final and _reads_stdin_script(final):
-                return NIX_SKILL_REASON                        # cat skill.sh | bash
+                return SKILL_REASON                        # cat skill.sh | bash
             if final and Path(final[0]).name in SHELLS and _reads_stdin_script(final):
                 for body in pipeline_bodies:                   # cat <<EOF | bash
-                    reason = _nix_commands(body, wrapped or in_nix, depth + 1, scan.cwd)
+                    reason = _scan_commands(body, wrapped or in_nix, depth + 1, scan.cwd)
                     if reason:
                         return reason
             pipeline_bodies += command.heredocs
@@ -542,13 +572,13 @@ def _nix_commands(cmd: str, wrapped: bool, depth: int, cwd: str | None = None, e
             scan.cd(_first_argument(w[1:]))
         elif w and Path(w[0]).name == "popd":
             scan.cwd = None
-        reason = _nix_words(w, wrapped, depth, scan, command.heredocs)
+        reason = _scan_words(w, wrapped, depth, scan, command.heredocs)
         if reason:
             return reason
     return None
 
 
-def _nix_words(w: list[str], wrapped: bool, depth: int, scan: Scan, heredocs: list[str] | None = None) -> str | None:
+def _scan_words(w: list[str], wrapped: bool, depth: int, scan: Scan, heredocs: list[str] | None = None) -> str | None:
     w = strip_env_and_wrappers(w)
     if w:
         w = [re.split(r"[<>]", w[0])[0]] + w[1:]      # `python3>out`, `python3</dev/null`
@@ -557,56 +587,49 @@ def _nix_words(w: list[str], wrapped: bool, depth: int, scan: Scan, heredocs: li
     head = posixpath.normpath(w[0]) if w[0].startswith("/") else w[0]
     name = Path(head).name
     if _is_skill_path(head):
-        return NIX_SKILL_REASON
+        return SKILL_REASON
     if scan.in_skill_dir and _runs_from_cwd(w):
-        return NIX_SKILL_REASON
+        return SKILL_REASON
     inner = _unwrap_nix(w)
     if inner is not None:
-        return _nix_words(inner[0], True, depth + 1, scan, heredocs)
+        return _scan_words(inner[0], True, depth + 1, scan, heredocs)
     if name == "busybox":
-        return _nix_words(w[1:], wrapped, depth + 1, scan, heredocs)
+        return _scan_words(w[1:], wrapped, depth + 1, scan, heredocs)
     if name == "eval":
-        return _nix_commands(" ".join(w[1:]), wrapped, depth + 1, scan.cwd, eval_ok=True)
+        return _scan_commands(" ".join(w[1:]), wrapped, depth + 1, scan.cwd, eval_ok=True)
     if name == "xargs":
         i = 1
         while i < len(w) and w[i].startswith("-"):
             i += 2 if w[i] in XARGS_VALUE_OPTIONS else 1
-        return _nix_words(w[i:], wrapped, depth + 1, scan)
+        return _scan_words(w[i:], wrapped, depth + 1, scan)
     if name == "find":
-        return next(filter(None, (_nix_words(c, wrapped, depth + 1, scan) for c in _find_exec_commands(w))), None)
+        return next(filter(None, (_scan_words(c, wrapped, depth + 1, scan) for c in _find_exec_commands(w))), None)
     if name in SHELLS:
         script = _shell_script(w)
         if script is not None:
-            return _nix_commands(script, wrapped, depth + 1, scan.cwd)
+            return _scan_commands(script, wrapped, depth + 1, scan.cwd)
         for body in (heredocs or []) + _herestrings(w):    # `bash <<EOF`, `bash <<< 'cmd'`: a script on stdin
-            reason = _nix_commands(body, wrapped, depth + 1, scan.cwd)
+            reason = _scan_commands(body, wrapped, depth + 1, scan.cwd)
             if reason:
                 return reason
     if head in {"source", "."}:                            # `source /dev/stdin <<EOF`
         for body in (heredocs or []) + _herestrings(w):
-            reason = _nix_commands(body, wrapped, depth + 1, scan.cwd)
+            reason = _scan_commands(body, wrapped, depth + 1, scan.cwd)
             if reason:
                 return reason
-    if not wrapped:
-        reason = _variable_head_reason(head, scan)
-        if reason:
-            return reason
     interpreter = _is_interpreter(w)
     if (interpreter or name in SHELLS or head in {"source", "."}) and any(_is_skill_path(a) for a in w[1:]):
-        return NIX_SKILL_REASON
-    if interpreter and not wrapped and not head.startswith("/nix/store/"):
-        return (f"Bare `{name}` is not allowed: run it through the project environment, "
-                f"`nix develop -c {name} …`, or a one-off `nix shell nixpkgs#<pkg> -c {name} …`.")
+        return SKILL_REASON
     return None
 
 
-def check_nix_only(ev: Event, cmd: str) -> str | None:
+def check_shell_scan(ev: Event, cmd: str) -> str | None:
     if len(cmd) > MAX_COMMAND_LENGTH:
         return f"The command is too long ({len(cmd)} characters) to check. Split it into smaller commands."
     try:
-        return _nix_commands(cmd, False, 0)
+        return _scan_commands(cmd, False, 0)
     except RecursionError:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
 
 
 # ---------------------------------------------------------------- git
@@ -758,7 +781,7 @@ def check_destructive(ev: Event, cmd: str) -> str | None:
         if re.search(r"^(reboot|poweroff|shutdown|halt)\b|systemctl\s+(reboot|poweroff|restart\s+(docker|display-manager|nix-daemon))", line):
             return "This interrupts the user's session. Prepare the step and let the user run it."
         if re.search(r"^nixos-rebuild\s+(switch|boot|test)\b|^home-manager\s+switch\b|^darwin-rebuild\s+switch\b", line):
-            return "Switching the system/home generation is done by the user. Build with `nixos-rebuild build` and report."
+            return "Switching the system/home generation is done by the user. Build without switching and report."
         if re.search(r"^(mkfs(\.\w+)?|wipefs)\b|\bdd\b.*\bof=/dev/", line):
             return "Disk-level destructive command."
     return None
@@ -1455,7 +1478,7 @@ def _filter_reason(name: str, args: list[str]) -> str | None:
 def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
     """Reason to refuse one resolved command (word list), or None."""
     if depth > MAX_DEPTH:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     if not w:
         return None
     head = w[0]
@@ -1496,11 +1519,11 @@ def _reader_words(w: list[str], agent: str, depth: int) -> str | None:
 
 def _reader_reason(cmd: str, agent: str, depth: int = 0) -> str | None:
     if depth > MAX_DEPTH:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     try:
         commands = _split_commands(cmd.replace("\\\n", " "))
     except NestingError:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     for command in commands:
         raw = split_words(_scan_redirections(command.text)[1], comments=False)
         lead = next((a for a in raw if not re.fullmatch(r"\w+=.*", a) and a not in KEYWORDS), "")
@@ -1539,7 +1562,7 @@ def _credential_path(home: str) -> re.Pattern[str]:
 def _env_reason_words(w: list[str], agent: str, depth: int) -> str | None:
     """Assignments in front of the command (also behind env, nix shell -c, bash -c) other than TZ, LC_*, NO_COLOR."""
     if depth > MAX_DEPTH:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     shown = " ".join(w)[:200]
     for _ in range(MAX_DEPTH):
         stripped = strip_env_and_wrappers(w)
@@ -1582,11 +1605,11 @@ def _env_reason_words(w: list[str], agent: str, depth: int) -> str | None:
 
 def _env_reason(cmd: str, agent: str, depth: int = 0) -> str | None:
     if depth > MAX_DEPTH:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     try:
         commands = _split_commands(cmd.replace("\\\n", " "))
     except NestingError:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     for command in commands:
         raw = split_words(_scan_redirections(command.text)[1], comments=False)
         reason = _env_reason_words([a for a in raw if a not in KEYWORDS], agent, depth)
@@ -1600,7 +1623,7 @@ def _cd_reason(ev: Event, cmd: str) -> str | None:
     try:
         commands = _split_commands(cmd.replace("\\\n", " "))
     except NestingError:
-        return NIX_DEPTH_REASON
+        return DEPTH_REASON
     root = str(ev.project_root).rstrip("/")
     cwd = "."
     for command in commands:
@@ -1640,7 +1663,7 @@ def check_reader_inputs(ev: Event, cmd: str) -> str | None:
 from .infra_checks import check_infra  # noqa: E402 — after the checks above on purpose (import cycle)
 from .stand_janitor_checks import check_janitor, check_stand_operator  # noqa: E402
 
-CHECKS = [check_infra, check_reader_inputs, check_deploy_reader, check_stand_operator, check_janitor, check_host_install, check_nix_only, check_git, check_destructive, check_secrets, check_bash_writes, check_tests_via_bash]
+CHECKS = [check_infra, check_reader_inputs, check_deploy_reader, check_stand_operator, check_janitor, check_host_install, check_shell_scan, check_git, check_destructive, check_secrets, check_bash_writes, check_tests_via_bash]
 
 
 def run(ev: Event) -> str | None:

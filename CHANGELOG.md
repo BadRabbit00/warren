@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0-no-nix — unreleased (branch `no-nix`)
+
+The same warren without Nix, for machines that do not use it.
+
+- Install with `python3 tools/install.py` (Windows, macOS, Linux; Python 3.11+, stdlib only): builds with
+  `tools/build.py` (was `nix/payload.py`), lays out `~/.claude`, `~/.codex`, `~/.gemini/config`, merges
+  `settings.json` keeping the user's keys and hooks; `--dry-run`, `--dest`, `--check`. `requirements.md`
+  lists what to install, `install_guide.md` the script and the manual way.
+- Hooks run as `"python3" -I -B "~/.claude/br/hooks/<entry>.py"`; no `br-hook` wrapper. The Nix-first rule
+  is gone (bare tools and interpreters run); package installs are refused for subagents and allowed for
+  the main session; no hook message mentions Nix.
+- Removed: `flake.nix`, `nix/`, the agents `nix-architect`, `nix-engineer`, `nix-reviewer`,
+  `nix-build-resolver`, `nix-test-runner`, the skills `nix-debugging`, `nix-flake-patterns`,
+  `nix-packaging`, `nix-testing`, `nix-toolkit`, `nixos-module-patterns`, `project-flake`, the 14 `nix-*`
+  commands and `rules/nix.md`.
+- Every agent, skill, command, rule and workflow runs commands directly through the project's own
+  toolchain (`uv run`, `npm`, `go`, `cargo`); a missing CLI stops with "install needed (requirements.md)".
+  Images are multi-stage Dockerfiles to a distroless or slim base. Renamed rules: R-DEPLOY-NIX-JOBS →
+  R-DEPLOY-MULTISTAGE, R-PYS-NIX → R-PYS-ENV.
+- The validator rejects Nix wording and nix-named files in everything agents read.
+
 ## 0.3.0 — unreleased
 
 - Saved workflows in `workflows/`, installed to `$out/claude/workflows/`, every agent by `agentType` (pins,

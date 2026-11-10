@@ -16,11 +16,11 @@ import validate
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-PAYLOAD = REPO / "nix" / "payload.py"
+BUILD = REPO / "tools" / "build.py"
 
 COPIED = (
     "agents", "rules", "skills", "commands", "core", "output-styles", "templates", "hooks", "tools", "workflows",
-    "agent-models.json", "settings.fragment.json",
+    "agent-models.json", "settings.fragment.json", "LICENSE",
 )
 
 GOOD_AGENT = """---
@@ -84,8 +84,8 @@ def make_root(tmp: Path) -> Path:
     """Copies the shipped tree (explicit allowlist) into tmp/br and returns that root."""
     root = tmp / "br"
     root.mkdir()
-    # Explicit allowlist (mirrors the payload.nix fileset): copying the repo root would follow
-    # .direnv symlinks into /nix/store and fail to clean up read-only files.
+    # Explicit allowlist (the directories build.py reads): copying the repo root would follow
+    # symlinks out of the tree and fail to clean up read-only files.
     for name in COPIED:
         src = REPO / name
         if src.is_dir():
@@ -349,18 +349,13 @@ Why: injection.
         self.write_agent(GOOD_AGENT + "\n```text\n")
         self.assertTrue(any("unclosed code fence" in e for e in self.run_validator()))
 
-    # -- nix/payload.py
+    # -- tools/build.py
 
     def run_payload(self, agent_text: str) -> subprocess.CompletedProcess[str]:
-        """Runs payload.py on a copy of the tree with one extra agent; returns the finished process."""
-        out = self.tmp / "out"
-        claude = out / "claude"
-        for src, dst in (("agents", "agents"), ("skills", "skills"), ("rules", "rules/br"), ("commands", "commands")):
-            shutil.copytree(self.root / src, claude / dst, copy_function=shutil.copyfile)
-        shutil.copyfile(self.root / "settings.fragment.json", out / "settings.fragment.json")
-        (claude / "agents" / "demo-agent.md").write_text(agent_text, encoding="utf-8")
+        """Runs `build.py <out> <repo> <hook-python>` on a copy of the tree with one extra agent."""
+        self.write_agent(agent_text)
         return subprocess.run(
-            [sys.executable, "-I", "-B", str(PAYLOAD), str(out), str(self.root), "/x/br-hook"],
+            [sys.executable, "-I", "-B", str(BUILD), str(self.tmp / "out"), str(self.root), "/x/python3"],
             capture_output=True, text=True, check=False,
         )
 
@@ -376,6 +371,125 @@ Why: injection.
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("demo-agent: no frontmatter", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
+
+
+# AC4: Nix wording the validator must refuse in the text agents read. Each entry is one line that
+# names one forbidden thing; (phrase, the sentence that carries it).
+NIX_LINES = (
+    ("nix develop", "Run `nix develop -c pytest` before you finish."),
+    ("nix shell", "Use `nix shell nixpkgs-tool -c gh` for one-off tools."),
+    ("nix run", "Start it with `nix run .#app`."),
+    ("nix build", "Build it with `nix build .#pkg`."),
+    ("nix flake", "Check it with `nix flake check`."),
+    ("nixpkgs#", "Take the CLI from `nixpkgs#gh`."),
+    ("flake.nix", "The inputs live in flake.nix."),
+    ("devShell", "Add the tool to the devShell."),
+    ("dockerTools", "Build the image with dockerTools.buildLayeredImage."),
+    ("nix-engineer agent name", "Hand the work to the nix-engineer agent."),
+    ("nix-toolkit skill name", "Read the nix-toolkit skill first."),
+    ("nix-build command name", "Run the /nix-build command."),
+)
+NIX_WORDS = ("nix", "devshell", "dockertools")
+GOOD_SKILL = "---\nname: demo-skill\ndescription: Use when demoing the validator.\n---\n\n# Demo\n"
+GOOD_COMMAND = "---\ndescription: Demo command.\n---\n# demo\n"
+GOOD_WORKFLOW = "export const meta = {name: 'demo', description: 'Demo.'}\n"
+
+
+class NoNixTest(unittest.TestCase):
+    """The validator keeps Nix out of the text agents read: agents, skills, commands, rules, core,
+    output-styles, workflows, templates and settings.fragment.json. Hooks code and tests may name Nix."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = make_root(self.tmp)
+        models = json.loads((self.root / "agent-models.json").read_text(encoding="utf-8"))
+        models["agents"]["demo-agent"] = {
+            "model": "claude-sonnet-5-5", "effort": "medium",
+            "codex": {"model": "gpt-6-astra", "effort": "high"}, "agy": {"model": "flash"},
+        }
+        (self.root / "agent-models.json").write_text(json.dumps(models), encoding="utf-8")
+
+    def findings_for(self, rel: str) -> list[str]:
+        """Validator findings that name the file or directory `rel`."""
+        return [e for e in validate.Validator(self.root).run() if e.startswith(rel)]
+
+    def nix_findings_for(self, rel: str) -> list[str]:
+        """Findings for `rel` whose message (after the path) speaks about Nix."""
+        return [e for e in self.findings_for(rel) if any(w in e.split(":", 1)[-1].lower() for w in NIX_WORDS)]
+
+    def put(self, rel: str, text: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_validator_rejects_nix(self) -> None:
+        # Every forbidden phrase in an agent.
+        for label, line in NIX_LINES:
+            with self.subTest(place="agent", phrase=label):
+                path = self.put("agents/demo-agent.md", GOOD_AGENT + "\n" + line + "\n")
+                self.assertTrue(self.nix_findings_for("agents/demo-agent.md"), line)
+                path.unlink()
+
+        # A phrase in each of the other text directories and in the settings fragment.
+        places = (
+            ("skills/demo-skill/SKILL.md", lambda line: GOOD_SKILL + "\n" + line + "\n"),
+            ("commands/demo.md", lambda line: GOOD_COMMAND + "\n" + line + "\n"),
+            ("rules/demo.md", lambda line: GOOD_RULE + "\n" + line + "\n"),
+            ("core/demo.md", lambda line: "# Demo core\n\n" + line + "\n"),
+            ("output-styles/demo.md", lambda line: "---\nname: demo\n---\n\n" + line + "\n"),
+            ("workflows/demo.js", lambda line: GOOD_WORKFLOW + f"// {line}\n"),
+            ("templates/demo.md", lambda line: "# Demo template\n\n" + line + "\n"),
+        )
+        for i, (rel, make) in enumerate(places):
+            label, line = NIX_LINES[i % len(NIX_LINES)]
+            with self.subTest(place=rel, phrase=label):
+                path = self.put(rel, make(line))
+                self.assertTrue(self.nix_findings_for(rel), line)
+                path.unlink()
+
+        settings = self.root / "settings.fragment.json"
+        original = settings.read_text(encoding="utf-8")
+        data = json.loads(original)
+        data["env"]["DEMO_CMD"] = "nix develop -c pytest"
+        with self.subTest(place="settings.fragment.json"):
+            settings.write_text(json.dumps(data), encoding="utf-8")
+            self.assertTrue(self.nix_findings_for("settings.fragment.json"))
+        settings.write_text(original, encoding="utf-8")
+
+        # Files and directories named nix-* in those places are findings even with clean content.
+        named = (
+            ("agents/nix-foo.md", GOOD_AGENT.replace("name: demo-agent", "name: nix-foo")),
+            ("skills/nix-foo/SKILL.md", GOOD_SKILL.replace("name: demo-skill", "name: nix-foo")),
+            ("commands/nix-foo.md", GOOD_COMMAND),
+            ("rules/nix.md", GOOD_RULE),
+        )
+        for rel, text in named:
+            with self.subTest(nix_named=rel):
+                path = self.put(rel, text)
+                shown = rel.removesuffix("/SKILL.md")
+                self.assertTrue(self.findings_for(shown), rel)
+                self.assertTrue(
+                    [e for e in self.findings_for(shown) if "nix" in e.split(":", 1)[-1].lower()], rel,
+                )
+                path.unlink()
+
+    def test_validator_ignores_words_that_only_contain_nix(self) -> None:
+        # AC4 is about Nix, not about substrings: Unix, Linux and minix are fine.
+        self.put("agents/demo-agent.md", GOOD_AGENT + "\nOn Unix and Linux read a unix socket; minix is a toy.\n")
+        self.assertEqual(self.findings_for("agents/demo-agent.md"), [])
+
+    def test_validator_exempts_hooks_code_and_tests_from_nix(self) -> None:
+        text = "\n".join(line for _, line in NIX_LINES) + "\n"
+        self.put("hooks/brhooks/nix_wrapper.py", f'"""{text}"""\n')
+        self.put("hooks/test/test_no_nix.py", f'"""{text}"""\n')
+        self.assertEqual(self.findings_for("hooks/brhooks/nix_wrapper.py"), [])
+        self.assertEqual(self.findings_for("hooks/test/test_no_nix.py"), [])
+
+    def test_validate_config_drops_nix_exemptions(self) -> None:
+        cfg = (REPO / "tools" / "validate.json").read_text(encoding="utf-8")
+        self.assertNotIn("nix", cfg.lower())
 
 
 class ModelTableTest(unittest.TestCase):

@@ -5,7 +5,7 @@ description: Use when choosing or checking a technology for a project - backend 
 
 # Stack choice
 
-Alexey's default stack and the rules for leaving it (source: `02-tech-stack`). Environment and builds: `nix.md`, `deploy-variants`. Auth details: `auth-service`.
+Alexey's default stack and the rules for leaving it (source: `02-tech-stack`). Environment and builds: `deploy-variants`. Auth details: `auth-service`.
 
 ## Contents
 
@@ -29,7 +29,7 @@ Alexey's default stack and the rules for leaving it (source: `02-tech-stack`). E
 | Cache, counters, task broker | Redis | RabbitMQ for events between services | Memcached, Kafka; in-process cache with several replicas |
 | Auth | separate `auth` service: FastAPI + AuthX, own PostgreSQL, ES256/RS256 JWT | — | external IdP, HS256 shared secret, auth module inside an app. Hand-written JWT and python-jose: never |
 | Files | S3-compatible storage | — | files on the container disk, binaries in the DB |
-| Run | Nix `dockerTools` images + docker compose; development in the devShell | Dockerfile + compose on request | running services outside devShell/compose as the main path; host installs |
+| Run | Dockerfile (multi-stage, distroless or slim) + docker compose | podman Quadlet on request | running services outside compose as the main path; host installs |
 
 ## Backend
 
@@ -47,7 +47,7 @@ One service, one language; its tooling (migrations, seeds, CLI) in the same lang
 
 **Gin by default.** Fiber only for a simple high-load API with a measured HTTP-layer bottleneck, or if the project already uses it (fasthttp: no `net/http` middleware, no HTTP/2, context values valid only inside the handler).
 
-**Python components**: FastAPI + uvicorn · Pydantic v2 · pydantic-settings with a per-service prefix (`ORDERS_`) · SQLAlchemy 2.0 ORM (`Mapped`, `select()`), asyncpg (psycopg 3 for sync) · Alembic · Beanie (or async PyMongo + Pydantic) for MongoDB; never Motor · httpx with explicit timeouts · structlog (JSON in prod) · auth service: AuthX + PyJWT for JWKS; consumers: PyJWT; passwords: pwdlib argon2id (bcrypt only to verify and rehash old hashes) · boto3/aioboto3 · deps listed in `pyproject.toml`, packages from nixpkgs (`withPackages`); `uv.lock` only with a Dockerfile variant · pytest + pytest-asyncio + httpx `AsyncClient` · ruff + mypy strict. One Python version across nixpkgs, CI, `requires-python`, Dockerfile. Async by default; nothing blocking inside `async def`.
+**Python components**: FastAPI + uvicorn · Pydantic v2 · pydantic-settings with a per-service prefix (`ORDERS_`) · SQLAlchemy 2.0 ORM (`Mapped`, `select()`), asyncpg (psycopg 3 for sync) · Alembic · Beanie (or async PyMongo + Pydantic) for MongoDB; never Motor · httpx with explicit timeouts · structlog (JSON in prod) · auth service: AuthX + PyJWT for JWKS; consumers: PyJWT; passwords: pwdlib argon2id (bcrypt only to verify and rehash old hashes) · boto3/aioboto3 · deps listed in `pyproject.toml`, locked with `uv.lock` · pytest + pytest-asyncio + httpx `AsyncClient` · ruff + mypy strict. One Python version across CI, `requires-python`, Dockerfile. Async by default; nothing blocking inside `async def`.
 
 **Go components**: Gin · GORM (pgx inside) · golang-migrate or goose (Atlas may generate from GORM models); never `AutoMigrate` at start · `mongo-driver/v2` with typed structs · `golang-jwt/jwt/v5` + `MicahParks/keyfunc/v3` · env → struct (`caarlos0/env`) · `log/slog` · air in dev · `go vet` + pinned golangci-lint · `go test -race`, `httptest`, testcontainers-go. Raw SQL via pgx/sqlc only as the data exception. One Go version everywhere; code generators pinned to their runtime library version.
 
@@ -111,8 +111,8 @@ No arq, RQ, Dramatiq, or Kafka next to Celery and RabbitMQ without an explicit r
 
 - `/health` = process alive, no dependency calls; `/ready` = the service's own infrastructure only (its DB, Redis, broker), never neighbours. Logs to stdout, structured, with request id.
 - Three or more services calling each other → OpenTelemetry + Jaeger under a compose profile, Prometheus metrics.
-- CI on GitHub Actions: linters, types, tests with PostgreSQL, `nix flake check`, every build variant, `docker compose config --quiet`. Tags, pushes, and deploys only on the user's direct request. Secrets only in GitHub Secrets; actions pinned.
-- Hosting: own server (Nix images + compose or podman Quadlet, a NixOS module) or a PaaS from a Dockerfile (e.g. Railway) per `deploy-variants`.
+- CI on GitHub Actions: linters, types, tests with PostgreSQL, every build variant, `docker compose config --quiet`. Tags, pushes, and deploys only on the user's direct request. Secrets only in GitHub Secrets; actions pinned.
+- Hosting: own server (Dockerfile images + compose or podman Quadlet) or a PaaS from a Dockerfile (e.g. Railway) per `deploy-variants`.
 
 ## Anti-patterns
 
@@ -120,12 +120,12 @@ Node.js backends next to Python services · new APIs on Django/Flask · SQLite o
 
 ## Checklist
 
-- [ ] `cp .env.example .env && nix run .#images && docker compose up -d` brings up everything, migrations and seeds included.
+- [ ] `cp .env.example .env && docker compose up -d --build` brings up everything, migrations and seeds included.
 - [ ] Backend is FastAPI, or Go (Gin; Fiber only by §Backend) with the reason named.
 - [ ] Frontend chosen by the §Frontend table; one frontend framework.
 - [ ] Persistent data in PostgreSQL; MongoDB only by §Data with the reason named; schema only through migrations.
 - [ ] Data access through ORM/ODM; raw SQL only as a parameterised, documented exception.
-- [ ] Nothing installed on the host; everything from the devShell.
+- [ ] Nothing installed on the host beyond the requirements (`requirements.md`); services run in compose.
 - [ ] Redis holds only derived/temporary data with TTLs; memory policy matches its role.
 - [ ] Files in S3, keys in the DB.
 - [ ] Auth is the separate service; consumers verify JWT via JWKS; access TTL is finite.

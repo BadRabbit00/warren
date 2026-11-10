@@ -10,67 +10,67 @@ Who: `R` = allowed for `log-collector` and `deploy-error-reader` (intended allow
 
 ## 1. Run
 
-Always `nix shell nixpkgs#docker -c docker <args>` (the compose plugin is in the same package). Never a bare `docker`, never an install script piped into a shell.
+Run `docker <args>` (the compose plugin is part of it). Never an install script piped into a shell. First step: check the CLI is installed (`docker --version`); missing → `STATUS: blocked — install docker (requirements.md)`.
 Compose project: `-f <file>` (repeatable), `-p <project>`, `--env-file`, `--profile` go BEFORE the subcommand: `docker compose -f compose.prod.yaml -p app ps`.
 Remote host: `docker -c <context> …` or `-H ssh://user@host` (ssh form: not verified). Always name the target; the default context may be the wrong machine.
-Streams (`logs -f`, `events`, `stats`) are bounded (see 5); `timeout` goes BEFORE nix.
+Streams (`logs -f`, `events`, `stats`) are bounded (see 5); `timeout` goes BEFORE the CLI.
 
 ## 2. Login check FIRST
 
 ```
-nix shell nixpkgs#docker -c docker version --format '{{.Server.Version}}'
+docker version --format '{{.Server.Version}}'
 ```
 - exit 0 and a version number = the daemon answers.
 - exit 1 and `failed to connect to the docker API` = stop: the daemon is down, the socket is not reachable, or the wrong context is active. Check `docker context ls` once, then report.
 
-This is a daemon check, not a registry login. Registry login (private images) is the user's: `! nix shell nixpkgs#docker -c docker login <registry>`. Never run `docker login` yourself and never print `~/.docker/config.json`.
+This is a daemon check, not a registry login. Registry login (private images) is the user's: `! docker login <registry>`. Never run `docker login` yourself and never print `~/.docker/config.json`.
 
 ## 3. Read-only commands
 
 ### Is it running, why did it stop (R)
 ```
-nix shell nixpkgs#docker -c docker compose -f <file> ps -a --format json
-nix shell nixpkgs#docker -c docker compose -f <file> ps -a --status exited
-nix shell nixpkgs#docker -c docker compose -f <file> ps --services
+docker compose -f <file> ps -a --format json
+docker compose -f <file> ps -a --status exited
+docker compose -f <file> ps --services
 ```
 Look at `State`, `ExitCode`, `Health` in the JSON. A restarting container shows `restarting`.
 
 ### Logs (R)
 ```
-nix shell nixpkgs#docker -c docker compose -f <file> logs --tail 200 --since 30m -t <service>
-nix shell nixpkgs#docker -c docker logs --tail 200 --since 30m -t <container>
+docker compose -f <file> logs --tail 200 --since 30m -t <service>
+docker logs --tail 200 --since 30m -t <container>
 ```
 - Always `--tail N` (default is `all`). Add `--until <t>` to cut a window. `--no-color --no-log-prefix` give clean text.
-- Never `-f/--follow` without `timeout`: `timeout 30 nix shell nixpkgs#docker -c docker logs -f --tail 50 <container>`.
+- Never `-f/--follow` without `timeout`: `timeout 30 docker logs -f --tail 50 <container>`.
 - `--index N` picks one replica of a scaled service.
 
 ### Why did it exit: exit code, OOM, health (E)
 ```
-nix shell nixpkgs#docker -c docker inspect <container> --format '{{json .State}}'
-nix shell nixpkgs#docker -c docker events --since 1h --until 0s --filter container=<name> --filter event=die --filter event=oom
-nix shell nixpkgs#docker -c docker compose -f <file> events --since 1h --until 0s --json
+docker inspect <container> --format '{{json .State}}'
+docker events --since 1h --until 0s --filter container=<name> --filter event=die --filter event=oom
+docker compose -f <file> events --since 1h --until 0s --json
 ```
 `.State` has `ExitCode`, `OOMKilled`, `Error`, `StartedAt`, `FinishedAt`, `Health`. `--until 0s` makes `events` return at once.
 
 ### Config, images, resources (E)
 ```
-nix shell nixpkgs#docker -c docker compose -f <file> config --quiet        # validates only, prints nothing
-nix shell nixpkgs#docker -c docker compose -f <file> config --services     # names only
-nix shell nixpkgs#docker -c docker compose -f <file> config --images       # image names only
-nix shell nixpkgs#docker -c docker compose -f <file> images
-nix shell nixpkgs#docker -c docker compose -f <file> top
-nix shell nixpkgs#docker -c docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
-nix shell nixpkgs#docker -c docker stats --no-stream --format json
-nix shell nixpkgs#docker -c docker system df
-nix shell nixpkgs#docker -c docker image inspect <image> --format '{{.Id}} {{.Created}}'
-nix shell nixpkgs#docker -c docker version --format '{{.Server.Version}}'
+docker compose -f <file> config --quiet        # validates only, prints nothing
+docker compose -f <file> config --services     # names only
+docker compose -f <file> config --images       # image names only
+docker compose -f <file> images
+docker compose -f <file> top
+docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
+docker stats --no-stream --format json
+docker system df
+docker image inspect <image> --format '{{.Id}} {{.Created}}'
+docker version --format '{{.Server.Version}}'
 ```
 
 ### Remote image and contexts (E)
 ```
-nix shell nixpkgs#docker -c docker manifest inspect <image:tag>
-nix shell nixpkgs#docker -c docker buildx imagetools inspect <image:tag>
-nix shell nixpkgs#docker -c docker context ls --format json
+docker manifest inspect <image:tag>
+docker buildx imagetools inspect <image:tag>
+docker context ls --format json
 ```
 Does a tag exist in the registry, and its digest: use these before blaming the deploy. `context inspect` may list endpoint settings: read only the name and host.
 
@@ -78,13 +78,13 @@ Does a tag exist in the registry, and its digest: use these before blaming the d
 
 Readers never run these. A reader that thinks one is needed reports it to the orchestrator.
 ```
-nix shell nixpkgs#docker -c docker compose -f <file> pull <service>
-nix shell nixpkgs#docker -c docker compose -f <file> up -d --no-deps <service>   # M: recreates the service
-nix shell nixpkgs#docker -c docker compose -f <file> restart <service>           # M
-nix shell nixpkgs#docker -c docker compose -f <file> stop <service>              # M
-nix shell nixpkgs#docker -c docker compose -f <file> down                        # M: removes containers and networks
-nix shell nixpkgs#docker -c docker context create <name> --docker "host=ssh://user@host"   # M: ssh form not verified
-nix shell nixpkgs#docker -c docker exec <container> <cmd>                        # M: runs code in production
+docker compose -f <file> pull <service>
+docker compose -f <file> up -d --no-deps <service>   # M: recreates the service
+docker compose -f <file> restart <service>           # M
+docker compose -f <file> stop <service>              # M
+docker compose -f <file> down                        # M: removes containers and networks
+docker context create <name> --docker "host=ssh://user@host"   # M: ssh form not verified
+docker exec <container> <cmd>                        # M: runs code in production
 ```
 - `compose down -v` / `--volumes` deletes named volumes (data): never without an explicit request; `--rmi all` and `--remove-orphans` also delete. `docker rm`, `docker run`, `docker system prune`: M.
 - `--dry-run` is a compose option on its commands: use it first.
@@ -97,7 +97,7 @@ Bad: `docker logs <c>` or `docker compose logs` (the default tail is `all`: floo
 Good: `docker logs --tail 200 --since 30m <c>`
 
 Bad: `docker logs -f <c>`, `docker events`, `docker stats` with no bound (never return)
-Good: `timeout 30 nix shell nixpkgs#docker -c docker logs -f --tail 50 <c>`; `docker events --since 1h --until 0s`; `docker stats --no-stream`
+Good: `timeout 30 docker logs -f --tail 50 <c>`; `docker events --since 1h --until 0s`; `docker stats --no-stream`
 
 Bad: the full render of the compose file, `docker compose config --environment` (resolved env: passwords, tokens)
 Good: `docker compose config --quiet`, `--services`, `--images`
