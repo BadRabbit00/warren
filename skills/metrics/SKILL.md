@@ -24,7 +24,7 @@ Rules for metrics in service code. Rule ids `R-MT-*`. Per-language templates liv
 8. [Reviewer checklist](#reviewer-checklist)
 9. [References](#references)
 
-Source marks: (R) stated in the research `docs/temp/observability/research-wf_35c2e079-c6c.json`; (U) not from the research, verify against the installed version.
+Source marks: (R) stated in the research `docs/temp/observability/research-wf_35c2e079-c6c.json` or the follow-up `research-wf_340d5dfb-77e.json`; (U) not from the research, verify against the installed version.
 
 ## The connector module
 
@@ -94,7 +94,7 @@ Every distinct attribute combination is a time series held in memory.
 | Mode | When | Python | Go | Rust |
 |---|---|---|---|---|
 | Prometheus pull | Prometheus scrapes the service | `PrometheusMetricReader` + `prometheus_client.start_http_server(port=9464)`, served at `/metrics` (R) | `otelprom.New()` + `promhttp.Handler()` or `HandlerFor` (R) | not recommended: the crate README says new projects should use `opentelemetry-otlp` (R) |
-| OTLP push | Collector, or Prometheus with native OTLP ingestion | `PeriodicExportingMetricReader(OTLPMetricExporter(...))` (R) | `NewPeriodicReader` with an OTLP exporter (R; exporter package names (U)) | `PeriodicReader` with an OTLP exporter (R; builder methods (U)) |
+| OTLP push | Collector, or Prometheus with native OTLP ingestion | `PeriodicExportingMetricReader(OTLPMetricExporter(...))` (R) | `NewPeriodicReader` over `otlpmetrichttp.New` / `otlpmetricgrpc.New` (R, wf_340d5dfb-77e; pin v1.43.0 or newer, GO-2026-4985) | `SdkMeterProvider::builder().with_periodic_exporter(MetricExporter::builder().with_http()/with_tonic()...build()?)` (R, wf_340d5dfb-77e, confidence medium) |
 
 Versions seen on 2026-11-10 (R), none pinned in the project yet: Python `opentelemetry-sdk` 1.45.2, `opentelemetry-exporter-otlp-proto-http` 1.45.2, `opentelemetry-exporter-prometheus` 0.66b2 (beta, needs sdk `~=1.45.2`, `prometheus-client>=0.5,<1.0`); Go `go.opentelemetry.io/otel/sdk/metric` v1.47.0, `go.opentelemetry.io/otel/exporters/prometheus` v0.69.0; Rust `opentelemetry_sdk` 0.33.1, `opentelemetry-otlp` 0.33.1. New dependencies are reported to the orchestrator, not added by `metrics-writer`.
 

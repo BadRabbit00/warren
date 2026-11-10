@@ -6,7 +6,9 @@ Source marks:
 - (R) stated in the research `docs/temp/observability/research-wf_35c2e079-c6c.json`.
 - (U) NOT from the research: verify against the installed version before relying on it.
 
-Modules (R, latest on 2026-11-10, nothing pinned): `go.opentelemetry.io/otel/sdk/metric` v1.47.0, `go.opentelemetry.io/otel/exporters/prometheus` v0.69.0. OTLP exporter packages (`otlpmetrichttp`, `otlpmetricgrpc`) were not confirmed by the research (U).
+Modules (R, latest on 2026-11-10, nothing pinned): `go.opentelemetry.io/otel/sdk/metric` v1.47.0, `go.opentelemetry.io/otel/exporters/prometheus` v0.69.0. OTLP exporters (R, follow-up research wf_340d5dfb-77e): `go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp` and `.../otlpmetricgrpc`, both v1.47.0 (latest, 2026-10-02).
+
+**Pin `go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp` at v1.43.0 or newer (GO-2026-4985, oversized OTLP HTTP response bodies, affects up to v1.42.0).**
 
 ## Contents
 
@@ -43,6 +45,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp" // (R) gRPC: .../otlpmetricgrpc
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/attribute" // (U)
 	"go.opentelemetry.io/otel/metric"    // (U) used here only, never in business code
@@ -89,11 +92,19 @@ func New(cfg config.Config) (*Metrics, error) {
 		opts = append(opts, sdkmetric.WithReader(exp)) // (R) exporter is a Reader
 		m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{}) // (R)
 	case "otlp":
-		// (U) build an OTLP exporter (otlpmetrichttp) with cfg.MetricsOTLPEndpoint, then:
-		// opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp))) // NewPeriodicReader (R)
-		return nil, fmt.Errorf("otlp exporter: package names not confirmed by the research, verify and fill in")
+		// (R) WithEndpoint takes host[:port] only: no scheme, no path (a custom path is set with WithURLPath).
+		exp, err := otlpmetrichttp.New(context.Background(),
+			otlpmetrichttp.WithEndpoint(cfg.MetricsOTLPEndpoint), // e.g. "collector:4318"
+			otlpmetrichttp.WithInsecure(),                        // plain HTTP; drop it when the endpoint uses TLS
+		)
+		if err != nil {
+			return nil, fmt.Errorf("otlp exporter: %w", err)
+		}
+		// gRPC (R): otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithEndpoint("collector:4317"), otlpmetricgrpc.WithInsecure())
+		opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp))) // (R) default interval 60s
 	}
 	m.provider = sdkmetric.NewMeterProvider(opts...) // (R)
+	// otel.SetMeterProvider(m.provider) (R) registers it globally; the connector uses m.provider.Meter directly.
 	meter := m.provider.Meter("orders")              // (U)
 
 	var err error
@@ -115,7 +126,7 @@ func New(cfg config.Config) (*Metrics, error) {
 // Handler serves /metrics when the exporter is prometheus; mount it in the router.
 func (m *Metrics) Handler() http.Handler { return m.handler }
 
-func (m *Metrics) Shutdown(ctx context.Context) error { return m.provider.Shutdown(ctx) } // (U)
+func (m *Metrics) Shutdown(ctx context.Context) error { return m.provider.Shutdown(ctx) } // (R) MeterProvider.Shutdown(ctx) error; flushes the periodic reader
 
 // ObserveRequest: route is a template ("/orders/{order_id}"), never the raw path.
 func (m *Metrics) ObserveRequest(ctx context.Context, route, method string, status int, seconds float64) {
