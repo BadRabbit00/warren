@@ -1,4 +1,4 @@
-# OpenTelemetry templates (Python, Go, Rust, Node)
+# OpenTelemetry templates (Python, Go, Rust)
 
 Goal (D3): spans around function boundaries and every outgoing HTTP/DB call, and `trace_id` / `span_id` in every log line. Exporter endpoint and service name come from the config module (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`), never hard-coded. Each logger keeps the canonical keys `trace_id`, `span_id` (D13).
 
@@ -6,7 +6,6 @@ Facts used (research wf_6b111f8e-0e4, latest on the pages read 2026-11-10; no pr
 - Python: `tracer.start_as_current_span` (context manager or decorator); packages `opentelemetry-instrumentation-{requests,httpx,urllib3,aiohttp-client,sqlalchemy,psycopg,psycopg2,asyncpg,redis,fastapi,django,flask,celery,...}`; `HTTPXClientInstrumentor().instrument()`; `opentelemetry-instrumentation-logging` 0.66b2 patches stdlib logging only (structlog not mentioned).
 - Go: `otelhttp.NewHandler`, `otel.Tracer(name).Start(ctx, ...)` + `defer span.End()`; SDK 1.39.0, otelhttp 0.64.0 in the guide; contrib has no `database/sql` instrumentation.
 - Rust: traces Beta; `tracing-opentelemetry` 0.34.0 (depends on `opentelemetry ^0.33.0`, unstable, pin exact versions) with `tracing_opentelemetry::layer().with_tracer(...)`; `opentelemetry-appender-tracing` 0.33.1 attaches TraceId/SpanId to OTel log records.
-- Node: `@opentelemetry/sdk-node`, `@opentelemetry/api`, `@opentelemetry/auto-instrumentations-node`, `NodeSDK` + `getNodeAutoInstrumentations()`; `@opentelemetry/instrumentation-pino` (pino >=5.14 <11) injects `trace_id`, `span_id`, `trace_flags`, keys renamable with `logKeys`.
 
 UNVERIFIED items are marked in the sections.
 
@@ -115,40 +114,6 @@ Registry::default()
 
 - Spans: `#[instrument(skip_all)]` on boundaries (see `rust.md`). The research names no official HTTP/DB instrumentation crates for Rust: wrap `reqwest` / `sqlx` calls in `#[instrument]` functions and look in the OTel registry.
 - Ids in stdout lines: `opentelemetry-appender-tracing` 0.33.1 attaches TraceId/SpanId but exports OTel log records; it is not a text formatter. Putting `trace_id` / `span_id` into the fmt JSON line is not covered by the research (UNVERIFIED). A possible approach: read the ids from the span's OTel context (`tracing_opentelemetry::OpenTelemetrySpanExt`, not in the research) and record them as span fields once, so they show in the JSON `spans` list. Check against the pinned versions.
-
-## Node.js
-
-Dependencies: `@opentelemetry/api`, `@opentelemetry/sdk-node`, `@opentelemetry/auto-instrumentations-node`, `@opentelemetry/instrumentation-pino`.
-
-```ts
-// src/instrumentation.ts, loaded first:  node --import ./instrumentation.js dist/main.js
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
-import { PinoInstrumentation } from "@opentelemetry/instrumentation-pino";
-
-const sdk = new NodeSDK({
-  instrumentations: [
-    getNodeAutoInstrumentations(), // outgoing HTTP and DB clients
-    new PinoInstrumentation({ disableLogSending: true }), // trace_id, span_id, trace_flags (logKeys renames them)
-  ],
-});
-sdk.start();
-```
-
-Exporter configuration comes from `OTEL_*` variables set by the config module or the deployment (exporter setup is not shown in the research). ESM apps need a loader hook for auto-instrumentation (research). Manual boundary span:
-
-```ts
-import { trace } from "@opentelemetry/api";
-const tracer = trace.getTracer("order-service");
-
-export async function cancel(id: number): Promise<void> {
-  await tracer.startActiveSpan("OrderService.cancel", async (span) => {
-    try { /* work */ } finally { span.end(); }
-  });
-}
-```
-
-`startActiveSpan` is named in the research, but its callback shape is not shown on the page read (UNVERIFIED). `disableLogSending: true` turns off forwarding pino records to the OTel Logs SDK (research). The browser logger from `typescript.md` has no OTel setup here.
 
 ## Checklist
 
