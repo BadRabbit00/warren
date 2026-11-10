@@ -15,8 +15,8 @@ paths:
 - R-PLAN-TESTS-SEPARATE: test files of a task are listed under `Tests (test-writer)`, not under `Writes`. The coder's write set never contains a test path (`tests/`, `test/`, `*_test.go`, …).
 - R-PLAN-AC: every task has acceptance criteria. Each criterion maps to at least one test.
 - R-PLAN-WAVES: dependencies form waves with no cycles. Tasks in one wave never share a write set.
-- R-PLAN-EVIDENCE: each executed step records its evidence: the test run (passed/failed/skipped numbers), the `sha256` of the task's test files after the red step, and the same hash after `coder` and `refactorer`.
-- R-PLAN-STATUS: status moves `todo → red → green → refactor → review → done` (or `blocked`) and names the step running now. The orchestrator sets `red` before dispatching test-writer, `green` before coder, `refactor` before refactorer. Hooks give each executor only the write set of tasks in its step, so a wrong status blocks the executor. Gates G1–G5 carry dates.
+- R-PLAN-EVIDENCE: each executed step records its evidence: the test run (passed/failed/skipped numbers), the `sha256` of the task's test files after the red step, and the same hash after `coder`, `log-writer` and `refactorer`.
+- R-PLAN-STATUS: status moves `todo → red → green → log → refactor → review → done` (or `blocked`) and names the step running now. The orchestrator sets `red` before dispatching test-writer, `green` before coder, `log` before log-writer, `refactor` before refactorer. Hooks give each executor only the write set of tasks in its step, so a wrong status blocks the executor. Gates G1–G5 carry dates.
 
 ## Examples
 
@@ -57,5 +57,6 @@ Good:
 - **Evidence:**
   - red: `nix develop -c pytest src/orders/tests/services -q` → 0 passed, 3 failed; tests sha256 `9f1c…`
   - green: → 3 passed, 0 failed, 0 skipped; tests sha256 `9f1c…` (unchanged)
+  - log: → 3 passed; tests sha256 `9f1c…` (unchanged)
   - refactor: → 3 passed; tests sha256 `9f1c…`; full suite 214 passed
 ```

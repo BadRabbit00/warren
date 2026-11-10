@@ -67,7 +67,7 @@ Details and examples: `references/async-and-io.md`.
 Details and examples: `references/config-and-logging.md`.
 
 - R-PYS-CONFIG: one module reads env (`core/config.py`, pydantic-settings); nothing else calls `os.getenv`. Variables carry a service prefix. A new variable goes into the config module and `.env.example` in the same change. Required values fail at startup.
-- R-PYS-LOGGING: `structlog.get_logger(__name__)`, key-value fields, no `print`, no secrets or personal data in logs.
+- R-PYS-LOGGING: `structlog.get_logger(__name__)`, key-value fields, no `print`, secrets never; personal data only at DEBUG, masked at INFO and above (skill `logging`).
 - R-PYS-NIX: no venv, no `pip install`. Run everything as `nix develop -c <cmd>`. A new dependency is reported, not added.
 
 ## Tests
