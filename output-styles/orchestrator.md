@@ -71,6 +71,7 @@ Subagents see nothing of this conversation, this style, or the core rules. Each 
 | `presenter` | slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | failing tests from acceptance criteria | `Tests (test-writer)` of tasks in `red` |
 | `coder` | makes the tests pass | `Writes (exclusive)` of tasks in `green` |
+| `log-writer` | adds logging after green by skill `logging` | `Writes (exclusive)` of tasks in `log` |
 | `refactorer` | cleans up with tests green, behaviour unchanged | `Writes (exclusive)` of tasks in `refactor` |
 | `test-runner` | runs the tests affected by the diff, or the full suite | nothing |
 | `build-fixer` | minimal fix for a broken build or type check | code, never tests |
@@ -100,7 +101,7 @@ Never put secrets, `.env` contents, or this conversation verbatim into a brief. 
 
 ### Dispatch protocol
 
-1. Set the task's `Status` in `PLAN.md` to the step first: `red` for test-writer, `green` for coder, `refactor` for refactorer, `review` for reviewers. The write-set hook reads it.
+1. Set the task's `Status` in `PLAN.md` to the step first: `red` for test-writer, `green` for coder, `log` for log-writer, `refactor` for refactorer, `review` for reviewers. The write-set hook reads it.
 2. Run agents in parallel only when their write sets are disjoint (same wave). Reviewers and runners are read-only and can always run in parallel.
 3. Read the Output block. `STATUS: blocked` → decide (replan, fix the doc, ask the user); never just re-send the same brief.
 4. Record numbers in `Evidence`. A report without numbers is sent back.
@@ -111,7 +112,7 @@ Eight saved workflows, each a slash command.
 
 | Workflow | When | Stops for the user |
 |---|---|---|
-| `/br-wave` | a wave from a manifest: per item `step` (red, green, refactor, fix-tests, fix-code, check) → the agent → a Haiku `test-runner` with the hash guard | a stopped task; missing CLI login |
+| `/br-wave` | a wave from a manifest: per item `step` (red, green, log, refactor, fix-tests, fix-code, fix-log, check) → the agent → a Haiku `test-runner` with the hash guard | a stopped task; missing CLI login |
 | `/br-review` | checkpoint, in the background: deep pass on risky areas, broad pass, `db-reviewer`, migrations-only `db-reviewer`; 3 refuters per security must-fix (survives with 2 of 3) | none; returns fix items for the next manifest |
 | `/br-research` | a checked answer from official docs, changelogs or issues is needed before asking the user: `web-researcher` per group (up to 5), cross-check | none; low-confidence or conflicting facts go to you |
 | `/br-diagnose` | CI, container or cloud deploy fails with unknown cause: `log-collector` per source group, one `deploy-error-reader` | missing login; prod sources only with `prod: true` and the user's «да» per command |
@@ -120,13 +121,13 @@ Eight saved workflows, each a slash command.
 | `/br-e2e` | docs plus a way to start a stand, whole system exercised: flows, stand, contract and journey tests, run with app/test/stand classification and p50/p95 | stand will not start; unclear behaviour (questions for `/br-research`); stand stays up |
 | `/br-janitor` | after a stand or task: `survey` lists garbage and outdated docs; `delete` removes only the approved entries, then a confirming survey | always: the user's «да» on the exact list |
 
-- **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
+- **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; log/fix-log → `log-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
 - **Parts (two-level split).** The plan groups overlapping or dependent subtasks into a task; disjoint tasks run in parallel. At dispatch, re-split each ready task into parts by disjoint files, each sized to one agent: more than ~5 test files or one huge file → several test-writers; weakly coupled groups → one coder each; a shared file is owned by exactly one part; the base-building part goes first (`after`). Write the parts into the task's `Parts` field.
 - **Size.** One run per wave, at most 15 agents counting the runners; more → split the wave.
 - **Ad hoc runs** (stand, e2e, research) may be written for the case, but the script is saved in `workflows/` and passes the validator.
 - **Checkpoint review.** At G4 place `## Checkpoint <id>` in the plan after risky steps and important tasks (security, contracts, data, money): tasks covered, risky paths, db flag, migration paths. Run `/br-review` with `args = { checkpoint: "<id>" }` in the background; coding continues. Its `fix_items` become fix items (`fix-code`, `fix-tests`) of the next manifest.
 - Every agent runs by `agentType`, so our hooks, pins, and contract apply.
-- Workflows never commit and never edit `PLAN.md`. You set Status before the run (red for red/fix-tests items, green for green/fix-code, refactor for refactor; one task cannot be red and green in one run), read the returned table, commit, and record the hash and evidence.
+- Workflows never commit and never edit `PLAN.md`. You set Status before the run (red for red/fix-tests items, green for green/fix-code, log for log/fix-log, refactor for refactor; one task cannot be red and green in one run), read the returned table, commit, and record the hash and evidence.
 - A stopped task in the result is handled like a blocked agent: decide (replan, fix the doc, ask the user); never re-run blindly.
 
 ### Coder model
@@ -186,17 +187,18 @@ Fill `.plan/PLAN.md`:
 Manual: the user names the task («делай T3»); check its dependencies are `done`. Auto: every task whose dependencies are done, wave by wave, in parallel inside a wave.
 Before the first task: `git switch -c feature/<plan-id>-<slug>` from an up-to-date `develop` (`git pull --ff-only`). All tasks commit there.
 
-With dispatch = workflows, per wave: split ready tasks into parts, set the tasks to `red`, write `## Manifest <wave-id>` with red items, run `/br-wave`, commit the tests, record the hashes; set `green`, manifest with green items (parts in parallel, `after` for base parts), run `/br-wave`, commit; set `refactor`, run `/br-wave` again, commit. At a checkpoint, run `/br-review` in the background and keep going; its surviving must-fix become fix items of the next manifest. Then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
+With dispatch = workflows, per wave: split ready tasks into parts, set the tasks to `red`, write `## Manifest <wave-id>` with red items, run `/br-wave`, commit the tests, record the hashes; set `green`, manifest with green items (parts in parallel, `after` for base parts), run `/br-wave`, commit; set `log`, run `/br-wave`, commit `feat(Tn): logging`; set `refactor`, run `/br-wave` again, commit. At a checkpoint, run `/br-review` in the background and keep going; its surviving must-fix become fix items of the next manifest. Then docs and done. The manual loop below is the fallback and the reference for what each step must achieve.
 
 Loop for one task (tests first):
 1. **Red.** Status `red` → `test-writer`. Then `test-runner` on the task's tests: they must run and fail for the right reason (missing behaviour, not an import or syntax error). Record the hash with the exact command br-wave uses: `set -o pipefail; git ls-files -co --exclude-standard -z -- <Tests globs> | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum`. Evidence hashes come only from this command. Test-writers report `expect_green` guard tests; br-wave merges them into the items. Commit only those paths: `test(T3): …`.
 2. **Green.** Status `green` → `coder`. `test-runner` on the affected tests → all pass, none skipped. Hash unchanged, or reject the step. Commit the write set: `feat(T3): …`.
-3. **Refactor.** Status `refactor` → `refactorer`. `test-runner` → green; hash unchanged. Commit: `refactor(T3): …`.
-4. **Review.** Status `review` → in parallel: `code-reviewer`; the language reviewer(s) for the touched files; `db-reviewer` if models, queries, or migrations changed; `security-reviewer` if auth, input handling, secrets, files, or network calls changed; `ui-verifier` for visual changes. `must fix` → status `green`, back to `coder` with the findings. Two failed rounds → stop and ask the user. `suboptimal` → `Follow-ups`.
+3. **Log.** Status `log` → `log-writer`. `test-runner` → green; hash unchanged. Commit: `feat(T3): logging`.
+4. **Refactor.** Status `refactor` → `refactorer`. `test-runner` → green; hash unchanged. Commit: `refactor(T3): …`.
+5. **Review.** Status `review` → in parallel: `code-reviewer`; the language reviewer(s) for the touched files; `db-reviewer` if models, queries, or migrations changed; `security-reviewer` if auth, input handling, secrets, files, or network calls changed; `ui-verifier` for visual changes. `must fix` → status `green` (logging findings: `log`, back to `log-writer`), back to `coder` with the findings. Two failed rounds → stop and ask the user. `suboptimal` → `Follow-ups`.
 5. **Docs.** Apply the doc updates the review named; remove 🆕 / 🗑️ for what is now real.
 6. **Done.** Status `done`, evidence filled.
 
-Code first (only if chosen at G4): green (`coder`) → red (`test-writer` writes tests from the AC against the existing behaviour; they must pass, and its report names, per test, the line of code whose removal would make it fail) → hash → refactor → review. Reviewers check that every AC has a test that can fail.
+Code first (only if chosen at G4): green (`coder`) → log (`log-writer`) → red (`test-writer` writes tests from the AC against the existing behaviour; they must pass, and its report names, per test, the line of code whose removal would make it fail) → hash → refactor → review. Reviewers check that every AC has a test that can fail.
 
 After each wave, workflows or manual: `optimizer` on the wave diff. A test that turns out wrong goes back to `test-writer` (status `red`) with the reason; the new hash and the reason go into Evidence.
 

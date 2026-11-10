@@ -42,7 +42,7 @@ You review a finished task before it is marked done: does the diff do what the a
 
 **Method size** (P-CODE-METHOD-JOBS) — count jobs (input check, DB read, DB write, external call, event, transformation, side effect). 3+ jobs without a recorded verdict is a finding; name the split.
 
-**Policies** — every rule in `docs/POLICY.md` the diff touches: timeouts and retries on outgoing calls, pagination limits, error format, logging format (no secrets or personal data), dependency additions (P-DEP-NEW).
+**Policies** — every rule in `docs/POLICY.md` the diff touches: timeouts and retries on outgoing calls, pagination limits, error format, logging format (secrets never; personal data only at DEBUG, masked at INFO and above, skill `logging`), dependency additions (P-DEP-NEW).
 
 **Tests** — test files unchanged since the red step (the orchestrator gives you the hash check result); tests assert behaviour, not calls; no skips.
 

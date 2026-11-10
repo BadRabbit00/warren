@@ -319,6 +319,17 @@
       "agy": {
         "model": "flash"
       }
+    },
+    "log-writer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     }
   }
 }

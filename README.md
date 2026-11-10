@@ -19,9 +19,9 @@ style and in the subagent contract.
 │   ├── CLAUDE.md                # always-on core for the MAIN session → ~/.claude/CLAUDE.md
 │   └── subagent-contract.md     # injected into EVERY agent right after its frontmatter at build time
 ├── output-styles/orchestrator.md  # the orchestrator; main session only, subagents never see it
-├── agents/                      # 29 subagents → ~/.claude/agents/
+├── agents/                      # 30 subagents → ~/.claude/agents/
 ├── rules/                       # 15 path-scoped rules → ~/.claude/rules/br/
-├── skills/                      # 48 skills → ~/.claude/skills/
+├── skills/                      # 53 skills → ~/.claude/skills/
 ├── commands/                    # 9 slash commands → ~/.claude/commands/
 ├── workflows/                   # 8 saved workflows (br-wave, br-review, br-research, br-diagnose, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
@@ -57,6 +57,7 @@ lives in that agent, not in a rule.
 | `presenter` | Russian HTML slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | tests from acceptance criteria | test files of its task |
 | `coder`, `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | makes the tests pass (`/br-wave` picks the language coder by file extension, `coder` otherwise) | the task's exclusive write set |
+| `log-writer` | adds logging after green by skill `logging` (levels, file/function/class, UTC time, masking); behaviour and tests unchanged | the task's exclusive write set (status `log`) |
 | `refactorer` | cleans up with tests green | the task's exclusive write set |
 | `test-runner` | runs the affected tests or the full suite, reports numbers | nothing |
 | `build-fixer` | minimal fix for a broken build or type check | code, never tests |
@@ -159,8 +160,8 @@ use them or to dispatch agents by hand, and records the answer in `.plan/PLAN.md
 
 | Command | What runs | Stops for the user |
 |---|---|---|
-| `/br-wave` | one wave from `## Manifest <id>` in the plan: per item `step` (red, green, refactor, fix-tests, fix-code, check) → its agent, then one `test-runner` per task with the tests-hash guard | a stopped task; a missing CLI login |
-| `/br-review` | checkpoint review from `## Checkpoint <id>`: deep pass (code, security, language reviewers) on risky paths, broad pass, `db-reviewer`, migrations-only `db-reviewer`; security must-fix checked by three refuters; returns `fix_items` for the next manifest | none |
+| `/br-wave` | one wave from `## Manifest <id>` in the plan: per item `step` (red, green, log, refactor, fix-tests, fix-code, fix-log, check) → its agent, then one `test-runner` per task with the tests-hash guard | a stopped task; a missing CLI login |
+| `/br-review` | checkpoint review from `## Checkpoint <id>`: deep pass (code, security, language reviewers) on risky paths, broad pass, a logging pass by skill `logging` (findings become `fix-log` items), `db-reviewer`, migrations-only `db-reviewer`; security must-fix checked by three refuters; returns `fix_items` for the next manifest | none |
 | `/br-research` | `web-researcher`s per question group (up to 5), then a cross-check of low-confidence or conflicting answers | none |
 | `/br-diagnose` | `log-collector` per source group, one `deploy-error-reader`: cause, evidence, fix proposal | missing login; prod sources only with `prod: true` and every command approved |
 | `/br-ci` | `ci-engineer` writes `-br` pipelines, local checks (actionlint, zizmor); after the user pushes `ci-test`, reads the failed runs and fixes, at most 2 rounds | the push of `ci-test` |

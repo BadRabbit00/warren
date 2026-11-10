@@ -32,7 +32,7 @@ WORKFLOWS = (
 AGENTS_PINNED = (
     "architect-critic", "build-fixer", "ci-engineer", "code-reviewer", "coder", "db-reviewer",
     "deploy-engineer", "deploy-error-reader", "flutter-dart-reviewer", "go-coder", "go-reviewer",
-    "janitor", "log-collector", "optimizer", "presenter", "python-coder", "python-reviewer",
+    "janitor", "log-collector", "log-writer", "optimizer", "presenter", "python-coder", "python-reviewer",
     "refactorer", "researcher", "rust-coder", "rust-reviewer", "security-reviewer", "stand-operator",
     "test-runner", "test-writer", "ts-coder", "ts-react-reviewer", "ui-verifier", "web-researcher",
 )
@@ -43,7 +43,7 @@ SKILLS_PINNED = (
     "dart-flutter-patterns", "database-migrations", "deploy-variants", "design-system",
     "docker-patterns", "documentation-lookup", "e2e-testing", "frontend-data-layer",
     "golang-patterns", "homelab-network-readiness", "homelab-network-setup", "homelab-pihole-dns",
-    "homelab-vlan-segmentation", "homelab-wireguard-vpn", "iac", "mcp-server-patterns",
+    "homelab-vlan-segmentation", "homelab-wireguard-vpn", "iac", "logging", "mcp-server-patterns",
     "network-config-validation", "postgres-patterns", "project-docs", "prompt-caching-strategy",
     "python-service", "react-patterns", "recsys-pipeline-architect", "redis-patterns",
     "registry-dockerhub-ghcr", "rust-patterns", "security-review", "sops", "stack-choice",
@@ -297,6 +297,7 @@ class ExportTest(unittest.TestCase):
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
                 "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
+                "log-writer",
                 "presenter", "python-coder", "refactorer", "rust-coder", "test-writer",
                 "ts-coder", "ui-verifier",
             ],

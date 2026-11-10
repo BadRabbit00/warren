@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 LANGUAGE_CODERS = {"python-coder", "go-coder", "ts-coder", "rust-coder"}
-EXECUTORS_CODE = {"coder", "refactorer", "deploy-engineer", "ci-engineer"} | LANGUAGE_CODERS
+EXECUTORS_CODE = {"coder", "refactorer", "log-writer", "deploy-engineer", "ci-engineer"} | LANGUAGE_CODERS
 EXECUTOR_TESTS = "test-writer"
 NO_TEST_WRITE = EXECUTORS_CODE | {"build-fixer"}
 READ_ONLY_AGENTS = {"deploy-error-reader", "log-collector", "web-researcher", "stand-operator", "janitor"}   # no Write/Edit anywhere
@@ -25,7 +25,7 @@ PROTECTED_BRANCHES = {"main", "master", "develop"}
 TEST_DIR = re.compile(r"(^|/)(test|tests|__tests__|e2e|integration_test|testdata)(/|$)")
 TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.(py|go|dart)|conftest\.py|[^/]*\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs))$")
 # Which task status lets which executor write (status = the step being executed now).
-STEP_OF_AGENT = {"test-writer": "red", "coder": "green", "refactorer": "refactor",
+STEP_OF_AGENT = {"test-writer": "red", "coder": "green", "refactorer": "refactor", "log-writer": "log",
                  **{a: "green" for a in LANGUAGE_CODERS | {"deploy-engineer", "ci-engineer"}}}
 # What the main thread (orchestrator) may write while the project is orchestrated (.plan/ exists).
 MAIN_WRITES = ["docs/**", ".plan/**", "README.md", "CHANGELOG.md", "CLAUDE.md", ".claude/rules/**"]
