@@ -464,6 +464,8 @@ class ReadersBashIsCliOnly(unittest.TestCase):
         "docker logs api | wc -l logs/run.txt", "docker logs api | tail -n 5 logs/run.txt",
         "docker logs api | uniq logs/run.txt",
     ]
+    # D1 (P261110-2): janitor lists the project; Glob is missing for subagents. Other readers stay refused.
+    JANITOR_LISTING = ["ls", "ls logs", "ls -la docs", "stat x", "find . -name x", "find logs -type f"]
     CLI_AND_FILTERS = [
         "nix shell nixpkgs#gh -c gh run view 1 --log-failed | tail -n 200",
         "docker compose -p shop logs --tail 200 api | grep -i error",
@@ -495,6 +497,12 @@ class ReadersBashIsCliOnly(unittest.TestCase):
     def test_readers_bash_is_cli_only(self):
         for agent in ALL_READERS:
             for cmd in self.FILE_READERS:
+                if agent == "janitor" and cmd in self.JANITOR_LISTING:
+                    # D1 (P261110-2): janitor lists the project; Glob is missing for subagents
+                    with self.subTest(agent=agent, allowed=cmd):
+                        res = self.run_cmd(cmd, agent)
+                        self.assertFalse(denied(res), f"{agent}: {cmd!r}: {reason(res)}")
+                    continue
                 with self.subTest(agent=agent, denied=cmd):
                     res = self.run_cmd(cmd, agent)
                     self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
