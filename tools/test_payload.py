@@ -209,9 +209,9 @@ class ExportTest(unittest.TestCase):
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
                 "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
-                "log-writer", "nix-build-resolver", "nix-engineer", "nix-test-runner",
-                "presenter", "python-coder", "refactorer", "rust-coder", "test-writer",
-                "ts-coder", "ui-verifier",
+                "log-writer", "metrics-writer", "nix-build-resolver", "nix-engineer",
+                "nix-test-runner", "observability-engineer", "presenter", "python-coder",
+                "refactorer", "rust-coder", "test-writer", "ts-coder", "ui-verifier",
             ],
         )
         for name, mode in expected.items():
