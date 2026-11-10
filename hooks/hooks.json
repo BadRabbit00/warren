@@ -3,7 +3,7 @@
     "PreToolUse": [
       {
         "id": "br:guard:bash",
-        "description": "Bash: no host installs, git rules for develop/main, no destructive commands without «да», no secret output, no test edits by coder/refactorer/log-writer/build-fixer, no skill scripts run from the skills directory",
+        "description": "Bash: no host installs, git rules for develop/main, no destructive commands without «да», no secret output, no test edits by coder/refactorer/log-writer/metrics-writer/observability-engineer/build-fixer, no skill scripts run from the skills directory",
         "matcher": "Bash",
         "hooks": [{ "type": "command", "command": "@BR_HOOK@ guard_bash", "timeout": 10 }]
       },
