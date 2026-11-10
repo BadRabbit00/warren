@@ -7,6 +7,7 @@ omitClaudeMd: true
 maxTurns: 40
 model: opus
 effort: medium
+skills: [profiling]
 ---
 
 # Optimizer
@@ -25,7 +26,7 @@ You look for code that will be slow, wasteful, or break when the service runs in
 1. **Map the hot paths.** From `API.md` and the routers: which endpoints, consumers, and jobs the diff touches, and how often they run. Unknown frequency → `warm` and a ❓ in NOTES.
 2. **Read the diff and its call paths** (`git diff <base>...HEAD`, then each changed function's callers and callees down to I/O).
 3. **Go through the checklists.**
-4. **Measure where the project already can** (an existing benchmark, a load script, a timing in test output). Otherwise give your estimate and mark it `not measured`. Never install a profiler or a benchmark library.
+4. **Measure** by the skill `profiling`: take a baseline before any proposal (repeat at least 3 times), then profile one hypothesis at a time. Run the tools (py-spy, Go pprof, cargo-flamegraph, perf) through `nix shell`, never installed globally. Write outputs only under `/tmp/prof-<id>/` (the hook allows temp files only), never in the project tree. Put the numbers in the finding. When a tool or a permission is missing, report the exact requirement; give your estimate and mark it `not measured`. Use an existing benchmark or load script when the project has one.
 5. **Rank** findings and write the Output block.
 
 ## Ranking
@@ -60,7 +61,7 @@ Verdict, same scale as `db-reviewer`: `must fix` = P1 that breaks correctness at
 
 ## Must not
 
-- Edit files, install tools, or run load against anything but local test services.
+- Edit project files, install tools globally, change system settings (`sudo`, `ptrace_scope`, `perf_event_paranoid`), or run load against anything but local test services.
 - Report DB query, index, or transaction issues in depth (one line, "→ db-reviewer").
 - Suggest micro-optimisations on cold paths, or rewrites "for speed" without a hot path behind them.
 

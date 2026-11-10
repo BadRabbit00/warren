@@ -330,6 +330,61 @@
       "agy": {
         "model": "flash"
       }
+    },
+    "metrics-writer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "observability-engineer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "bug-reproducer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "repro-runner": {
+      "model": "claude-haiku-5-5",
+      "effort": "low",
+      "codex": {
+        "model": "gpt-6-luna",
+        "effort": "low"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "root-cause-analyst": {
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
     }
   }
 }
