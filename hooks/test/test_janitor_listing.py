@@ -88,6 +88,18 @@ class JanitorListing(unittest.TestCase):
         for agent in ["log-collector", "deploy-error-reader", "stand-operator"]:
             self.assertRefused(agent, ["ls docs/temp"])
 
+    # AC7 (D1): leading find options do not hide a path; du cannot read paths from a file
+    def test_janitor_listing_option_tricks(self):
+        self.assertRefused("janitor", [
+            "find -L /etc -name x",
+            "find -P / -type f",
+            "find -H -D tree /etc",
+            "find -O3 /etc",
+            "du --files0-from=/etc/hosts",
+            "du --files0-from /etc/hosts",
+        ])
+        self.assertAllowed("janitor", ["find -L . -name x"])
+
 
 if __name__ == "__main__":
     unittest.main()
