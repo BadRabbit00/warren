@@ -297,6 +297,7 @@ class ExportTest(unittest.TestCase):
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
                 "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
+                "log-writer",
                 "presenter", "python-coder", "refactorer", "rust-coder", "test-writer",
                 "ts-coder", "ui-verifier",
             ],
