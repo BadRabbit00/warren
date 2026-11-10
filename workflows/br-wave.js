@@ -1,14 +1,14 @@
-// br-wave: runs one wave from the manifest in .plan/PLAN.md. Item = agent, then one test-runner per task with the hash guard.
+// br-wave: runs one wave from the manifest in .plan/PLAN.md. Item (steps red, green, log, refactor, fix-tests, fix-code, fix-log, check) = agent, then one test-runner per task with the hash guard.
 export const meta = {
   name: 'br-wave',
-  description: 'Run a wave from the plan manifest: items (red, green, refactor, fix-tests, fix-code, check) by agent, then a test-runner per task with the tests-hash guard',
+  description: 'Run a wave from the plan manifest: items (red, green, log, refactor, fix-tests, fix-code, fix-log, check) by agent, then a test-runner per task with the tests-hash guard',
   whenToUse: 'Inside a wave, after the orchestrator wrote "## Manifest <wave-id>" into .plan/PLAN.md and set the task Statuses; args = { wave }',
   phases: ['Plan', 'Preflight', 'Work', 'Check'],
 }
 
-const STEPS = ['red', 'green', 'refactor', 'fix-tests', 'fix-code', 'check']
+const STEPS = ['red', 'green', 'log', 'refactor', 'fix-tests', 'fix-code', 'fix-log', 'check']
 const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder', 'python-coder', 'go-coder', 'ts-coder', 'rust-coder',
-  'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
+  'log-writer', 'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
 const MAX_AGENTS = 15
 const strArr = { type: 'array', items: { type: 'string' } }
 
@@ -161,12 +161,13 @@ function agentFor(item) {
   if (item.agent) return item.agent
   if (item.step === 'red' || item.step === 'fix-tests') return 'test-writer'
   if (item.step === 'refactor') return 'refactorer'
+  if (item.step === 'log' || item.step === 'fix-log') return 'log-writer'
   if (item.step === 'check') return 'test-runner'
   return coderFor(item.files)
 }
 
 function neededStatus(step) {
-  return step === 'red' || step === 'fix-tests' ? 'red' : step === 'green' || step === 'fix-code' ? 'green' : step === 'refactor' ? 'refactor' : ''
+  return step === 'red' || step === 'fix-tests' ? 'red' : step === 'green' || step === 'fix-code' ? 'green' : step === 'refactor' ? 'refactor' : step === 'log' || step === 'fix-log' ? 'log' : ''
 }
 
 function hasCycle(items) {
@@ -284,11 +285,12 @@ async function snapshot(items) {
 
 function workBrief(task, item) {
   const skills = task.skills.map((s) => `~/.claude/skills/${s}/SKILL.md`).join(', ')
+  const logging = item.step === 'log' || item.step === 'fix-log'
   return [
     `Task: ${task.id} — ${task.name}; part ${item.id} (${item.step})`,
     `Goal: ${task.goal}`,
     `Write set (only these files): ${item.files.join(', ')}`,
-    `Read first: .plan/PLAN.md#${task.id.toLowerCase()}, ${task.reads.join(', ')}; skills (read them before starting): ${skills || 'none'}`,
+    `Read first: .plan/PLAN.md#${task.id.toLowerCase()}, ${task.reads.join(', ')}; skills (read them before starting): ${skills || 'none'}${logging ? ', ~/.claude/skills/logging/SKILL.md' : ''}`,
     'Acceptance criteria:',
     ...task.acceptance.map((a) => `- ${a}`),
     `Part brief: ${item.brief}`,
