@@ -5,7 +5,7 @@ Usage: install.py [--dest <home>] [--dry-run] [--check]
   --dest     target home directory (default: the user's home)
   --dry-run  print the actions, write nothing
   --check    run the validator and the tools and hooks test suites; exit non-zero on a failure
-Builds the payload with tools/build.py into a temp dir (hook python = this interpreter), copies it,
+Builds the payload with tools/build.py into a temp dir (the hooks run as python3), copies it,
 and merges settings.json: user keys and foreign hooks stay, br-owned hooks (id "br:*") are replaced.
 Every target is checked before anything is deleted. ~/.claude/br/manifest.json lists the installed
 files, so the next run removes the ones the payload dropped and never touches the user's own files.
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -189,19 +190,20 @@ def remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def warn_about_hook_python() -> None:
-    exe = Path(sys.executable)
-    reasons = []
-    if sys.prefix != sys.base_prefix:
-        reasons.append("a virtual environment")
-    roots = [Path(tempfile.gettempdir()), Path("/nix/store")]
-    if any(exe.is_relative_to(r) or exe.resolve().is_relative_to(r) for r in roots):
-        reasons.append("a temporary or store path")
-    if reasons:
-        print(
-            f"warning: the hook python {exe} lives in {' and '.join(reasons)}; the installed hooks stop working "
-            "when it goes away. Run install.py with a permanent python3.",
-            file=sys.stderr,
+def check_hook_python() -> None:
+    """The installed hooks run as `python3` from PATH; stop early when it is missing or older than 3.11."""
+    found = shutil.which("python3")
+    if not found:
+        raise InstallError("install stopped: python3 is not on PATH; the br hooks run as python3 (3.11+ required)")
+    try:
+        proc = subprocess.run([found, "--version"], check=False, timeout=30, capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError) as err:
+        raise InstallError(f"install stopped: cannot run python3 ({found}): {err}; 3.11+ is required") from err
+    out = (proc.stdout + proc.stderr).strip()
+    m = re.match(r"Python (\d+)\.(\d+)", out)
+    if proc.returncode != 0 or not m or (int(m.group(1)), int(m.group(2))) < (3, 11):
+        raise InstallError(
+            f"install stopped: python3 ({found}) reports {out or 'no version'}; the br hooks need python3 3.11+"
         )
 
 
@@ -215,10 +217,11 @@ def backup_name(path: Path, stamp: str) -> Path:
 
 
 def install(dest: Path, dry: bool) -> int:
+    check_hook_python()
     with tempfile.TemporaryDirectory() as tmp:
         built = Path(tmp) / "payload"
         proc = subprocess.run(
-            [sys.executable, "-B", str(ROOT / "tools" / "build.py"), str(built), str(ROOT), sys.executable],
+            [sys.executable, "-B", str(ROOT / "tools" / "build.py"), str(built), str(ROOT), "python3"],
             cwd=ROOT, check=False, timeout=TIMEOUT, capture_output=True, text=True,
         )
         if proc.returncode != 0:
@@ -285,7 +288,6 @@ def install(dest: Path, dry: bool) -> int:
             print("install stopped, nothing was changed:\n" + "\n".join(problems), file=sys.stderr)
             return 1
 
-        warn_about_hook_python()
         stamp = time.strftime("%Y%m%d-%H%M%S")
         if dry:
             for b in backups:

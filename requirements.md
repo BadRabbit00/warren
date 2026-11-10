@@ -2,7 +2,7 @@
 
 What warren needs on the machine. This file says **what** to install and why, not how: ask Claude
 to install everything listed here for your OS (macOS, Linux, Windows with WSL, native Windows), then
-run `python tools/install.py` (see [install_guide.md](install_guide.md)).
+run `python3 tools/install.py` (see [install_guide.md](install_guide.md)).
 
 Every tool must be on `PATH`. Only Python has a minimum version; for the rest any current release works.
 
@@ -11,7 +11,7 @@ Every tool must be on `PATH`. Only Python has a minimum version; for the rest an
 | Tool | Version | Why |
 |---|---|---|
 | Claude Code | current | the CLI warren configures (`~/.claude`) |
-| Python | 3.11+ (the tests use `tomllib`) | `tools/install.py`, `tools/build.py`, the validator and every hook; standard library only, no packages |
+| Python | 3.11+ (the tests use `tomllib`), started by the command `python3` on every OS, Windows included | `tools/install.py`, `tools/build.py`, the validator and every hook (each hook runs as `python3`); standard library only, no packages |
 | Git | — | hooks read the current branch; agents commit on feature branches; janitor checks tracked files |
 | A POSIX shell | — | Claude Code's Bash tool; on native Windows this is Git Bash (comes with Git for Windows) |
 

@@ -5,7 +5,7 @@ set of narrow, isolated **subagents** that do the actual work (research, tests, 
 review, slides), plus path-scoped rules, skills, Python hooks and templates.
 
 This is the **`no-nix` branch**: it needs no Nix. Install what [requirements.md](requirements.md) lists
-(or ask Claude to), then run `python tools/install.py` — details in [install_guide.md](install_guide.md).
+(or ask Claude to), then run `python3 tools/install.py` — details in [install_guide.md](install_guide.md).
 
 Language: everything in this repository is **English** (cheaper in tokens, models follow it more
 precisely). Everything the agents say **to the user** is **Russian**; that is stated in the output
@@ -181,15 +181,15 @@ validator rejects any `agent(` call in `workflows/*.js` without one.
 
 1. Copy the matching file from `_templates/` and fill it in.
 2. For an agent, add its Claude model and effort plus the `codex` and `agy` entries to `agent-models.json`.
-3. `python tools/install.py --check` — the validator, the tools tests and the hooks tests.
-4. `python tools/install.py --dest /tmp/warren-home` and inspect the result before installing for real.
+3. `python3 tools/install.py --check` — the validator, the tools tests and the hooks tests.
+4. `python3 tools/install.py --dest /tmp/warren-home` and inspect the result before installing for real.
 
 ## Build and install
 
 | Tool | What |
 |---|---|
 | `tools/build.py <out> <repo> <python>` | builds the tree: `<out>/claude/{CLAUDE.md,agents,skills,commands,workflows,rules/br,output-styles,br/templates,br/hooks}`, `<out>/codex/{agents,agents.toml,prompts,skills,AGENTS.md}`, `<out>/agy/{agents,AGENTS.md}`, `<out>/settings.fragment.json`, `<out>/hooks.json`, `<out>/LICENSE`; every hook command is `"<python>" -I -B "<out>/claude/br/hooks/<entry>.py"` |
-| `tools/install.py [--dest <home>] [--dry-run] [--check]` | builds into a temp dir with the Python that runs it, copies into `~/.claude`, `~/.codex`, `~/.gemini/config`, merges `~/.claude/settings.json` (your keys and non-`br:` hooks stay) |
+| `tools/install.py [--dest <home>] [--dry-run] [--check]` | checks that `python3` on `PATH` is 3.11+ (the hooks run as `python3`), builds into a temp dir, copies into `~/.claude`, `~/.codex`, `~/.gemini/config`, merges `~/.claude/settings.json` (your keys and non-`br:` hooks stay) |
 
 Python 3.11+ and the standard library are all the build, the hooks and the tests need. [install_guide.md](install_guide.md) has the full walkthrough and the manual install.
 

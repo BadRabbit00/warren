@@ -9,14 +9,14 @@ Claude Code, Python 3.11+ and Git.
 From the repository root:
 
 ```bash
-python tools/install.py --dry-run   # shows every file it would write, changes nothing
-python tools/install.py             # installs into your home directory
-python tools/install.py --check     # optional: runs the validator and both test suites
+python3 tools/install.py --dry-run   # shows every file it would write, changes nothing
+python3 tools/install.py             # installs into your home directory
+python3 tools/install.py --check     # optional: runs the validator and both test suites
 ```
 
-On Windows use `py tools/install.py` (or `python`, whichever starts Python 3.11+). Re-run the same
-command after `git pull` to update. `--dest <dir>` installs into another home directory (useful
-for a trial run: `python tools/install.py --dest /tmp/warren-home`).
+The same commands work on Windows: the hooks are called as `python3`, so that command must start
+Python 3.11+ there too. Re-run the same command after `git pull` to update. `--dest <dir>` installs
+into another home directory (useful for a trial run: `python3 tools/install.py --dest /tmp/warren-home`).
 
 What it does:
 
@@ -41,18 +41,17 @@ What it does:
 3. Merges `~/.claude/settings.json`: your keys stay; `env` and `outputStyle` from
    `settings.fragment.json` are added; hooks whose `id` starts with `br:` are replaced, your other
    hooks stay. Each warren hook runs as
-   `"<path to the python that ran install.py>" -I -B "~/.claude/br/hooks/<entry>.py"`, so the
-   same command works on Windows, macOS and Linux. Run it with a Python that stays installed: the
-   script warns when it runs from a virtual environment or a temporary path, because the hooks
-   stop working once that Python is gone. A malformed `settings.json` stops the run with
+   `"python3" -I -B "~/.claude/br/hooks/<entry>.py"`, the same command on Windows, macOS and
+   Linux. Before writing anything the script checks that `python3` is on `PATH` and is 3.11+;
+   otherwise it stops and changes nothing. A malformed `settings.json` stops the run with
    `settings.json: <reason>` and nothing written.
 
 Restart Claude Code afterwards; the orchestrator output style is active from the next session.
 
 ## By hand (what Claude does when asked to install without the script)
 
-1. Build: `python tools/build.py <out> <repo root> <absolute path of python>` — for example
-   `python tools/build.py /tmp/warren-build . "$(command -v python3)"`.
+1. Build: `python3 tools/build.py <out> <repo root> python3` — for example
+   `python3 tools/build.py /tmp/warren-build . python3`.
 2. Copy the directories from `<out>` exactly as in the table above.
 3. Edit `~/.claude/settings.json`:
    - add the `env` keys and `outputStyle` from `<out>/settings.fragment.json`;

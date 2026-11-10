@@ -4,11 +4,11 @@
 
 The same warren without Nix, for machines that do not use it.
 
-- Install with `python tools/install.py` (Windows, macOS, Linux; Python 3.11+, stdlib only): builds with
+- Install with `python3 tools/install.py` (Windows, macOS, Linux; Python 3.11+, stdlib only): builds with
   `tools/build.py` (was `nix/payload.py`), lays out `~/.claude`, `~/.codex`, `~/.gemini/config`, merges
   `settings.json` keeping the user's keys and hooks; `--dry-run`, `--dest`, `--check`. `requirements.md`
   lists what to install, `install_guide.md` the script and the manual way.
-- Hooks run as `"<python>" -I -B "~/.claude/br/hooks/<entry>.py"`; no `br-hook` wrapper. The Nix-first rule
+- Hooks run as `"python3" -I -B "~/.claude/br/hooks/<entry>.py"`; no `br-hook` wrapper. The Nix-first rule
   is gone (bare tools and interpreters run); package installs are refused for subagents and allowed for
   the main session; no hook message mentions Nix.
 - Removed: `flake.nix`, `nix/`, the agents `nix-architect`, `nix-engineer`, `nix-reviewer`,
