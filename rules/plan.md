@@ -16,7 +16,7 @@ paths:
 - R-PLAN-AC: every task has acceptance criteria. Each criterion maps to at least one test.
 - R-PLAN-WAVES: dependencies form waves with no cycles. Tasks in one wave never share a write set.
 - R-PLAN-EVIDENCE: each executed step records its evidence: the test run (passed/failed/skipped numbers), the `sha256` of the task's test files after the red step, and the same hash after `coder`, `log-writer` and `refactorer`.
-- R-PLAN-STATUS: status moves `todo → red → green → log → refactor → review → done` (or `blocked`) and names the step running now. The orchestrator sets `red` before dispatching test-writer, `green` before coder, `log` before log-writer, `refactor` before refactorer. Hooks give each executor only the write set of tasks in its step, so a wrong status blocks the executor. Gates G1–G5 carry dates.
+- R-PLAN-STATUS: status moves `todo → red → green → log → refactor → review → done` (or `blocked`; `metrics` — on demand, for metrics-writer) and names the step running now. The orchestrator sets `red` before dispatching test-writer, `green` before coder, `log` before log-writer, `refactor` before refactorer, `metrics` before metrics-writer. Hooks give each executor only the write set of tasks in its step, so a wrong status blocks the executor. Gates G1–G5 carry dates.
 
 ## Examples
 

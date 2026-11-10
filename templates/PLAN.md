@@ -83,7 +83,7 @@ Delete every hint comment and <…> placeholder as you fill. -->
 ## Tasks
 
 <!-- One card per task.
-Status = the step running now: todo → red → green → log → refactor → review → done (or blocked).
+Status = the step running now: todo → red → green → log → refactor → review → done (or blocked); `metrics` on demand, for metrics-writer.
 Set it BEFORE dispatching: red → test-writer, green → coder, log → log-writer, refactor → refactorer. Hooks give each executor
 only the write set of tasks in its step, so a stale status blocks the executor.
 Writes (exclusive): production files only, never a test path. Tests (test-writer): test paths only (`tests/`, `*_test.go`, …).
