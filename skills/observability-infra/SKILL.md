@@ -19,7 +19,7 @@ Monitoring configuration written as files in the repository and checked locally.
 
 ## Facts and versions
 
-Source: /br-research wf_35c2e079-c6c (2026-11-10), official "latest" docs; the Prometheus configuration page references 3.16. No Prometheus, Alertmanager or Grafana version is pinned in the project: read the pinned version from the deploy files (compose image tag, Nix package) before using a field, and mark anything not listed here "(U) verify".
+Source: /br-research wf_35c2e079-c6c and the follow-up wf_340d5dfb-77e (2026-11-10), official "latest" docs (not snapshots of a pinned version); the Prometheus configuration page references 3.16, Alertmanager latest is v0.35.0. No Prometheus, Alertmanager or Grafana version is pinned in the project: read the pinned version from the deploy files (compose image tag, Nix package) before using a field, and mark anything not listed here "(U) verify".
 
 | Area | Stated by the research |
 |---|---|
@@ -30,7 +30,16 @@ Source: /br-research wf_35c2e079-c6c (2026-11-10), official "latest" docs; the P
 | Grafana | reads `provisioning/datasources` and `provisioning/dashboards` YAML; datasources: `apiVersion: 1` + `datasources` list; dashboards: `providers` list with `type: file` and `options.path` |
 | Dashboard JSON | `uid`, `title`, `tags`, `panels`, `templating`, `time`, `schemaVersion`, `version`, `refresh` |
 
-Everything else (field defaults, Docker SD relabeling, secret-from-file fields, Nix package names, Grafana env substitution) is **(U) verify** against the pinned version before relying on it.
+Added by wf_340d5dfb-77e (the pinned nixpkgs rev 31ecbaca has Prometheus 3.15.1 and Alertmanager 0.33.1; the version in which each field appeared was not checked, `promtool` and `amtool` from that rev accept the examples in the references):
+
+| Area | Stated |
+|---|---|
+| Alertmanager secret files | `*_file` fields instead of inline secrets: `webhook_config.url_file`; `slack_config.api_url_file`, `app_token_file`; `telegram_config.bot_token_file`, `chat_id_file`; `http_config`: `authorization.credentials_file`, `basic_auth.password_file`, `oauth2.client_secret_file`; also pagerduty (`routing_key_file`, `service_key_file`), opsgenie and victorops (`api_key_file`), pushover (`user_key_file`, `token_file`), discord / mattermost / msteams (`webhook_url_file`), email (`auth_password_file`, `auth_secret_file`), and `global` counterparts such as `slack_api_url_file`, `smtp_auth_password_file` |
+| `docker_sd_configs` | `host` (required), `port` (default 80), `host_networking_host` (default `localhost`), `match_first_network` (default true), `filters` (list of `name` + `values`), `refresh_interval` (default 60s), `http_config` |
+| Docker SD labels | `__meta_docker_container_id`, `_name`, `_image`, `_image_id`, `_network_mode`, `__meta_docker_container_label_<labelname>`, `__meta_docker_network_id` / `_name` / `_ingress` / `_internal` / `_scope` / `_ip`, `__meta_docker_network_label_<labelname>`, `__meta_docker_port_private`, `__meta_docker_port_public`, `__meta_docker_port_public_ip` |
+| Nix packages | `promtool`: `nixpkgs#prometheus.cli` (the `prometheus` package puts it in the separate `cli` output; `nix shell nixpkgs#prometheus -c promtool` fails with "unable to execute 'promtool'", run on 2026-11-10). `amtool`: `nixpkgs#prometheus-alertmanager` |
+
+Everything else (field defaults not listed, wechat file fields, Grafana env substitution) is **(U) verify** against the pinned version before relying on it.
 
 ## File layout
 
@@ -59,13 +68,13 @@ deploy/observability/
 Checks, run from the repository root through the dev shell or one-off:
 
 ```text
-nix shell nixpkgs#prometheus nixpkgs#prometheus-alertmanager -c promtool check config deploy/observability/prometheus/prometheus.yml
-nix shell nixpkgs#prometheus -c promtool check rules deploy/observability/prometheus/rules/*.yml
-nix shell nixpkgs#prometheus -c promtool test rules deploy/observability/prometheus/tests/*.yml
+nix shell nixpkgs#prometheus.cli -c promtool check config deploy/observability/prometheus/prometheus.yml
+nix shell nixpkgs#prometheus.cli -c promtool check rules deploy/observability/prometheus/rules/*.yml
+nix shell nixpkgs#prometheus.cli -c promtool test rules deploy/observability/prometheus/tests/*.yml
 nix shell nixpkgs#prometheus-alertmanager -c amtool check-config deploy/observability/alertmanager/alertmanager.yml
 ```
 
-Package names `prometheus` (promtool) and `prometheus-alertmanager` (amtool) are (U) verify with `nix search nixpkgs`. `promtool check config` also checks that files in `rule_files` exist and parse, so run it from a path where the relative `rule_files` resolve.
+Package names (R, wf_340d5dfb-77e; `--version` run on 2026-11-10 at the pinned nixpkgs): promtool is in the `cli` output of `prometheus`, so write `nixpkgs#prometheus.cli`; amtool is in `prometheus-alertmanager`. The complete examples in the references (`prometheus.yml`, Docker SD job, rule file, `alertmanager.yml`) were run through `promtool check config`, `promtool check rules` and `amtool check-config` on 2026-11-10 (promtool 3.15.1, amtool 0.33.1) and passed; blocks in this file are fragments unless they say otherwise. `promtool check config` also checks that files in `rule_files` exist and parse, so run it from a path where the relative `rule_files` resolve.
 
 ## Rules
 
@@ -151,6 +160,7 @@ Name: `level:metric:operations`. The metric names above must match what the serv
 
 Bad:
 ```yaml
+# fragment (counter-example, receivers only)
 receivers:
   - name: ops
     webhook_configs:
@@ -160,12 +170,13 @@ Why: the file is committed; the URL is a credential.
 
 Good:
 ```yaml
+# fragment of alertmanager.yml (receivers only); the complete file is in references/alerting.md
 receivers:
   - name: ops
     webhook_configs:
-      - url_file: /run/secrets/alertmanager_webhook_url   # (U) verify url_file in the pinned version
+      - url_file: /run/secrets/alertmanager_webhook_url   # (R) file field; the file holds only the URL
 ```
-The secret file is provided at runtime (skills `sops`, rule `secrets.md`; deploy-engineer wires it). If the pinned version has no file-based field, tell the orchestrator; do not inline. Same for Grafana admin passwords and datasource credentials.
+The secret file is provided at runtime (skills `sops`, rule `secrets.md`; deploy-engineer wires it). File fields per receiver: see the facts table. If a receiver has no file field in the pinned version, tell the orchestrator; do not inline. Same for Grafana admin passwords and datasource credentials.
 
 ### R-OBS-CHECKED-CONFIG — nothing is reported done unchecked
 

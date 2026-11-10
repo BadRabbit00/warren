@@ -1,6 +1,6 @@
 # Rules and Alertmanager
 
-Facts (research wf_35c2e079-c6c): rule files are `groups` -> `rules`. Alert rule keys: `alert`, `expr`, `for`, `keep_firing_for`, `labels`, `annotations`. Recording rule keys: `record`, `expr`, `labels`. Alertmanager: `route` (`receiver`, `group_by`, `group_wait`, `group_interval`, `repeat_interval`, `routes` with `matchers`), `receivers` (e.g. `webhook_configs`), optional `inhibit_rules`. Checks: `promtool check rules`, `promtool test rules`, `amtool check-config`.
+Facts (research wf_35c2e079-c6c): rule files are `groups` -> `rules`. Alert rule keys: `alert`, `expr`, `for`, `keep_firing_for`, `labels`, `annotations`. Recording rule keys: `record`, `expr`, `labels`. Secret fields (follow-up wf_340d5dfb-77e): see the facts table in `../SKILL.md`. Alertmanager: `route` (`receiver`, `group_by`, `group_wait`, `group_interval`, `repeat_interval`, `routes` with `matchers`), `receivers` (e.g. `webhook_configs`), optional `inhibit_rules`. Checks: `promtool check rules`, `promtool test rules`, `amtool check-config`.
 
 ## Rule file
 
@@ -52,13 +52,14 @@ route:
 receivers:
   - name: ops
     webhook_configs:
-      - url_file: /run/secrets/alertmanager_webhook_url   # (U) url_file
+      - url_file: /run/secrets/alertmanager_webhook_url   # (R) file with the URL
 inhibit_rules: []
 ```
 
 - Route on the `severity` label values defined in POLICY.
-- Receiver kinds beyond `webhook_configs` (email, chat integrations) and their secret fields are (U) verify.
-- Secrets are files provided at runtime, never inline.
+- Secrets are files provided at runtime, never inline. File fields (R): `webhook_configs.url_file`; `slack_configs.api_url_file` / `app_token_file`; `telegram_configs.bot_token_file` / `chat_id_file`; `pagerduty_configs.routing_key_file` / `service_key_file`; `opsgenie_configs` and `victorops_configs` `api_key_file`; `pushover_configs.user_key_file` / `token_file`; `email_configs.auth_password_file` / `auth_secret_file`; `webhook_url_file` for discord, mattermost, msteams; in any `http_config`: `authorization.credentials_file`, `basic_auth.password_file`, `oauth2.client_secret_file`. Global counterparts exist (`slack_api_url_file`, `smtp_auth_password_file`, `telegram_bot_token_file`, ...).
+- The file content is the bare secret; Alertmanager 0.35 trims whitespace for `token_file` and `user_key_file` (pushover) only, so write the file without a trailing newline for the others (U: not checked per field).
+- Other receiver kinds are (U) verify in the pinned version's docs.
 
 ## Tests
 
@@ -67,6 +68,6 @@ inhibit_rules: []
 ## Checks
 
 ```text
-nix shell nixpkgs#prometheus -c promtool check rules rules/*.yml
+nix shell nixpkgs#prometheus.cli -c promtool check rules rules/*.yml
 nix shell nixpkgs#prometheus-alertmanager -c amtool check-config alertmanager.yml
 ```

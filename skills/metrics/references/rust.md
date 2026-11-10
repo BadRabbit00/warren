@@ -3,10 +3,10 @@
 Copy-ready templates for one service. The module is per service (`src/metrics.rs`), copied with the service. Rules: `../SKILL.md`. A new dependency is reported to the orchestrator, not added.
 
 Source marks:
-- (R) stated in the research `docs/temp/observability/research-wf_35c2e079-c6c.json`.
+- (R) stated in the research `docs/temp/observability/research-wf_35c2e079-c6c.json` or the follow-up `research-wf_340d5dfb-77e.json`.
 - (U) NOT from the research: verify against the installed version before relying on it.
 
-Crates (R, latest on 2026-11-10, nothing pinned): `opentelemetry_sdk` 0.33.1, `opentelemetry-otlp` 0.33.1.
+Crates (R, latest on 2026-11-10, nothing pinned): `opentelemetry_sdk` 0.33.1, `opentelemetry-otlp` 0.33.1. Source of the OTLP setup: `docs/temp/observability/research-wf_340d5dfb-77e.json` (confidence medium).
 
 Export decision (R): the `opentelemetry-prometheus` README says "For new projects, consider using the opentelemetry-otlp crate instead", because Prometheus supports native OTLP ingestion. So Rust services push OTLP (to a Collector, or to Prometheus with OTLP ingestion enabled). No `/metrics` pull endpoint is generated. Whether the Prometheus crate is formally deprecated is unconfirmed.
 
@@ -32,11 +32,12 @@ pub struct Config {
 
 ## 2. Connector module `src/metrics.rs`
 
-(R) names available in `opentelemetry_sdk::metrics`: `SdkMeterProvider`, `PeriodicReader`, `Stream`, `Instrument`, `Aggregation`; views via `MeterProviderBuilder::with_view`; `StreamBuilder::with_aggregation()` is stable since 0.32; a cardinality limit can be set on a `Stream`. The OTLP exporter builder (`MetricExporter::builder()`, `with_tonic()` / `with_http()`, `with_endpoint`, `build`), `SdkMeterProvider::builder()`, `with_reader`, `with_periodic_exporter`, the `Aggregation::ExplicitBucketHistogram` variant shape, and the instrument builders (`f64_histogram`, `with_unit`, `build`) are (U): the research did not confirm them. Check the 0.33.1 docs on docs.rs before writing the setup function.
+(R, follow-up research wf_340d5dfb-77e, opentelemetry-otlp 0.33.1 docs and the `metrics-basic` example; the OTLP wiring below is assembled from verified pieces, since the official example uses the stdout exporter): `MetricExporter::builder().with_http()` / `.with_tonic()`, `with_protocol`, `with_endpoint`, `with_timeout`, `build`; `SdkMeterProvider::builder().with_periodic_exporter(exporter)` (also `with_reader`), `with_resource(Resource::builder().with_service_name(..).build())`; `global::set_meter_provider`; `meter.u64_counter(..).build()`; `meter.f64_histogram(..).with_boundaries(vec![..]).build()`; `shutdown()`. Still (U): `with_unit`, `with_description`, `i64_up_down_counter`, the exact import paths of `Counter`/`Histogram`/`UpDownCounter`. Compile against 0.33.1 before reporting done.
 
 ```rust
-use opentelemetry::{metrics::{Counter, Histogram, Meter, UpDownCounter}, KeyValue}; // (U) paths
-use opentelemetry_sdk::metrics::SdkMeterProvider;                                 // (R)
+use opentelemetry::{global, metrics::{Counter, Histogram, Meter, UpDownCounter}, KeyValue}; // (R) global, KeyValue; (U) metrics paths
+use opentelemetry_otlp::{Protocol, WithExportConfig}; // (R) Protocol; WithExportConfig gives with_endpoint (U: trait name)
+use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource}; // (R)
 
 use crate::config::Config;
 
@@ -76,7 +77,8 @@ impl Metrics {
                 .f64_histogram("http.server.request.duration")
                 .with_unit("s")
                 .with_description("Duration of HTTP server requests.")
-                .build(), // (U) builder API
+                .with_boundaries(HTTP_BUCKETS.to_vec()) // (R) explicit bucket boundaries on the builder
+                .build(),
             active_requests: meter
                 .i64_up_down_counter("http.server.active_requests")
                 .with_unit("{request}")
@@ -108,19 +110,40 @@ impl Metrics {
     }
 }
 
-/// Call once at startup. Returns the provider (call shutdown on exit) and the connector.
-pub fn init(cfg: &Config) -> (SdkMeterProvider, Metrics) {
-    // (U) Build the OTLP exporter from cfg.metrics_otlp_endpoint, wrap it in a PeriodicReader (R: type exists),
-    // register a view that gives `http.server.request.duration` the HTTP_BUCKETS boundaries
-    // (R: MeterProviderBuilder::with_view, Stream, StreamBuilder::with_aggregation, Aggregation), then:
-    //     let provider = SdkMeterProvider::builder()....build();
-    //     let metrics = Metrics::new(&provider.meter("orders"));
-    //     (provider, metrics)
-    todo!("fill from docs.rs opentelemetry_sdk 0.33.1 / opentelemetry-otlp 0.33.1; the research did not confirm the builder calls")
+/// Call once at startup. Returns the provider (call `shutdown` on exit) and the connector.
+pub fn init(cfg: &Config) -> Result<(SdkMeterProvider, Metrics), Box<dyn std::error::Error>> {
+    // (R) HTTP/protobuf; pass the full path, the docs example does (whether the exporter appends /v1/metrics itself is (U)).
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .with_endpoint(cfg.metrics_otlp_endpoint.clone()) // e.g. http://collector:4318/v1/metrics
+        .build()?;
+    // gRPC instead (R): .with_tonic().with_endpoint("http://my-collector:4317").with_timeout(Duration::from_secs(5)).build()?
+
+    let provider = SdkMeterProvider::builder()
+        .with_periodic_exporter(exporter) // (R) PeriodicReader, default interval 60 s
+        .with_resource(Resource::builder().with_service_name(cfg.service_name.clone()).build()) // (R)
+        .build();
+    global::set_meter_provider(provider.clone()); // (R)
+    let metrics = Metrics::new(&global::meter("orders")); // (R) global::meter
+    Ok((provider, metrics))
 }
 ```
 
-`metrics-writer` replaces the `todo!` after reading the 0.33.1 docs; if the calls cannot be confirmed it reports `STATUS: needs-decision` instead of guessing.
+Shutdown on exit (R): `provider.shutdown()?;` flushes at once instead of waiting for the interval; its error type is `opentelemetry_sdk::error::ShutdownError` (`InternalFailure`, `AlreadyShutdown`, `Timeout`).
+
+Cargo features (R, 0.33.1):
+
+```toml
+opentelemetry = { version = "0.33", features = ["metrics"] }          # (U) feature set of this crate not checked
+opentelemetry_sdk = { version = "0.33", features = ["metrics"] }      # (U) rt-tokio and similar not checked
+# HTTP: `http-proto` and `reqwest-blocking-client` are default features of opentelemetry-otlp
+opentelemetry-otlp = { version = "0.33", features = ["metrics"] }
+# gRPC instead of HTTP:
+# opentelemetry-otlp = { version = "0.33", default-features = false, features = ["metrics", "grpc-tonic"] }
+```
+
+(R) `metrics` in `opentelemetry-otlp` enables `opentelemetry/metrics` and `opentelemetry_sdk/metrics`. (U) Whether the periodic reader needs a tokio runtime with `reqwest-blocking-client`; check before wiring into an async main. Versions are the latest on 2026-11-10; no `Cargo.lock` was read, so a project pin may differ.
 
 ## 3. Request duration layer
 
