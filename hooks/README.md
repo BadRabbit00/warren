@@ -29,8 +29,11 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | `ci-engineer` | anything except test paths; may edit linter/formatter/type-check configs | only `Writes (exclusive)` of tasks with status `green`; configs only if inside that write set |
 | `refactorer` | anything except test paths | only `Writes (exclusive)` of tasks with status `refactor` |
 | `log-writer` | anything except test paths | only `Writes (exclusive)` of tasks with status `log`; never test files |
+| `metrics-writer` | anything except test paths | only `Writes (exclusive)` of tasks with status `metrics`; never test files |
+| `observability-engineer` | anything except test paths | only `Writes (exclusive)` of tasks with status `green`, like `coder` |
 | `build-fixer` | anything except test paths | same, not limited by the plan |
 | `presenter` | `docs/slides/**`, `.plan/PLAN.html` | same |
+| `bug-reproducer`, `repro-runner`, `root-cause-analyst`, `optimizer` | only temp files (`/tmp`, scratchpad) | same |
 | `deploy-error-reader`, `log-collector`, `web-researcher`, `stand-operator`, `janitor` | nothing (no Write/Edit) | nothing |
 | any other subagent | nothing outside the project (temp dirs are fine) | same |
 
@@ -38,7 +41,7 @@ Status in a task card is read tolerantly: backticks and trailing words are ignor
 
 A path listed explicitly in `Writes (exclusive)` of a `green` task is writable by its executor even when it matches a test-path pattern (for example `e2e/dev-stand.yml`, `scripts/seed/tests/x.py`); test files that are not listed stay forbidden.
 
-Executors (`coder`, language coders, `deploy-engineer`, `ci-engineer`, `refactorer`, `test-writer`) may also write under `/tmp/` and the session scratchpad.
+Executors (`coder`, language coders, `deploy-engineer`, `ci-engineer`, `refactorer`, `metrics-writer`, `observability-engineer`, `test-writer`) may also write under `/tmp/` and the session scratchpad.
 
 ### Bash writes follow the write sets
 
