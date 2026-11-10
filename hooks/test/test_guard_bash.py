@@ -1231,8 +1231,13 @@ class ReadersNeverPrintSecrets(unittest.TestCase):
                     res = bash(cmd, agent=agent)
                     self.assertFalse(denied(res), f"{cmd}: {reason(res)}")
             # AC23: git log, cat, grep on a file and ls moved from allowed to denied (git status stays for the janitor)
-            for cmd in ["git log --oneline", "cat logs/run.txt", "grep -rn error logs", "ls -la docs/temp",
-                        *(["git status"] if agent == "stand-operator" else [])]:
+            # D1 (P261110-2): janitor lists the project; Glob is missing for subagents. ls stays denied for stand-operator.
+            if agent == "janitor":
+                with self.subTest(agent=agent, allowed="ls -la docs/temp"):
+                    res = bash("ls -la docs/temp", agent=agent)
+                    self.assertFalse(denied(res), f"ls -la docs/temp: {reason(res)}")
+            for cmd in ["git log --oneline", "cat logs/run.txt", "grep -rn error logs",
+                        *(["ls -la docs/temp", "git status"] if agent == "stand-operator" else [])]:
                 with self.subTest(agent=agent, denied=cmd):
                     self.assertTrue(denied(bash(cmd, agent=agent)), f"{agent}: {cmd!r} was allowed")
 
