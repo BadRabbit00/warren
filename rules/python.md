@@ -19,7 +19,7 @@ Python 3.12+ code: FastAPI services, workers, scripts. Layers, DB, and tests hav
 - R-PY-DEFAULTS: no mutable default arguments (`def f(x: list = [])`); pydantic fields use `Field(default_factory=list)`.
 - R-PY-PYDANTIC: pydantic v2 API only: `model_validate`, `model_dump`, `ConfigDict(from_attributes=True)`, `field_validator`. Schemas are `OrderCreate` / `OrderUpdate` / `OrderRead`.
 - R-PY-TIME: datetimes are timezone-aware (`datetime.now(UTC)`); stored as `timestamptz`. No naive `datetime.now()` / `utcnow()`.
-- R-PY-LOGGING: `structlog.get_logger(__name__)`; values go as key-value pairs, not formatted into the message. No `print`. No secrets or personal data in logs.
+- R-PY-LOGGING: `structlog.get_logger(__name__)`; values go as key-value pairs, not formatted into the message. No `print`. Secrets never; personal data only at DEBUG, masked at INFO and above (skill `logging`).
 - R-PY-IMPORTS: absolute imports from the service root (`from app.services.order_service import …`); no imports inside functions to dodge a cycle; no star imports.
 - R-PY-SUBPROCESS: `subprocess.run([...], check=True)` with a list, never `shell=True` with any interpolated value; `pathlib.Path` for paths.
 

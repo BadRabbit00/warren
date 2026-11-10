@@ -18,7 +18,7 @@ Flutter apps and Dart packages. Visual rules are in `design.md`; on-device data 
 - R-DART-LAYERS: widgets render and forward events; logic lives in the project's state layer (Riverpod notifiers or Bloc), data access in repositories. No HTTP or DB calls from widgets.
 - R-DART-ASYNC: every `Future` is awaited or wrapped in `unawaited(...)` on purpose, with errors handled; streams are listened to with `onError`.
 - R-DART-BUILD: `build()` has no side effects and no expensive work; `const` constructors where possible; long lists use `ListView.builder`.
-- R-DART-LOGGING: no `print`; use the project's logger. No tokens or personal data in logs.
+- R-DART-LOGGING: no `print`; use the project's logger. Secrets never; personal data only at DEBUG, masked at INFO and above (skill `logging`).
 - R-DART-HTTP: one HTTP client (`dio`/`http`) configured with timeouts and interceptors in the data layer; tokens in `flutter_secure_storage`, never in `SharedPreferences`.
 
 ## Examples

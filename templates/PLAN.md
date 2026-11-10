@@ -83,8 +83,8 @@ Delete every hint comment and <…> placeholder as you fill. -->
 ## Tasks
 
 <!-- One card per task.
-Status = the step running now: todo → red → green → refactor → review → done (or blocked).
-Set it BEFORE dispatching: red → test-writer, green → coder, refactor → refactorer. Hooks give each executor
+Status = the step running now: todo → red → green → log → refactor → review → done (or blocked).
+Set it BEFORE dispatching: red → test-writer, green → coder, log → log-writer, refactor → refactorer. Hooks give each executor
 only the write set of tasks in its step, so a stale status blocks the executor.
 Writes (exclusive): production files only, never a test path. Tests (test-writer): test paths only (`tests/`, `*_test.go`, …).
 Evidence: one line per step, numbers from test-runner, combined sha256 of the task's test files. -->
@@ -110,6 +110,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 - **Evidence:**
   - red: <command> → <0 passed, 3 failed (reason: missing behaviour)>; tests sha256 `<…>`
   - green: → <3 passed, 0 failed, 0 skipped>; tests sha256 `<…>` (unchanged)
+  - log: → <3 passed>; tests sha256 `<…>` (unchanged)
   - refactor: → <3 passed>; tests sha256 `<…>` (unchanged)
 - **Review:** <reviewers run → must-fix count / suboptimal count; round 1/2>
 - **Commits:** <test: sha · feat: sha · refactor: sha>
@@ -127,7 +128,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 
 ## Manifest W1
 
-<!-- Written by the orchestrator at dispatch, one per wave. /br-wave {wave: "W1"} reads it. step: red, green, refactor, fix-tests, fix-code, check.
+<!-- Written by the orchestrator at dispatch, one per wave. /br-wave {wave: "W1"} reads it. step: red, green, log, refactor, fix-tests, fix-code, fix-log, check.
 agent is optional (defaults by step and file extension). Parts of one task must not share files. At most 15 agents per run. Task Status must match the steps. -->
 
 ```json
