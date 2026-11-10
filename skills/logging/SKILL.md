@@ -1,6 +1,6 @@
 ---
 name: logging
-description: Use when adding or reviewing logging in service code - levels (DEBUG, INFO, WARNING, ERROR, PANIC), canonical fields, masking of secrets and personal data, what DEBUG logs, panic handling, and per-language templates (Python, Go, TypeScript, Rust, OpenTelemetry).
+description: Use when adding or reviewing logging in service code - levels (DEBUG, INFO, WARNING, ERROR, PANIC), canonical fields, masking of secrets and personal data, what DEBUG logs, panic handling, and per-language templates (Python, Go, TypeScript (browser frontends), Rust, OpenTelemetry).
 ---
 
 # Logging
@@ -31,7 +31,7 @@ Rules for logging in service code. Rule ids `R-LG-*`. Per-language templates liv
 | INFO | Business events. Less than DEBUG, but still a lot. | State transitions (order paid, user blocked), job start/finish, startup config summary without secrets. Never inside a loop. |
 | WARNING | Not broken, needs attention. | Retry, fallback used, slow call over a `docs/POLICY.md` threshold, near a limit, deprecated path used. |
 | ERROR | Something failed and the code goes on. | Missing key, handled external failure. Stack and context. Logged once, where it is handled. |
-| PANIC | Unrecoverable. | A global hook logs message, full stack and context, flushes, then exits. Python `CRITICAL` plus `sys.excepthook` / asyncio handler; Go `recover` in `main` and in goroutines; Rust panic hook; Node and browser uncaught handlers. |
+| PANIC | Unrecoverable. | A global hook logs message, full stack and context, flushes, then exits. Python `CRITICAL` plus `sys.excepthook` / asyncio handler; Go `recover` in `main` and in goroutines; Rust panic hook; browser `error` and `unhandledrejection` handlers. |
 
 The level is named `PANIC` in the output of every language (renamed from the library's own name, e.g. `CRITICAL`, `FATAL`).
 
@@ -265,6 +265,6 @@ Only when the original code already materialised the value; otherwise log nothin
 
 - [references/python.md](references/python.md) - structlog
 - [references/go.md](references/go.md) - log/slog
-- [references/typescript.md](references/typescript.md) - pino, Node and browser
+- [references/typescript.md](references/typescript.md) - pino, browser frontends only (React + Vite)
 - [references/rust.md](references/rust.md) - tracing
 - [references/opentelemetry.md](references/opentelemetry.md) - trace and span correlation
