@@ -4,7 +4,8 @@ Both agents may run everything a reader may run (bash_checks reader gate). On to
 - stand-operator: `docker compose -p NAME [-f FILE] up -d|up --wait|restart SVC|down`, and `nix run .#TARGET`
   for the stand targets named in .plan/PLAN.md; every compose command needs `-p`.
 - janitor: `rm FILE...` of explicit untracked project files, `docker rm|container rm|volume rm NAME...`,
-  `docker compose -p NAME down`, `git ls-files`.
+  `docker compose -p NAME down`, `docker volume inspect NAME...`, `git ls-files`, and read-only listing of paths
+  inside the project: `ls`, `find` (no -exec/-delete/-fprint family), `stat`, `readlink`, `du`.
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ STAND_LINE = re.compile(r"^\s*[-*]\s*\*\*Stand:\*\*(.*)$", re.MULTILINE)
 HOST_FLAGS = {"-H", "--host", "--context", "-c"}
 PATH_FLAGS = {"-f", "--file", "--project-directory", "--env-file"}
 DOCKER_ENV = re.compile(r"(?:^|[\s;&|(])DOCKER_(?:HOST|CONTEXT)=")
+LISTING = {"ls", "find", "stat", "readlink", "du"}
+FIND_REFUSED = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls", "-files0-from"}
 UNSAFE_NAME = re.compile(r"[$`*?\[\]{}~\\<>|;&()'\"]")
 
 
@@ -141,6 +144,8 @@ class _Gate:
                 return special or None
         elif name == "rm" and self.janitor:
             return self.rm(args, shown)
+        elif name in LISTING and self.janitor:
+            return self.listing(name, args, shown)
         elif name == "git":
             if self.janitor and self.git_allowed(args):
                 return None
@@ -201,6 +206,10 @@ class _Gate:
                 return "" if ok else self.deny(shown, "Only `up -d` and `up --wait` are allowed.")
             ok = bool(tail) and not any(a.startswith("-") or UNSAFE_NAME.search(a) for a in tail)
             return "" if ok else self.deny(shown, "`restart` takes service names only.")
+        if self.janitor and sub == "volume" and rest[:1] == ["inspect"]:
+            if self.dynamic or _names(rest[1:], set()) is None:
+                return self.deny(shown, "Name every volume explicitly: no patterns, variables, substitutions or flags.")
+            return ""
         if self.janitor and sub in {"rm", "container", "volume", "network"}:
             if sub == "network" and not (rest and rest[0] == "rm"):
                 return None
@@ -212,6 +221,28 @@ class _Gate:
                 return self.deny(shown, "Name every container or volume explicitly: no patterns, variables, "
                                         "substitutions or other flags.")
             return ""
+        return None
+
+    # -- listing ------------------------------------------------------------------------------------------
+    def listing(self, name: str, args: list[str], shown: str) -> str | None:
+        if self.dynamic or any(a.startswith("~") for a in args):
+            return self.deny(shown, "Paths must be explicit project-relative paths: no variables, substitutions or `~`.")
+        if name == "find":
+            start = 0  # leading options: -H -L -P -O<level> -D<opts>, and -D with its value in the next word
+            while start < len(args) and (args[start] in {"-H", "-L", "-P", "-D"} or args[start].startswith(("-O", "-D"))):
+                start += 2 if args[start] == "-D" else 1
+            end = next((i for i, a in enumerate(args) if i >= start and a.startswith(("-", "(", "!"))), len(args))
+            paths, expr = args[start:end], args[end:]
+            bad = next((a for a in expr if a in FIND_REFUSED or a.startswith("-files0-from=")), None)
+            if bad:
+                return self.deny(shown, f"`find {bad}` runs commands, deletes or writes files; `find` only lists.")
+        else:
+            if any(a.startswith("--files0-from") for a in args):
+                return self.deny(shown, "`du --files0-from` reads paths from a file; pass explicit project paths.")
+            paths = [a for a in args if not a.startswith("-")]
+        for path in paths or ["."]:
+            if not self.inside(path):
+                return self.deny(shown, f"`{path}` is outside the project; list project-relative paths from the project root.")
         return None
 
     # -- git, rm ------------------------------------------------------------------------------------------
