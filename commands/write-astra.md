@@ -36,6 +36,6 @@ Hand an implementation task to GPT-6-Astra through the pinned `write-astra` wrap
    ```
 
 2. **Run** `write-astra -f <prompt.md>`.
-3. **Review the diff yourself**: `git diff`, then the language reviewer (`python-reviewer`, `rust-reviewer`, `nix-reviewer`, …) with an explicit scope, and `security-reviewer` if input/auth/secrets/SQL/network are involved.
+3. **Review the diff yourself**: `git diff`, then `language-reviewer` (Python, Go, Rust, TypeScript, Dart) or `nix-reviewer` with an explicit scope, and `security-reviewer` if input/auth/secrets/SQL/network are involved.
 4. **Run the project's tests** via the devShell. Fix or revert what fails (`git checkout -- <file>` for rejected changes).
 5. **Report**: what Astra changed, review findings, test results, report path. Commit only when the user asks (`conventional-commit-review`).
