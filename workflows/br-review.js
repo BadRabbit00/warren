@@ -145,7 +145,7 @@ function review(base, cp, specs) {
       agent(
         `Checkpoint ${args.checkpoint}: review as ${s.agentType}, ${s.focus}. Read-only: do not edit files, do not commit.\n` +
           `Diff: ${diffCommand(base, s.paths)}${context}\n` +
-          (s.languages ? `Languages in these paths: ${s.languages.join(', ')}.${s.skills.length > 0 ? ` Task skills (read ${s.skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')} before reviewing).` : ''}\n` : '') +
+          (s.languages ? `Languages in these paths: ${s.languages.join(', ')}.${s.skills.length > 0 ? ` Task skills (read ${s.skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')} before reviewing).` : ' Task skills: none given.'}\n` : '') +
           'Return findings with severity must_fix, suboptimal or nit, each with file, line, evidence and fix. ' +
           `${s.severity} Report only what you saw in the code.`,
         { agentType: s.agentType, phase: 'Review', label: s.label, schema: FINDINGS_SCHEMA },
@@ -221,7 +221,12 @@ if (cp.problems.length > 0) {
   return { stopped: true, problems: cp.problems }
 }
 
-const taskSkills = [...new Set(cp.tasks.flatMap((t) => strings(t.skills)))]
+const allSkills = [...new Set(cp.tasks.flatMap((t) => strings(t.skills)))]
+// Skills of the tasks whose writes or tests cover a path of the chunk; all checkpoint skills when no task matches.
+function skillsFor(files) {
+  const hit = cp.tasks.filter((t) => [...strings(t.writes), ...strings(t.tests)].some((e) => files.some((f) => covers(e, f) || covers(f, e))))
+  return hit.length > 0 ? [...new Set(hit.flatMap((t) => strings(t.skills)))] : allSkills
+}
 const specs = []
 const riskyChunks = chunks(cp.risky, MAX_PER_REVIEWER)
 if (riskyChunks.length === 0) log('deep pass skipped: no risky paths in the checkpoint')
@@ -235,7 +240,7 @@ riskyChunks.forEach((paths, i) => {
     specs.push({
       pass: 'deep',
       agentType: name,
-      ...(name === 'language-reviewer' ? { languages, skills: taskSkills } : {}),
+      ...(name === 'language-reviewer' ? { languages, skills: skillsFor(real) } : {}),
       paths,
       label: `deep${part} ${name}`,
       focus: 'deep pass on risky areas: contracts, data, money, security, correctness',

@@ -339,27 +339,7 @@ if (!run) {
 }
 
 // fix_items in the /br-wave manifest-item shape; the agent is coder, the task is filled by the orchestrator.
-// (role, extension) -> skills; the same table as in br-wave.js. Role is the agent name; `code` is the table for code steps.
-const WEB = ['react-patterns', 'vite-patterns', 'frontend-data-layer']
-const SKILLS_BY_ROLE = {
-  'test-writer': { '.rs': ['rust-testing'] },
-  refactorer: { '.rs': ['rust-docs'] },
-  optimizer: { '.rs': ['rust-perf'] },
-  code: { '.dart': ['dart-flutter-patterns'], '.py': ['python-service'], '.go': ['golang-patterns'], '.ts': WEB, '.tsx': WEB, '.js': WEB, '.jsx': WEB },
-}
-const RULES_BY_EXT = { '.py': '~/.claude/rules/br/python.md', '.go': '~/.claude/rules/br/go.md', '.rs': '~/.claude/rules/br/rust.md', '.ts': '~/.claude/rules/br/ts-react.md', '.tsx': '~/.claude/rules/br/ts-react.md', '.js': '~/.claude/rules/br/ts-react.md', '.jsx': '~/.claude/rules/br/ts-react.md', '.dart': '~/.claude/rules/br/dart.md' }
-function extOf(f) {
-  const base = f.split('/').pop()
-  const i = base.lastIndexOf('.')
-  return i < 0 ? '' : base.slice(i)
-}
-// Skills and rule files of the failing file's extension, as br-wave.js briefs a code step.
-function fixHints(file) {
-  const ext = extOf(file)
-  const skills = SKILLS_BY_ROLE.code[ext] || []
-  const rules = RULES_BY_EXT[ext] ? ['~/.claude/rules/br/code.md', RULES_BY_EXT[ext]] : []
-  return (rules.length > 0 ? `\nRule files: ${rules.join(', ')}.` : '') + (skills.length > 0 ? ` Skills: ${skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')}.` : '')
-}
+// /br-wave adds the rule files and skills from item.files when it runs them.
 const appFails = run.per_test.filter((t) => (t.outcome === 'fail' || t.outcome === 'error') && t.classification === 'app')
 const fixItems = appFails.map((t, k) => ({
   id: `e2e-fix-${k + 1}`,
@@ -368,7 +348,7 @@ const fixItems = appFails.map((t, k) => ({
   agent: 'coder',
   files: t.file === '' ? [] : [t.file],
   after: [],
-  brief: `e2e ${t.phase} test ${t.name} fails because of the application: ${t.message}` + fixHints(t.file),
+  brief: `e2e ${t.phase} test ${t.name} fails because of the application: ${t.message}`,
 }))
 fixItems.filter((i) => i.files.length === 0).forEach((i) => log(`${i.id}: the runner named no file for the app failure`))
 

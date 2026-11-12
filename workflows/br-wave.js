@@ -10,7 +10,7 @@ const STEPS = ['red', 'green', 'log', 'refactor', 'fix-tests', 'fix-code', 'fix-
 const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder',
   'log-writer', 'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
 const MAX_AGENTS = 20
-// (role, extension) -> skills. br-review.js and br-e2e.js carry the same table. Role is the agent name; `code` is the
+// (role, extension) -> skills; this is the only copy of the table (br-review.js and br-e2e.js take skills from the plan). Role is the agent name; `code` is the
 // table for code steps (green, fix-code, refactor).
 const WEB = ['react-patterns', 'vite-patterns', 'frontend-data-layer']
 const SKILLS_BY_ROLE = {
