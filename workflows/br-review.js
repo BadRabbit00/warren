@@ -2,7 +2,7 @@
 // logging pass against skill logging, db review of accumulated DB work, migrations-only "must not take prod down" review.
 export const meta = {
   name: 'br-review',
-  description: 'Checkpoint review: deep pass (code, security, language reviewers) on risky paths, broad pass for small bugs, logging pass (skill logging), db-reviewer, migrations-only db-reviewer; refuters only for security must-fix; returns fix items for the next wave',
+  description: 'Checkpoint review: deep pass (code, security, language-reviewer, nix-reviewer) on risky paths, broad pass for small bugs, logging pass (skill logging), db-reviewer, migrations-only db-reviewer; refuters only for security must-fix; returns fix items for the next wave',
   whenToUse: 'At a plan Checkpoint, in the background while coding continues; args = { checkpoint, base?, tasks?, risky?, db?, migrations? }',
   phases: ['Plan', 'Review', 'Verify'],
 }
@@ -44,13 +44,14 @@ const CHECKPOINT_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['id', 'name', 'acceptance', 'writes', 'tests'],
+        required: ['id', 'name', 'acceptance', 'writes', 'tests', 'skills'],
         properties: {
           id: { type: 'string' },
           name: { type: 'string' },
           acceptance: { type: 'array', items: { type: 'string' } },
           writes: { type: 'array', items: { type: 'string' }, description: 'Writes paths of this task' },
           tests: { type: 'array', items: { type: 'string' }, description: 'Tests paths of this task' },
+          skills: { type: 'array', items: { type: 'string' }, description: 'Skills line of this task (skill names)' },
         },
       },
     },
@@ -63,17 +64,8 @@ const CHECKPOINT_SCHEMA = {
   },
 }
 
-const BY_EXTENSION = {
-  py: 'python-reviewer',
-  go: 'go-reviewer',
-  rs: 'rust-reviewer',
-  ts: 'ts-react-reviewer',
-  tsx: 'ts-react-reviewer',
-  js: 'ts-react-reviewer',
-  jsx: 'ts-react-reviewer',
-  dart: 'flutter-dart-reviewer',
-  nix: 'nix-reviewer',
-}
+// extension -> language label for language-reviewer; nix files go to nix-reviewer.
+const LANGUAGE_BY_EXTENSION = { py: 'py', go: 'go', rs: 'rs', ts: 'ts/tsx/js/jsx', tsx: 'ts/tsx/js/jsx', js: 'ts/tsx/js/jsx', jsx: 'ts/tsx/js/jsx', dart: 'dart' }
 
 const MIGRATIONS_BRIEF =
   'Nothing may take production down: locks and lock timeouts, long ALTERs on big tables, NOT NULL without default on big tables, ' +
@@ -95,14 +87,22 @@ function diffCommand(base, paths) {
   return `git diff $(git merge-base ${shellQuote(base)} HEAD)...HEAD${scope}`
 }
 
-function languageReviewers(paths) {
+function extensionOf(file) {
+  const ext = file.slice(file.lastIndexOf('.') + 1)
+  return file.includes('.') && ext.split('').every((c) => c >= 'a' && c <= 'z') ? ext : ''
+}
+
+function languagesOf(paths) {
   const names = []
   for (const file of paths) {
-    const ext = file.slice(file.lastIndexOf('.') + 1)
-    const reviewer = file.includes('.') && ext.split('').every((c) => c >= 'a' && c <= 'z') ? BY_EXTENSION[ext] : undefined
-    if (reviewer && !names.includes(reviewer)) names.push(reviewer)
+    const language = LANGUAGE_BY_EXTENSION[extensionOf(file)]
+    if (language && !names.includes(language)) names.push(language)
   }
   return names
+}
+
+function hasNix(paths) {
+  return paths.some((file) => extensionOf(file) === 'nix')
 }
 
 function chunks(list, size) {
@@ -123,7 +123,7 @@ async function readCheckpoint() {
   const cp = await agent(
     `Read .plan/PLAN.md only. Find the heading "## Checkpoint ${args && args.checkpoint}". Return: the tasks it covers` +
       (ids.length > 0 ? ` (restrict to ${ids.join(', ')})` : '') +
-      ' with id, name and acceptance criteria; the union of their Writes and Tests paths, and per task its own Writes and Tests paths; the risky areas; for every risky entry that is a directory, the real files under it (list them with ls or git ls-files, risky_files); whether DB work accumulated (db); the migration paths. ' +
+      ' with id, name and acceptance criteria; the union of their Writes and Tests paths, and per task its own Writes and Tests paths and its Skills (skill names); the risky areas; for every risky entry that is a directory, the real files under it (list them with ls or git ls-files, risky_files); whether DB work accumulated (db); the migration paths. ' +
       'Copy verbatim; do not invent anything. If the checkpoint is missing, say so in problems.',
     { agentType: 'researcher', label: 'checkpoint', phase: 'Plan', schema: CHECKPOINT_SCHEMA },
   )
@@ -145,6 +145,7 @@ function review(base, cp, specs) {
       agent(
         `Checkpoint ${args.checkpoint}: review as ${s.agentType}, ${s.focus}. Read-only: do not edit files, do not commit.\n` +
           `Diff: ${diffCommand(base, s.paths)}${context}\n` +
+          (s.languages ? `Languages in these paths: ${s.languages.join(', ')}.${s.skills.length > 0 ? ` Task skills (read ${s.skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')} before reviewing).` : ''}\n` : '') +
           'Return findings with severity must_fix, suboptimal or nit, each with file, line, evidence and fix. ' +
           `${s.severity} Report only what you saw in the code.`,
         { agentType: s.agentType, phase: 'Review', label: s.label, schema: FINDINGS_SCHEMA },
@@ -220,18 +221,21 @@ if (cp.problems.length > 0) {
   return { stopped: true, problems: cp.problems }
 }
 
+const taskSkills = [...new Set(cp.tasks.flatMap((t) => strings(t.skills)))]
 const specs = []
 const riskyChunks = chunks(cp.risky, MAX_PER_REVIEWER)
 if (riskyChunks.length === 0) log('deep pass skipped: no risky paths in the checkpoint')
 riskyChunks.forEach((paths, i) => {
   const part = riskyChunks.length > 1 ? ` part ${i + 1}/${riskyChunks.length}` : ''
   const real = paths.concat(cp.risky_files.filter((f) => paths.some((p) => covers(p, f))))
-  const deep = ['code-reviewer', 'security-reviewer', ...languageReviewers(real)]
+  const languages = languagesOf(real)
+  const deep = ['code-reviewer', 'security-reviewer', ...(languages.length > 0 ? ['language-reviewer'] : []), ...(hasNix(real) ? ['nix-reviewer'] : [])]
   if (deep.length === 2) log(`deep${part}: no language reviewer for these paths`)
   deep.forEach((name) =>
     specs.push({
       pass: 'deep',
       agentType: name,
+      ...(name === 'language-reviewer' ? { languages, skills: taskSkills } : {}),
       paths,
       label: `deep${part} ${name}`,
       focus: 'deep pass on risky areas: contracts, data, money, security, correctness',
