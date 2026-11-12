@@ -2,7 +2,7 @@
 
 Full text of the kept rules. Short form and ids: `../SKILL.md`. Examples were corrected where the source was wrong (see the note under each rule).
 
-## R-RSD-ALL-PUBLIC — document every public item [doc-all-public]
+## R-RSDOC-ALL-PUBLIC — document every public item [doc-all-public]
 
 Why: public items are the API contract. Without docs the reader has to read the source.
 
@@ -46,7 +46,7 @@ pub enum Status {
 | Struct, enum | Purpose; an example when usage is not obvious |
 | Field | What it represents, with the unit if any |
 | Variant | The state or case it stands for |
-| Function | What it does; parameters in prose (R-RSD-CANONICAL) |
+| Function | What it does; parameters in prose (R-RSDOC-CANONICAL) |
 | Trait | The contract and expected behaviour |
 | Type alias | Why the alias exists |
 | Constant | What the value means |
@@ -55,7 +55,7 @@ Enforcement: the `missing_docs` lint (`#![warn(missing_docs)]` or `[workspace.li
 
 Scope: public API of library crates. Binary crates are not documented for readers outside the repository; a summary line is enough there.
 
-## R-RSD-MODULE — document modules with `//!` [doc-module-inner]
+## R-RSDOC-MODULE — document modules with `//!` [doc-module-inner]
 
 Merged with Microsoft M-MODULE-DOCS (see `microsoft.md`).
 
@@ -100,7 +100,7 @@ Crate root (`lib.rs`): summary, a quick-start example, the list of modules, and,
 
 Corrections to the source: its `?` in a module example had no function around it and would not compile as a doctest; the crate-root example listed a `prelude` module and a glob import; both removed.
 
-## R-RSD-ERRORS — write `# Errors` for fallible functions [doc-errors-section]
+## R-RSDOC-ERRORS — write `# Errors` for fallible functions [doc-errors-section]
 
 Why: the section tells the caller when the call fails, so that they can handle each case without reading the body.
 
@@ -146,7 +146,7 @@ Link each variant of the `thiserror` enum (R-RS-ERRORS). When the function only 
 
 Corrections to the source: the `anyhow::Error` example is dropped (libraries return typed errors).
 
-## R-RSD-PANICS — write `# Panics` for documented preconditions [doc-panics-section]
+## R-RSDOC-PANICS — write `# Panics` for documented preconditions [doc-panics-section]
 
 Why: the caller must know which precondition to uphold. A panic is for a bug (a broken precondition), never for bad input at runtime (`rules/rust.md`); if the failure is expected, return `Result` and write `# Errors`.
 
@@ -191,7 +191,7 @@ State the reason for panicking in the docs when it is not obvious, for example "
 
 Corrections to the source: its example indexed `self.data` in a function without `self` and asserted a `Vec::get` result against a reference, which does not compile. The "debug-only panic" pattern is dropped: documenting behaviour that differs between build profiles invites bugs. For request handlers and workers the rule is stronger: no panics on input (R-RS-PANICS).
 
-## R-RSD-SAFETY — write `# Safety` for unsafe items [doc-safety-section]
+## R-RSDOC-SAFETY — write `# Safety` for unsafe items [doc-safety-section]
 
 Why: the compiler cannot check the invariants of an `unsafe fn`; the section is the contract that makes calling it sound. `unsafe` itself needs a `// SAFETY:` comment at each block (R-RS-UNSAFE).
 
@@ -225,7 +225,7 @@ For `unsafe trait`, `# Safety` states what the implementer guarantees, and each 
 
 Corrections to the source: in edition 2024 the body of an `unsafe fn` needs its own `unsafe {}` block (`unsafe_op_in_unsafe_fn` warns by default); examples now have them with SAFETY comments.
 
-## R-RSD-EXAMPLES — add `# Examples` with runnable code [doc-examples-section]
+## R-RSDOC-EXAMPLES — add `# Examples` with runnable code [doc-examples-section]
 
 Why: an example shows the intended use faster than prose, and the doctest keeps it correct as the code changes.
 
@@ -270,9 +270,9 @@ Rules of thumb:
 - Run them with `cargo test --doc`.
 - Doctests only exist in library crates.
 
-Corrections to the source: `.unwrap()` replaced by `?` (R-RSD-QUESTION-MARK); the examples that mocked a database inside a doctest are dropped, because docs describe the API, and database-backed behaviour is tested in the crate's `tests` directory against a real database (`rules/tests.md`).
+Corrections to the source: `.unwrap()` replaced by `?` (R-RSDOC-QUESTION-MARK); the examples that mocked a database inside a doctest are dropped, because docs describe the API, and database-backed behaviour is tested in the crate's `tests` directory against a real database (`rules/tests.md`).
 
-## R-RSD-QUESTION-MARK — `?` in examples, not `.unwrap()` [doc-question-mark]
+## R-RSDOC-QUESTION-MARK — `?` in examples, not `.unwrap()` [doc-question-mark]
 
 Why: an example is copied. `.unwrap()` teaches ignoring errors; `?` shows the real pattern and fails the doctest if the call fails.
 
@@ -320,7 +320,7 @@ When `?` is impossible (a literal that cannot fail), write `.expect("why it cann
 
 Corrections to the source: it said the wrapper returns `Result` by default (it does not); it allowed `.unwrap()` for static values (replaced by `expect` with a reason).
 
-## R-RSD-HIDDEN-SETUP — hide setup with `# ` [doc-hidden-setup]
+## R-RSDOC-HIDDEN-SETUP — hide setup with `# ` [doc-hidden-setup]
 
 Why: imports and fixtures bury the one line the reader came for. A line starting with `# ` is compiled and run but not rendered.
 
@@ -358,9 +358,9 @@ Do not hide setup that is the point (for example a builder whose options are wha
 
 Examples that must not run: `no_run` compiles but does not execute (servers, network). `ignore` neither compiles nor runs, so it can rot; prefer `no_run`, or `text` for pseudocode, and give a reason if you must use `ignore`.
 
-Corrections to the source: its `no_run` example used `.await?` outside an async function; moved into the wrapper pattern of R-RSD-QUESTION-MARK.
+Corrections to the source: its `no_run` example used `.await?` outside an async function; moved into the wrapper pattern of R-RSDOC-QUESTION-MARK.
 
-## R-RSD-LINKS — intra-doc links [doc-intra-links, doc-link-types]
+## R-RSDOC-LINKS — intra-doc links [doc-intra-links, doc-link-types]
 
 The two source rules were duplicates and are merged.
 
@@ -415,7 +415,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 ```
 The lint is `rustdoc::broken_intra_doc_links`; to set it in `[lints.rustdoc]` ask `ci-engineer`.
 
-## R-RSD-CARGO-META — Cargo.toml metadata [doc-cargo-metadata]
+## R-RSDOC-CARGO-META — Cargo.toml metadata [doc-cargo-metadata]
 
 Published crates only. Internal workspace crates (`publish = false`) skip this.
 
@@ -457,7 +457,7 @@ Check what ships: `cargo package --list`, then `cargo publish --dry-run`.
 
 Corrections to the source: edition 2024 in all examples, the deprecated `[badges]` block and the `homepage` / `authors` extras dropped, `rust-version` consistent with edition 2024 (1.85 is the first release that supports it).
 
-## R-RSD-README — README as crate root docs [doc-crate-readme]
+## R-RSDOC-README — README as crate root docs [doc-crate-readme]
 
 Published crates only.
 

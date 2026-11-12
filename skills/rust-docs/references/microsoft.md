@@ -2,7 +2,7 @@
 
 Rewritten from `docs/` and `ai/` of the Microsoft guidelines. Short form and ids: `../SKILL.md`.
 
-## R-RSD-FIRST-SENTENCE — one-line summary, about 15 words [M-FIRST-DOC-SENTENCE]
+## R-RSDOC-FIRST-SENTENCE — one-line summary, about 15 words [M-FIRST-DOC-SENTENCE]
 
 Why: rustdoc shows the first sentence in module and search listings with a fixed width. A long first sentence wraps into a ragged block and the listing stops being skimmable.
 
@@ -27,11 +27,11 @@ pub fn pool(config: PoolConfig) -> Pool {
 
 The first sentence stands alone as one line, at most about 15 words, and ends with a full stop. Everything else goes after a blank `///` line.
 
-## R-RSD-MODULE — module documentation [M-MODULE-DOCS]
+## R-RSDOC-MODULE — module documentation [M-MODULE-DOCS]
 
 Merged with doc-module-inner (see `doc.md`).
 
-A public library module must have `//!` docs whose first sentence follows R-RSD-FIRST-SENTENCE. The rest covers what applies from this list:
+A public library module must have `//!` docs whose first sentence follows R-RSDOC-FIRST-SENTENCE. The rest covers what applies from this list:
 
 - what the module contains;
 - when to use it, and when not;
@@ -42,7 +42,7 @@ A public library module must have `//!` docs whose first sentence follows R-RSD-
 
 Not every module needs every item. If there is something to say about how the contained types work together, the module docs are the place, not the individual items.
 
-## R-RSD-CANONICAL — canonical sections [M-CANONICAL-DOCS]
+## R-RSDOC-CANONICAL — canonical sections [M-CANONICAL-DOCS]
 
 Why: Rust readers expect the same section names everywhere.
 
@@ -94,9 +94,9 @@ pub fn copy(src: &File, dst: &File) -> Result<(), CopyError> {
 }
 ```
 
-Details of the individual sections: R-RSD-ERRORS, R-RSD-PANICS, R-RSD-SAFETY, R-RSD-EXAMPLES in `doc.md`. A section that does not apply is left out; do not write "# Panics: never".
+Details of the individual sections: R-RSDOC-ERRORS, R-RSDOC-PANICS, R-RSDOC-SAFETY, R-RSDOC-EXAMPLES in `doc.md`. A section that does not apply is left out; do not write "# Panics: never".
 
-## R-RSD-DOC-INLINE — inline re-exports [M-DOC-INLINE]
+## R-RSDOC-DOC-INLINE — inline re-exports [M-DOC-INLINE]
 
 Published crates only, and only when the crate re-exports its own items. Prefer one path per item, so re-exports are the exception.
 
@@ -119,7 +119,7 @@ pub use parser::Parser;
 
 Do not inline items from `std` or other crates: re-export them without the attribute so that the reader sees they are external. `#[doc(inline)]` does not make a glob re-export acceptable; list the names instead.
 
-## R-RSD-NO-HISTORY — document the end state [M-NO-META-DESIGN-DOCUMENTATION]
+## R-RSDOC-NO-HISTORY — document the end state [M-NO-META-DESIGN-DOCUMENTATION]
 
 Why: doc comments are read by the people who use the code, not by the people who wrote it. Notes on how a change came about are noise to them and go stale.
 

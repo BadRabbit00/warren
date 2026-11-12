@@ -23,36 +23,36 @@ description: Use when writing or reviewing rustdoc comments (`///` and `//!`) in
 
 ### Summary and structure
 
-- R-RSD-FIRST-SENTENCE: the first sentence of every doc comment is one line, about 15 words, and says what the item is or does. [M-FIRST-DOC-SENTENCE]
-- R-RSD-ALL-PUBLIC: every public item of a library crate has a `///` comment; fields and variants say what they mean. [doc-all-public]
-- R-RSD-MODULE: a public library module has `//!` docs: what it holds, when to use it, when not, examples; the first line follows R-RSD-FIRST-SENTENCE. [doc-module-inner, M-MODULE-DOCS]
-- R-RSD-CANONICAL: use the canonical sections (`# Examples`, `# Errors`, `# Panics`, `# Safety`, `# Abort`) when they apply; describe parameters in prose, never in a parameter table. [M-CANONICAL-DOCS]
+- R-RSDOC-FIRST-SENTENCE: the first sentence of every doc comment is one line, about 15 words, and says what the item is or does. [M-FIRST-DOC-SENTENCE]
+- R-RSDOC-ALL-PUBLIC: every public item of a library crate has a `///` comment; fields and variants say what they mean. [doc-all-public]
+- R-RSDOC-MODULE: a public library module has `//!` docs: what it holds, when to use it, when not, examples; the first line follows R-RSDOC-FIRST-SENTENCE. [doc-module-inner, M-MODULE-DOCS]
+- R-RSDOC-CANONICAL: use the canonical sections (`# Examples`, `# Errors`, `# Panics`, `# Safety`, `# Abort`) when they apply; describe parameters in prose, never in a parameter table. [M-CANONICAL-DOCS]
 
 ### Sections
 
-- R-RSD-ERRORS: a function returning `Result` has `# Errors` that lists each condition and links the error variant. [doc-errors-section]
-- R-RSD-PANICS: a function that panics on a violated precondition has `# Panics` naming the precondition; point to a non-panicking sibling when one exists. [doc-panics-section]
-- R-RSD-SAFETY: an `unsafe fn` or `unsafe trait` has `# Safety` listing everything the caller or implementer must uphold. [doc-safety-section]
+- R-RSDOC-ERRORS: a function returning `Result` has `# Errors` that lists each condition and links the error variant. [doc-errors-section]
+- R-RSDOC-PANICS: a function that panics on a violated precondition has `# Panics` naming the precondition; point to a non-panicking sibling when one exists. [doc-panics-section]
+- R-RSDOC-SAFETY: an `unsafe fn` or `unsafe trait` has `# Safety` listing everything the caller or implementer must uphold. [doc-safety-section]
 
 ### Examples
 
-- R-RSD-EXAMPLES: public API has a `# Examples` section with a runnable doctest; show the error case as well when it matters. [doc-examples-section]
-- R-RSD-QUESTION-MARK: examples use `?`, not `.unwrap()`; end the example with `Ok::<(), E>(())` or wrap it in `fn main() -> Result<..>`. [doc-question-mark]
-- R-RSD-HIDDEN-SETUP: hide imports and setup with a `# ` line prefix; keep visible what the reader must learn. [doc-hidden-setup]
+- R-RSDOC-EXAMPLES: public API has a `# Examples` section with a runnable doctest; show the error case as well when it matters. [doc-examples-section]
+- R-RSDOC-QUESTION-MARK: examples use `?`, not `.unwrap()`; end the example with `Ok::<(), E>(())` or wrap it in `fn main() -> Result<..>`. [doc-question-mark]
+- R-RSDOC-HIDDEN-SETUP: hide imports and setup with a `# ` line prefix; keep visible what the reader must learn. [doc-hidden-setup]
 
 ### Links and re-exports
 
-- R-RSD-LINKS: reference items with intra-doc links (`` [`Type`] ``, `` [`Self::method`] ``), never as bare text; check them with `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`. [doc-intra-links, doc-link-types]
-- R-RSD-DOC-INLINE: published crates only: a `pub use` of your own crate's item carries `#[doc(inline)]`; never inline `std` or third-party re-exports, never glob re-export. [M-DOC-INLINE]
+- R-RSDOC-LINKS: reference items with intra-doc links (`` [`Type`] ``, `` [`Self::method`] ``), never as bare text; check them with `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`. [doc-intra-links, doc-link-types]
+- R-RSDOC-DOC-INLINE: published crates only: a `pub use` of your own crate's item carries `#[doc(inline)]`; never inline `std` or third-party re-exports, never glob re-export. [M-DOC-INLINE]
 
 ### Content
 
-- R-RSD-NO-HISTORY: docs describe the end state: no design journey, no "we chose X over Y", no changelog, no guideline compliance tables, no "previously / now / new / removed". [M-NO-META-DESIGN-DOCUMENTATION]
+- R-RSDOC-NO-HISTORY: docs describe the end state: no design journey, no "we chose X over Y", no changelog, no guideline compliance tables, no "previously / now / new / removed". [M-NO-META-DESIGN-DOCUMENTATION]
 
 ### Published crates only
 
-- R-RSD-CARGO-META: published crates only: fill `description`, `license`, `repository`, `readme`, `keywords`, `categories`, `rust-version` in `Cargo.toml`. [doc-cargo-metadata]
-- R-RSD-README: published crates only: make the README the crate root doc with `#![doc = include_str!("../README.md")]`. [doc-crate-readme]
+- R-RSDOC-CARGO-META: published crates only: fill `description`, `license`, `repository`, `readme`, `keywords`, `categories`, `rust-version` in `Cargo.toml`. [doc-cargo-metadata]
+- R-RSDOC-README: published crates only: make the README the crate root doc with `#![doc = include_str!("../README.md")]`. [doc-crate-readme]
 
 ## Which section when
 
