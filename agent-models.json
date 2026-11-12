@@ -100,61 +100,6 @@
         "model": "flash"
       }
     },
-    "python-reviewer": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "go-reviewer": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "rust-reviewer": {
-      "model": "claude-sonnet-5-5",
-      "effort": "high",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "ts-react-reviewer": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "flutter-dart-reviewer": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
     "security-reviewer": {
       "model": "claude-opus-5-5",
       "effort": "high",
@@ -244,50 +189,6 @@
       }
     },
     "nix-test-runner": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "python-coder": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "go-coder": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "ts-coder": {
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "codex": {
-        "model": "gpt-6-astra",
-        "effort": "high"
-      },
-      "agy": {
-        "model": "flash"
-      }
-    },
-    "rust-coder": {
       "model": "claude-sonnet-5-5",
       "effort": "medium",
       "codex": {
@@ -433,6 +334,17 @@
     "root-cause-analyst": {
       "model": "claude-opus-5-5",
       "effort": "high",
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "agy": {
+        "model": "flash"
+      }
+    },
+    "language-reviewer": {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
       "codex": {
         "model": "gpt-6-astra",
         "effort": "high"

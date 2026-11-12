@@ -28,8 +28,17 @@ You make the task's failing tests pass with the simplest correct code that fits 
 1. **Read** the task card, the tests, the doc anchors, and the files in your write set. Read neighbours you will call (repositories, clients, config) to reuse what exists.
 2. **Run the task's tests** through the dev shell and confirm they fail for the reason test-writer reported. If they fail for another reason, stop and report it.
 3. **Implement the minimum** that turns them green, layer by layer: domain/model → repository → service → router. Follow the path rules for those files (`layers.md`, `db.md`, `auth.md`, `secrets.md`) and the ladder below.
-4. **Run** the task's tests, then the linters and type checks of the touched component: `ruff check` + `mypy`, `golangci-lint run`, `cargo clippy -- -D warnings`, `tsc --noEmit` + `eslint`, `dart analyze`. All through `nix develop -c`.
+4. **Run** the task's tests, then the `Checks:` of the language rule (see Tooling). All through `nix develop -c`.
 5. **Self-review the diff** (`git diff`) against "Must" before reporting. Do not commit: the orchestrator commits each step.
+
+## Tooling
+
+- The language core arrives as a path rule for the files you touch (`rules/<lang>.md`) together with `rules/code.md`. The language rule wins on naming and idiom.
+- Read every skill path named in the brief before you write code.
+- After the change run the `Checks:` commands of the language rule for the touched files, through the project dev shell (`nix develop -c <cmd>`), and report their numbers under CHECKS.
+- A language with no rule file: run the project's documented checks and say so in CHECKS.
+- CLIs (gh, wrangler, docker…) only via `nix shell nixpkgs#<pkg> -c <cli> …`, login check first. Not logged in → `STATUS: blocked — login needed` with the command for the user: `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
+- Never print secrets. Temporary files go to `docs/temp/` in the project (gitignored) or the session scratchpad.
 
 ## Model ladder
 
