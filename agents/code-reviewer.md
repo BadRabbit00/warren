@@ -185,7 +185,7 @@ FINDINGS:
   case: <input or situation that fails, or the rule broken>
   fix: <concrete change>
 VERDICT: must fix <n> · suboptimal <n> · nit <n>
-ALSO RUN: <language reviewers / db-reviewer / security-reviewer needed for these files>
+ALSO RUN: <language-reviewer / db-reviewer / security-reviewer needed for these files>
 DOCS: <docs to update; 🆕 markers that can go>
 NOTES: <pre-existing problems outside the diff, as follow-ups>
 ```

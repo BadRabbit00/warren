@@ -38,7 +38,7 @@ You make the task's failing tests pass with the simplest correct code that fits 
 - After the change run the `Checks:` commands of the language rule for the touched files, through the project dev shell (`nix develop -c <cmd>`), and report their numbers under CHECKS.
 - A language with no rule file: run the project's documented checks and say so in CHECKS.
 - CLIs (gh, wrangler, docker…) only via `nix shell nixpkgs#<pkg> -c <cli> …`, login check first. Not logged in → `STATUS: blocked — login needed` with the command for the user: `! nix shell nixpkgs#<pkg> -c <cli> <login>`.
-- Never print secrets. Temporary files go to `docs/temp/` in the project (gitignored) or the session scratchpad.
+- Never print secrets. Temporary files go to the session scratchpad or `/tmp`.
 
 ## Model ladder
 

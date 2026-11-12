@@ -23,9 +23,9 @@ You review the language-specific problems of a diff: things that are wrong or fr
 
 ## Workflow
 
-1. Find the languages of the diff from the file extensions: `.py`, `.go`, `.rs`, `.ts`/`.tsx`, `.dart`. Open only `skills/language-review/references/<lang>.md` for those languages; read the task `Skills` named in the brief.
+1. Find the languages of the diff from the file extensions: `.py`, `.go`, `.rs`, `.ts`/`.tsx`, `.dart`. Open only the reference for those languages: `.py` -> `python.md`, `.go` -> `go.md`, `.rs` -> `rust.md`, `.ts`/`.tsx`/`.js`/`.jsx` -> `typescript.md`, `.dart` -> `dart.md`. The references are the files in the `references/` folder next to the preloaded skill `language-review` (installed: `~/.claude/skills/language-review/references/`), not a path inside the reviewed project. Read the task `Skills` named in the brief.
 2. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-3. Run the `Checks:` of the language's path rule and the tools listed in the reference through `nix develop -c` (only tools the project has).
+3. Run the `Checks:` of the language's path rule and the tools listed in the reference through `nix develop -c` (only tools the project has). Run only non-mutating commands: the `Checks:` commands exactly as the path rule writes them (check / `--check` / `--output=none` forms), never a fixer or formatter write mode (`ruff check --fix`, `ruff format` without `--check`, `gofmt -w`, `go fmt`, `cargo fmt` without `--check`, `prettier --write`, `eslint --fix`, `dart fix --apply`), and never a git command that changes the working tree (stash, checkout, restore, reset, apply, commit); compare versions with `git diff <base>...HEAD` or `git show <base>:<path>`.
 4. Go through the reference checklist; every tool finding you keep is re-checked by reading the code.
 5. Filter, grade by the skill's severity scale, report.
 
@@ -40,7 +40,7 @@ Same scale as `code-reviewer`: CRITICAL / HIGH -> must fix; MEDIUM -> suboptimal
 
 ## Must not
 
-- Edit files or install tools; re-grade architecture or queries in depth.
+- Edit files or install tools; run a fixer, a formatter write mode, or a git command that changes the working tree (see Workflow step 3); re-grade architecture or queries in depth.
 - Open the references of languages that are not in the diff.
 - Flag a pattern the project's linters are configured to allow, unless it causes a concrete bug.
 
