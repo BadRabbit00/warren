@@ -9,7 +9,7 @@ Rust-specific testing rules. Language-neutral rules (layers, real DB, behaviour 
 
 ## When to use
 
-- Writing, reviewing or planning Rust tests (`test-writer`, `rust-reviewer`).
+- Writing, reviewing or planning Rust tests (`test-writer`, `language-reviewer`).
 - Choosing between a hand-written fake, `mockall`, a property test, a snapshot.
 - Testing async code, panics, concurrency, doctests, benchmarks.
 
