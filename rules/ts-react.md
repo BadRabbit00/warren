@@ -8,7 +8,9 @@ paths:
 
 ## Scope
 
-Front-end code: React + Vite + TypeScript, TanStack Query, the API layer. Visual rules are in `design.md`; this is the language and React part. `ts-react-reviewer` checks it in depth.
+Front-end code: React + Vite + TypeScript, TanStack Query, the API layer. Visual rules are in `design.md`; this is the language and React part. `language-reviewer` checks it in depth.
+
+Checks: `tsc --noEmit`; `eslint`; `vitest run`; Playwright only with browsers from nixpkgs, never downloaded.
 
 ## Rules
 
