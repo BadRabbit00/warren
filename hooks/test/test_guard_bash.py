@@ -651,7 +651,7 @@ WRITE_FORMS = {
     "nix develop bash -c": "nix develop -c bash -c 'echo x > {p}'",
 }
 SHORT_FORMS = ["redirect", "tee", "sed -i", "cp", "touch", "heredoc"]
-CODE_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer"]
+CODE_EXECUTORS = ["coder", "deploy-engineer", "ci-engineer"]
 READERS = ["deploy-error-reader", "log-collector", "web-researcher"]
 GATE_AGENTS_R8 = ["deploy-error-reader", "log-collector"]    # AC23: Bash runs only R-marked CLI commands
 
@@ -715,7 +715,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
                     self.assert_allowed(form, "src/z/../a/app.py", agent)
 
     def test_bash_writes_explicit_write_beats_test_pattern(self):
-        for agent in ["coder", "python-coder", "deploy-engineer"]:
+        for agent in ["coder", "deploy-engineer"]:
             for form in SHORT_FORMS:
                 with self.subTest(agent=agent, form=form):
                     self.assert_allowed(form, "e2e/dev-stand.yml", agent)       # listed literally in Writes
@@ -729,8 +729,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
                 self.assert_allowed(form, "ruff.toml", "ci-engineer")           # inside its Writes
                 self.assert_allowed(form, ".github/workflows/ci.yml", "ci-engineer")
                 self.assert_denied(form, ".golangci.yml", "ci-engineer")        # not in its Writes
-                for agent in ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder"]:
-                    self.assert_denied(form, "ruff.toml", agent)                # in Writes, still closed
+                self.assert_denied(form, "ruff.toml", "coder")                  # in Writes, still closed
 
     def test_bash_writes_refactorer_uses_refactor_tasks(self):
         for form in SHORT_FORMS:
@@ -839,7 +838,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
                 self.assert_allowed(form, "src/z/new.py", None)
                 self.assert_allowed(form, "src/a/tests/test_a.py", None)
         plain = plan_project(None)
-        for agent in [None, "coder", "python-coder", "ci-engineer"]:
+        for agent in [None, "coder", "ci-engineer"]:
             for form in SHORT_FORMS:
                 with self.subTest(who=agent or "main session", form=form, plan=False):
                     cmd = WRITE_FORMS[form].format(p="src/z/new.py")
@@ -854,7 +853,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
     def test_bash_writes_denial_names_target_and_rule(self):
         table = [
             ("coder", "echo x > src/z/new.py", "src/z/new.py", ("write set", "writes (exclusive)")),
-            ("python-coder", "tee src/d/app.py < /tmp/src.txt", "src/d/app.py", ("write set", "writes (exclusive)")),
+            ("coder", "tee src/d/app.py < /tmp/src.txt", "src/d/app.py", ("write set", "writes (exclusive)")),
             ("coder", "echo x > src/a/tests/test_a.py", "src/a/tests/test_a.py", ("tests",)),
             ("coder", "echo x > ruff.toml", "ruff.toml", ("config",)),
             ("test-writer", "echo x > src/b/app.py", "src/b/app.py", ("test files", "write set")),
@@ -873,7 +872,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
 
     def test_bash_writes_executor_without_a_task_for_its_step_is_denied(self):
         root = plan_project(NO_GREEN_PLAN)
-        for agent in ["coder", "python-coder", "ci-engineer"]:
+        for agent in ["coder", "ci-engineer"]:
             for form in SHORT_FORMS:
                 with self.subTest(agent=agent, form=form):
                     cmd = WRITE_FORMS[form].format(p="src/a/app.py")
@@ -1054,7 +1053,7 @@ class BashWritesGluedRedirections(unittest.TestCase):
         self.check_cd_resolves_relative_targets()
         self.check_readers_unresolvable_targets_fail_closed()
         for form, tpl in GLUED_FORMS.items():
-            for agent in ["coder", "python-coder", "ci-engineer"]:
+            for agent in ["coder", "ci-engineer"]:
                 with self.subTest(agent=agent, form=form, check="own Writes"):
                     self.assert_allowed_cmd(tpl.format(p="src/a/app.py"), agent)
                 for path in ["src/z/new.py", "src/b/app.py", "README.md"]:
@@ -1118,7 +1117,7 @@ class BashWritesGluedRedirections(unittest.TestCase):
             ("coder", "cd src && cd z && echo x > new.py", "src/z/new.py"),
             ("coder", f"cd {root}/src/z && echo x > new.py", "src/z/new.py"),
             ("coder", "cd src/a/tests && echo x > test_a.py", "src/a/tests/test_a.py"),
-            ("python-coder", "cd src/b && echo x > app.py", "src/b/app.py"),
+            ("coder", "cd src/b && echo x > app.py", "src/b/app.py"),
             ("test-writer", "cd src/b && echo x > app.py", "src/b/app.py"),
             ("test-writer", "cd src/b/tests && echo x > test_other.py", "src/b/tests/test_other.py"),
             ("test-writer", "cd src/a/tests && echo x > test_a.py", "src/a/tests/test_a.py"),
@@ -1159,7 +1158,7 @@ class BashWritesGluedRedirections(unittest.TestCase):
                     self.assertTrue(denied(res), f"{agent}: {cmd!r} was allowed")
 
     def test_bash_writes_executors_keep_skipping_unresolvable_targets(self):
-        for agent in ["coder", "python-coder", "test-writer"]:
+        for agent in ["coder", "test-writer"]:
             for cmd in ["echo x > $TMPDIR/out.txt", "echo x > \"$OUT\""]:
                 with self.subTest(agent=agent, cmd=cmd):
                     self.assert_allowed_cmd(cmd, agent)
@@ -1486,12 +1485,12 @@ class JanitorDeletes(unittest.TestCase):
 INFRA_PKG = {"tofu": "opentofu", "terraform": "terraform", "railway": "railway", "gh": "gh", "wrangler": "wrangler",
              "gcloud": "google-cloud-sdk", "doctl": "doctl"}
 # Executors that write code or config; the reason they get must tell them what to do instead.
-INFRA_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer",
+INFRA_EXECUTORS = ["coder", "deploy-engineer", "ci-engineer",
                    "test-writer", "refactorer"]
 # web-researcher has no Bash tool
 INFRA_SUBAGENTS = INFRA_EXECUTORS + ["deploy-error-reader", "log-collector", "stand-operator", "janitor"]
 # deploy-engineer and ci-engineer are the agents most likely to be trusted with these: they get the widest checks
-INFRA_WRAP_AGENTS = ["deploy-engineer", "ci-engineer", "python-coder"]
+INFRA_WRAP_AGENTS = ["deploy-engineer", "ci-engineer", "coder"]
 
 
 class InfraChangesNeverRunBySubagents(unittest.TestCase):
@@ -1635,7 +1634,7 @@ def nested_shells(core: str, depth: int) -> str:
 
 class InfraGateCannotBeHidden(unittest.TestCase):
     """AC19: the AC18 rule survives package launchers, global flags with values, and nesting or parse failures."""
-    AGENTS = ["deploy-engineer", "ci-engineer", "coder", "python-coder"]
+    AGENTS = ["deploy-engineer", "ci-engineer", "coder"]
     # package launchers; a bare launcher is refused by the Nix-only rule anyway, so they run inside `nix develop -c`
     LAUNCHED_CHANGES = [
         "npx wrangler deploy", "npx -y wrangler deploy", "pnpm exec wrangler deploy", "pnpm dlx wrangler deploy",

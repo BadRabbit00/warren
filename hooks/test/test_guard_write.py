@@ -130,8 +130,7 @@ class TestPlanScopes(unittest.TestCase):
         self.assertTrue(denied(write("src/notify/x.py", "coder", self.root)))
 
 
-NEW_EXECUTORS = ["python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer"]
-LANGUAGE_CODERS = ["python-coder", "go-coder", "ts-coder", "rust-coder"]
+NEW_EXECUTORS = ["coder", "deploy-engineer", "ci-engineer"]
 SCRATCHPAD = "/tmp/claude-1000/-home-user-project/0a1b2c3d-0000-4000-8000-000000000000/scratchpad"
 
 STATUS_PLAN = """# Plan
@@ -314,7 +313,7 @@ class TestLogWriter(unittest.TestCase):
 
     def test_log_status_is_log_writer_only(self):
         r = project(LOG_ONLY_PLAN)
-        for agent in ["coder", "refactorer", "test-writer", *LANGUAGE_CODERS]:
+        for agent in ["coder", "refactorer", "test-writer"]:
             with self.subTest(agent=agent):
                 self.assertTrue(denied(write(r / "src/app/order_service.py", agent, r)))
         for agent in ["coder", "refactorer"]:
@@ -337,7 +336,7 @@ class TestExplicitWriteBeatsTestPattern(unittest.TestCase):
 
     def test_explicit_write_beats_test_pattern(self):
         r = self.root
-        for agent in ["coder", "deploy-engineer", "python-coder"]:
+        for agent in ["coder", "deploy-engineer"]:
             for p in ["e2e/dev-stand.yml", "scripts/seed/tests/x.py", "src/stand/run.py"]:
                 with self.subTest(agent=agent, allowed=p):
                     res = write(r / p, agent, r)
@@ -359,7 +358,7 @@ class TestExplicitWriteBeatsTestPattern(unittest.TestCase):
 class TestExecutorsTemp(unittest.TestCase):
     def test_executors_may_write_temp(self):
         targets = ["/tmp/scratch/out.txt", "/var/tmp/scratch/out.txt", f"{SCRATCHPAD}/notes.md", f"{SCRATCHPAD}/gen.py"]
-        agents = ["coder", "refactorer", "test-writer", *LANGUAGE_CODERS]
+        agents = ["coder", "refactorer", "test-writer"]
         for plan in (ALL_STEPS_PLAN, NO_ACTIVE_PLAN, None):
             r = project(plan)
             for agent in agents:
@@ -371,7 +370,7 @@ class TestExecutorsTemp(unittest.TestCase):
 
     def test_executors_still_cannot_write_elsewhere_outside_the_project(self):
         r = project(ALL_STEPS_PLAN)
-        for agent in ["coder", "refactorer", "test-writer", "python-coder"]:
+        for agent in ["coder", "refactorer", "test-writer"]:
             for p in ["/etc/hosts", str(Path.home() / ".claude/settings.json"), "/usr/local/bin/x"]:
                 with self.subTest(agent=agent, p=p):
                     self.assertTrue(denied(write(p, agent, r)), p)
@@ -441,7 +440,7 @@ class TestQualityConfigs(unittest.TestCase):
     def test_coders_may_not_edit_quality_configs_even_when_listed(self):
         r = project(CONFIG_PLAN)
         free = project(None)
-        for agent in ["coder", "refactorer", "build-fixer", *LANGUAGE_CODERS]:
+        for agent in ["coder", "refactorer", "build-fixer"]:
             for p in QUALITY_CONFIGS:
                 with self.subTest(agent=agent, p=p):
                     res = write(r / p, agent, r)

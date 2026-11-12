@@ -20,7 +20,7 @@ def bash(cmd, **kw):
 # every agent whose Bash is gated by the reader allowlist (stand-operator and janitor run "everything a reader may run")
 GATE_AGENTS = ["deploy-error-reader", "log-collector"]
 ALL_READERS = [*GATE_AGENTS, "stand-operator", "janitor"]
-CODE_EXECUTORS = ["coder", "python-coder", "go-coder", "ts-coder", "rust-coder", "deploy-engineer", "ci-engineer"]
+CODE_EXECUTORS = ["coder", "deploy-engineer", "ci-engineer"]
 ALL_EXECUTORS = [*CODE_EXECUTORS, "refactorer", "test-writer"]
 SCRATCHPAD = "/tmp/claude-1000/-home-user-project/0a1b2c3d-0000-4000-8000-000000000000/scratchpad"
 HOME = os.environ.get("HOME", "/home/BadRabbit")
@@ -429,7 +429,7 @@ class BashWriteTargetsCoverAllForms(unittest.TestCase):
             with self.subTest(who="main session", allowed=cmd):
                 self.assert_allowed_cmd(cmd, None)
         plain = plan_project(None)
-        for agent in ["coder", "python-coder", "ci-engineer"]:
+        for agent in ["coder", "ci-engineer"]:
             for cmd in ["cp --target-directory=src /tmp/x", "cp -tsrc /tmp/x", "mv -t src /tmp/x",
                         "ln -s /tmp/x src/y", "install -t src/z /tmp/x"]:
                 with self.subTest(who=agent, plan=False, allowed=cmd):
@@ -536,7 +536,7 @@ class ReadersBashIsCliOnly(unittest.TestCase):
         cmds = ["cat README.md", "ls logs", "sed -n 1,20p x", "awk '{print}' x", "stat x", "find . -name x",
                 "cd logs && tail -n 5 run.txt", "grep -n x src/a.py", "git log", "git status", "tee /tmp/t1r8-x < /dev/null",
                 "cp a /tmp/t1r8-b", "touch /tmp/t1r8-x", "jq . data.json"]
-        for agent in [None, "coder", "python-coder", "ci-engineer", "deploy-engineer", "refactorer", "test-writer"]:
+        for agent in [None, "coder", "ci-engineer", "deploy-engineer", "refactorer", "test-writer"]:
             for cmd in cmds:
                 with self.subTest(agent=agent, cmd=cmd):
                     res = self.run_cmd(cmd, agent)

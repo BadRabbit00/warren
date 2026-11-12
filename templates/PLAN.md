@@ -96,7 +96,7 @@ Evidence: one line per step, numbers from test-runner, combined sha256 of the ta
 - **Writes (exclusive):** `<src/orders/app/services/order_service.py>`, `<src/orders/app/repositories/**>`
 - **Tests (test-writer):** `<src/orders/tests/services/test_order_service.py>`
 - **Reads:** `docs/<FILE>.md#<anchor>`, ...
-- **Skills:** <skill names the agents must read first, or —>
+- **Skills:** <skill names, or —; received by coder (green, fix-code), refactorer and language-reviewer; not by test-writer or log-writer>
 - **Provides contracts:** <...> · **Uses contracts:** <...>
 - **Coder:** <sonnet / astra — agreed YYYY-MM-DD, why>
 - **Parts:** <filled at dispatch: P1 `files` → agent; P2 `files` → agent (after P1); disjoint files, each sized to one agent; or —>

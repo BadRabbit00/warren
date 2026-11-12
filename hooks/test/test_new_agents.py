@@ -2,7 +2,7 @@
 import unittest
 
 from helpers import call, denied, reason
-from test_guard_write import LANGUAGE_CODERS, project, write
+from test_guard_write import project, write
 
 METRICS_PLAN = """# Plan
 
@@ -92,7 +92,7 @@ class TestMetricsWriter(unittest.TestCase):
 
     def test_metrics_status_is_metrics_writer_only(self):
         r = project(METRICS_ONLY_PLAN)
-        for agent in ["coder", "refactorer", "log-writer", "deploy-engineer", "ci-engineer", *LANGUAGE_CODERS]:
+        for agent in ["coder", "refactorer", "log-writer", "deploy-engineer", "ci-engineer"]:
             with self.subTest(agent=agent):
                 res = write(r / "src/app/metrics.py", agent, r)
                 self.assertTrue(denied(res), agent)
@@ -170,6 +170,70 @@ class TestTempOnlyAgents(unittest.TestCase):
                 for p in ["src/app/metrics.py", "deploy/prometheus/prometheus.yml"]:
                     with self.subTest(agent=agent, p=p):
                         self.assertTrue(denied(write(r / p, agent, r)), f"{agent}: {p}")
+
+
+class TestLanguageReviewer(unittest.TestCase):
+    """T8 AC1: language-reviewer reads and reports; it writes no project file, through any tool or Bash."""
+    AGENT = "language-reviewer"
+    PATHS = ["src/app/user_service.py",      # Writes of a green task: still closed
+             "src/app/new_module.py", "tests/test_user.py", "docs/API.md", "README.md", ".plan/PLAN.md",
+             "flake.nix", "notes.md"]
+    BASH_FORMS = {
+        "redirect": "echo x > {p}",
+        "append": "echo x >> {p}",
+        "tee": "tee {p} < /tmp/src.txt",
+        "touch": "touch {p}",
+        "cp": "cp /tmp/src.txt {p}",
+        "sed -i": "sed -i 's/a/b/' {p}",
+        "heredoc": "cat > {p} <<'EOF'\nx\nEOF",
+    }
+
+    def test_language_reviewer_is_read_only(self):
+        for plan in (METRICS_PLAN, None):
+            r = project(plan)
+            for p in self.PATHS:
+                for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+                    with self.subTest(plan=plan is not None, p=p, tool=tool):
+                        res = write(r / p, self.AGENT, r, tool=tool)
+                        self.assertTrue(denied(res), f"{self.AGENT} {tool} {p} was allowed")
+                for form, tpl in self.BASH_FORMS.items():
+                    with self.subTest(plan=plan is not None, p=p, bash=form):
+                        cmd = tpl.format(p=p)
+                        res = bash(cmd, self.AGENT, r)
+                        self.assertTrue(denied(res), f"{self.AGENT} Bash {cmd!r} was allowed")
+                        self.assertIn(p, reason(res))
+            # a path outside the project and outside the temp dirs is refused as well
+            with self.subTest(plan=plan is not None, outside="/etc/hosts"):
+                self.assertTrue(denied(write("/etc/hosts", self.AGENT, r)))
+                self.assertTrue(denied(bash("echo x > /etc/hosts", self.AGENT, r)))
+            # temp dirs stay free for scratch output
+            with self.subTest(plan=plan is not None, allowed="/tmp via Bash"):
+                res = bash("echo x > /tmp/language-review/out.txt", self.AGENT, r)
+                self.assertFalse(denied(res), reason(res))
+
+    UNRESOLVED_BASH_FORMS = {
+        "variable, quoted": 'F={p}; echo x > "$F"',
+        "variable, bare": "F={p}; echo x > $F",
+        "command substitution": "echo x > $(printf {p})",
+    }
+
+    def test_language_reviewer_unresolved_bash_targets_are_refused(self):
+        for plan in (METRICS_PLAN, None):
+            r = project(plan)
+            for p in self.PATHS:
+                for form, tpl in self.UNRESOLVED_BASH_FORMS.items():
+                    with self.subTest(plan=plan is not None, p=p, bash=form):
+                        cmd = tpl.format(p=p)
+                        res = bash(cmd, self.AGENT, r)
+                        self.assertTrue(denied(res), f"{self.AGENT} Bash {cmd!r} was allowed")
+            with self.subTest(plan=plan is not None, bash="cd into a variable directory"):
+                cmd = 'cd "$D" && echo x > a.py'
+                res = bash(cmd, self.AGENT, r)
+                self.assertTrue(denied(res), f"{self.AGENT} Bash {cmd!r} was allowed")
+            # a literal path under /tmp stays free for scratch output
+            with self.subTest(plan=plan is not None, allowed="/tmp via Bash"):
+                res = bash("echo x > /tmp/language-review/out.txt", self.AGENT, r)
+                self.assertFalse(denied(res), reason(res))
 
 
 if __name__ == "__main__":

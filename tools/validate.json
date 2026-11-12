@@ -4,7 +4,7 @@
     "contract": 40,
     "rule": 120,
     "agent": 300,
-    "outputStyle": 260
+    "outputStyle": 300
   },
   "allowedModels": [
     "sonnet",
@@ -105,7 +105,6 @@
     "react-patterns",
     "recsys-pipeline-architect",
     "redis-patterns",
-    "rust-patterns",
     "vite-patterns"
   ]
 }

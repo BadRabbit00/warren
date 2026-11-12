@@ -8,7 +8,9 @@ paths:
 
 ## Scope
 
-Flutter apps and Dart packages. Visual rules are in `design.md`; on-device data in `db.md` (Drift). This is the language and framework part. `flutter-dart-reviewer` checks it in depth.
+Flutter apps and Dart packages. Visual rules are in `design.md`; on-device data in `db.md` (Drift). This is the language and framework part. `language-reviewer` checks it in depth.
+
+Checks: `dart analyze` (or `flutter analyze`); `dart format --output=none --set-exit-if-changed`; `flutter test`.
 
 ## Rules
 

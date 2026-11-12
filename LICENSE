@@ -21,3 +21,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Derived material
+
+Rust skills (skills/rust-*, rules/rust.md) are adapted from:
+- leonardomso/rust-skills, https://github.com/leonardomso/rust-skills, MIT,
+  Copyright (c) 2025 Leonardo Maldonado
+- Microsoft Pragmatic Rust Guidelines, https://github.com/microsoft/rust-guidelines, MIT,
+  Copyright (c) Microsoft Corporation
+
+rules/code.md is informed by, and rewritten in our own words from:
+- shinpr/claude-code-workflows, MIT, Copyright (c) 2025 Shinsuke Kagawa
+- asyrafhussin/agent-skills, MIT, Copyright (c) 2026 Asyraf Hussin
+
+agents/code-reviewer.md: five rules are derived from Google Engineering Practices
+(https://github.com/google/eng-practices), licensed under CC BY 3.0
+(https://creativecommons.org/licenses/by/3.0/). Changes made: condensed and reworded.
