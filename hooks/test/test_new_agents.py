@@ -211,6 +211,30 @@ class TestLanguageReviewer(unittest.TestCase):
                 res = bash("echo x > /tmp/language-review/out.txt", self.AGENT, r)
                 self.assertFalse(denied(res), reason(res))
 
+    UNRESOLVED_BASH_FORMS = {
+        "variable, quoted": 'F={p}; echo x > "$F"',
+        "variable, bare": "F={p}; echo x > $F",
+        "command substitution": "echo x > $(printf {p})",
+    }
+
+    def test_language_reviewer_unresolved_bash_targets_are_refused(self):
+        for plan in (METRICS_PLAN, None):
+            r = project(plan)
+            for p in self.PATHS:
+                for form, tpl in self.UNRESOLVED_BASH_FORMS.items():
+                    with self.subTest(plan=plan is not None, p=p, bash=form):
+                        cmd = tpl.format(p=p)
+                        res = bash(cmd, self.AGENT, r)
+                        self.assertTrue(denied(res), f"{self.AGENT} Bash {cmd!r} was allowed")
+            with self.subTest(plan=plan is not None, bash="cd into a variable directory"):
+                cmd = 'cd "$D" && echo x > a.py'
+                res = bash(cmd, self.AGENT, r)
+                self.assertTrue(denied(res), f"{self.AGENT} Bash {cmd!r} was allowed")
+            # a literal path under /tmp stays free for scratch output
+            with self.subTest(plan=plan is not None, allowed="/tmp via Bash"):
+                res = bash("echo x > /tmp/language-review/out.txt", self.AGENT, r)
+                self.assertFalse(denied(res), reason(res))
+
 
 if __name__ == "__main__":
     unittest.main()

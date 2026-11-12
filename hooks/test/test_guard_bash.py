@@ -729,8 +729,7 @@ class BashWritesFollowWriteSets(unittest.TestCase):
                 self.assert_allowed(form, "ruff.toml", "ci-engineer")           # inside its Writes
                 self.assert_allowed(form, ".github/workflows/ci.yml", "ci-engineer")
                 self.assert_denied(form, ".golangci.yml", "ci-engineer")        # not in its Writes
-                for agent in ["coder"]:
-                    self.assert_denied(form, "ruff.toml", agent)                # in Writes, still closed
+                self.assert_denied(form, "ruff.toml", "coder")                  # in Writes, still closed
 
     def test_bash_writes_refactorer_uses_refactor_tasks(self):
         for form in SHORT_FORMS:
