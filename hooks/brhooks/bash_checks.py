@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, Event, git_branch, is_test_path, rel
+from .common import NO_TEST_WRITE, PROTECTED_BRANCHES, READ_ONLY_AGENTS, Event, git_branch, is_test_path, rel
 from .write_checks import _explicit_write, _is_temp, check_write
 
 # Split a command line into simple commands on ; && || | & and newlines (good enough for policy checks).
@@ -1134,7 +1134,7 @@ def check_bash_writes(ev: Event, cmd: str) -> str | None:
     """Bash writes follow the rules of Write/Edit for the same agent."""
     if not ev.agent:
         return None
-    reader = ev.agent in READER_AGENTS | {"stand-operator", "janitor"}
+    reader = ev.agent in READER_AGENTS | READ_ONLY_AGENTS
     for target in _written_files(cmd):
         unresolved = not target or re.search(r"[$`]", target) is not None or target.startswith("~")
         if reader:

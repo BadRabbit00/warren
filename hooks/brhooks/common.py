@@ -28,7 +28,7 @@ TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.(py|go|dart)|conftest\
 # Which task status lets which executor write (status = the step being executed now).
 STEP_OF_AGENT = {"test-writer": "red", "coder": "green", "refactorer": "refactor", "log-writer": "log",
                  "metrics-writer": "metrics", "observability-engineer": "green",
-                 **{a: "green" for a in {"deploy-engineer", "ci-engineer"}}}
+                 "deploy-engineer": "green", "ci-engineer": "green"}
 # What the main thread (orchestrator) may write while the project is orchestrated (.plan/ exists).
 MAIN_WRITES = ["docs/**", ".plan/**", "README.md", "CHANGELOG.md", "CLAUDE.md", ".claude/rules/**"]
 # Fixed write scopes of non-executor agents that are allowed to write at all.
