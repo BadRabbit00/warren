@@ -51,7 +51,7 @@ Checks: `cargo test`; `cargo clippy --all-targets -- -D warnings`; `cargo fmt --
 - R-RS-FLOAT: no `==` on floats: compare with a tolerance, order with `total_cmp`, bound with `clamp`.
 - R-RS-NONZERO: `NonZero*` where zero is invalid (counts, sizes, ids).
 - R-RS-TYPES: newtypes for identifiers and validated values (`struct OrderId(Uuid)`); enums for exclusive states; `match` on your own enums lists every variant (no `_` arm).
-- R-RS-RUST-SHAPED: when porting from Java, C#, Python or Go keep the domain logic and redo the technical shape in Rust idioms (traits, ownership, `Result`, no class hierarchies, no global statics).
+- R-RS-RUST-SHAPED: when porting from Java, C#, Python or Go keep the domain logic and redo the technical shape in Rust idioms (traits, ownership, `Result`, no class hierarchies).
 - R-RS-NO-OVER-ABSTRACTION: no generic parameter, trait or builder with one user; start with a concrete type and generalise when a second case appears.
 - R-RS-REGULAR-FN: a function with no receiver stays a free function; `impl` blocks hold constructors and methods only.
 - R-RS-SINGLE-PATH: a public item is reachable through one path; no `pub use` duplicate of an item that is already public elsewhere in the crate.
