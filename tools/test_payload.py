@@ -208,10 +208,10 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(
             sorted(n for n, mode in expected.items() if mode == "workspace-write"),
             [
-                "build-fixer", "ci-engineer", "coder", "deploy-engineer", "go-coder",
+                "build-fixer", "ci-engineer", "coder", "deploy-engineer",
                 "log-writer", "metrics-writer", "nix-build-resolver", "nix-engineer",
-                "nix-test-runner", "observability-engineer", "presenter", "python-coder",
-                "refactorer", "rust-coder", "test-writer", "ts-coder", "ui-verifier",
+                "nix-test-runner", "observability-engineer", "presenter",
+                "refactorer", "test-writer", "ui-verifier",
             ],
         )
         for name, mode in expected.items():
@@ -360,6 +360,41 @@ class ExportTest(unittest.TestCase):
         self.assertTrue(text.startswith((self.root / "core" / "CLAUDE.md").read_text(encoding="utf-8")))
         for name in self.names:
             self.assertIn(name, text)
+
+
+REMOVED_LANGUAGE_AGENTS = (
+    "python-coder", "go-coder", "ts-coder", "rust-coder",
+    "python-reviewer", "go-reviewer", "rust-reviewer", "ts-react-reviewer", "flutter-dart-reviewer",
+)
+
+
+class AgentSetTest(unittest.TestCase):
+    """The repository itself: one coder and one language-reviewer instead of nine language agents."""
+
+    def test_language_agents_are_removed(self) -> None:
+        models = json.loads((REPO / "agent-models.json").read_text(encoding="utf-8"))["agents"]
+        for name in REMOVED_LANGUAGE_AGENTS:
+            self.assertFalse((REPO / "agents" / f"{name}.md").exists(), f"agents/{name}.md still exists")
+            self.assertNotIn(name, models, f"{name} still pinned in agent-models.json")
+
+    def test_language_reviewer_is_read_only_and_pinned(self) -> None:
+        path = REPO / "agents" / "language-reviewer.md"
+        self.assertTrue(path.is_file(), f"{path} missing")
+        fm, _ = split(path.read_text(encoding="utf-8"))
+        self.assertEqual(fm["name"], "language-reviewer")
+        self.assertEqual(tool_list(fm["tools"]) & WRITE_TOOLS, set())
+        self.assertLessEqual(WRITE_TOOLS, tool_list(fm["disallowedTools"]))
+        self.assertEqual(tool_list(fm["skills"]), {"language-review"})
+        self.assertEqual(fm["model"], "sonnet")
+        self.assertEqual(fm["effort"], "medium")
+        pin = json.loads((REPO / "agent-models.json").read_text(encoding="utf-8"))["agents"]["language-reviewer"]
+        self.assertEqual(pin["model"], "claude-sonnet-5-5")
+        self.assertEqual(pin["effort"], "medium")
+
+    def test_validate_json_drops_rust_patterns_and_raises_output_style_limit(self) -> None:
+        config = json.loads((REPO / "tools" / "validate.json").read_text(encoding="utf-8"))
+        self.assertNotIn("rust-patterns", config["useWhenExempt"])
+        self.assertEqual(config["limits"]["outputStyle"], 300)
 
 
 class ExportFailureTest(unittest.TestCase):
