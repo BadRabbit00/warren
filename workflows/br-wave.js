@@ -19,7 +19,7 @@ const SKILLS_BY_ROLE = {
   optimizer: { '.rs': ['rust-perf'] },
   code: { '.dart': ['dart-flutter-patterns'], '.py': ['python-service'], '.go': ['golang-patterns'], '.ts': WEB, '.tsx': WEB, '.js': WEB, '.jsx': WEB },
 }
-const RULES_BY_EXT = { '.py': 'rules/python.md', '.go': 'rules/go.md', '.rs': 'rules/rust.md', '.ts': 'rules/ts-react.md', '.tsx': 'rules/ts-react.md', '.js': 'rules/ts-react.md', '.jsx': 'rules/ts-react.md', '.dart': 'rules/dart.md' }
+const RULES_BY_EXT = { '.py': '~/.claude/rules/br/python.md', '.go': '~/.claude/rules/br/go.md', '.rs': '~/.claude/rules/br/rust.md', '.ts': '~/.claude/rules/br/ts-react.md', '.tsx': '~/.claude/rules/br/ts-react.md', '.js': '~/.claude/rules/br/ts-react.md', '.jsx': '~/.claude/rules/br/ts-react.md', '.dart': '~/.claude/rules/br/dart.md' }
 const CODE_STEPS = ['green', 'fix-code', 'refactor']
 const strArr = { type: 'array', items: { type: 'string' } }
 
@@ -299,7 +299,8 @@ function skillsFor(task, item) {
 
 function workBrief(task, item) {
   const skills = skillsFor(task, item).map((s) => `~/.claude/skills/${s}/SKILL.md`).join(', ')
-  const rules = ['rules/code.md', ...new Set(item.files.map((f) => RULES_BY_EXT[extOf(f)]).filter(Boolean))]
+  const langRules = [...new Set(item.files.map((f) => RULES_BY_EXT[extOf(f)]).filter(Boolean))]
+  const rules = langRules.length > 0 ? ['~/.claude/rules/br/code.md', ...langRules] : []
   const logging = item.step === 'log' || item.step === 'fix-log'
   return [
     `Task: ${task.id} — ${task.name}; part ${item.id} (${item.step})`,
@@ -308,7 +309,7 @@ function workBrief(task, item) {
     `Read first: .plan/PLAN.md#${task.id.toLowerCase()}, ${task.reads.join(', ')}; skills (read them before starting): ${skills || 'none'}${logging ? ', ~/.claude/skills/logging/SKILL.md' : ''}`,
     'Acceptance criteria:',
     ...task.acceptance.map((a) => `- ${a}`),
-    `Rule files (read them before starting): ${rules.join(', ')}`,
+    ...(rules.length > 0 ? [`Rule files (read them before starting): ${rules.join(', ')}`] : []),
     `Part brief: ${item.brief}`,
     'Rules: do not commit, do not edit .plan/PLAN.md; the orchestrator does both. The write hook scopes by the plan Status of the task, which the orchestrator already set.',
     item.step === 'red' || item.step === 'fix-tests'

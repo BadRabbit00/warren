@@ -347,7 +347,7 @@ const SKILLS_BY_ROLE = {
   optimizer: { '.rs': ['rust-perf'] },
   code: { '.dart': ['dart-flutter-patterns'], '.py': ['python-service'], '.go': ['golang-patterns'], '.ts': WEB, '.tsx': WEB, '.js': WEB, '.jsx': WEB },
 }
-const RULES_BY_EXT = { '.py': 'rules/python.md', '.go': 'rules/go.md', '.rs': 'rules/rust.md', '.ts': 'rules/ts-react.md', '.tsx': 'rules/ts-react.md', '.js': 'rules/ts-react.md', '.jsx': 'rules/ts-react.md', '.dart': 'rules/dart.md' }
+const RULES_BY_EXT = { '.py': '~/.claude/rules/br/python.md', '.go': '~/.claude/rules/br/go.md', '.rs': '~/.claude/rules/br/rust.md', '.ts': '~/.claude/rules/br/ts-react.md', '.tsx': '~/.claude/rules/br/ts-react.md', '.js': '~/.claude/rules/br/ts-react.md', '.jsx': '~/.claude/rules/br/ts-react.md', '.dart': '~/.claude/rules/br/dart.md' }
 function extOf(f) {
   const base = f.split('/').pop()
   const i = base.lastIndexOf('.')
@@ -357,8 +357,8 @@ function extOf(f) {
 function fixHints(file) {
   const ext = extOf(file)
   const skills = SKILLS_BY_ROLE.code[ext] || []
-  const rules = ['rules/code.md', ...(RULES_BY_EXT[ext] ? [RULES_BY_EXT[ext]] : [])]
-  return `\nRule files: ${rules.join(', ')}.` + (skills.length > 0 ? ` Skills: ${skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')}.` : '')
+  const rules = RULES_BY_EXT[ext] ? ['~/.claude/rules/br/code.md', RULES_BY_EXT[ext]] : []
+  return (rules.length > 0 ? `\nRule files: ${rules.join(', ')}.` : '') + (skills.length > 0 ? ` Skills: ${skills.map((k) => `~/.claude/skills/${k}/SKILL.md`).join(', ')}.` : '')
 }
 const appFails = run.per_test.filter((t) => (t.outcome === 'fail' || t.outcome === 'error') && t.classification === 'app')
 const fixItems = appFails.map((t, k) => ({
