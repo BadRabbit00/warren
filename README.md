@@ -50,7 +50,7 @@ lives in that agent, not in a rule.
 | Agent | Job | Writes |
 |---|---|---|
 | `researcher` | reads one area of code, returns facts as doc cards | nothing |
-| `architect-critic` | attacks a proposed architecture | nothing |
+| `architect-critic` | attacks a proposed architecture, including the AI-agent harness | nothing |
 | `presenter` | Russian HTML slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | tests from acceptance criteria | test files of its task |
 | `coder`, `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | makes the tests pass (`/br-wave` picks the language coder by file extension, `coder` otherwise) | the task's exclusive write set |
@@ -89,7 +89,7 @@ in `agent-models.json`; the build fails if an agent is missing there.
 
 ## Skills
 
-Own: `architecture-guide`, `auth-service`, `deploy-variants`, `design-system`, `project-docs`,
+Own: `architecture-guide`, `agent-architecture` (AI-agent harness: base + 8 layer guides), `auth-service`, `deploy-variants`, `design-system`, `project-docs`,
 `security-review`, `sops`, `stack-choice`; Nix: `nix-debugging`, `nix-flake-patterns`, `nix-packaging`,
 `nix-testing`, `nix-toolkit`, `nixos-module-patterns`, `project-flake`; services and frontend:
 `python-service`, `frontend-data-layer`, `user-flows`; delivery: `iac` (OpenTofu), `ci-github-actions`,

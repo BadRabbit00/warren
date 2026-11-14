@@ -2,6 +2,13 @@
 
 ## 0.3.0 — unreleased
 
+- Agent architecture: skill `agent-architecture` from Alexey's November 2026 business-agent base and eight
+  harness maps — nine layers, thirteen mechanisms (simple / smart / pitfall), 2026 shifts, take-or-write, three agent
+  types, always / never rules, build order, and layer guides for frameworks, knowledge base, memory, tools and skills,
+  model gateway, protection, channels and handoff, observation and evaluation (each option with good for / bad for,
+  clouds, task table), the rule of two, Kazakhstan data rules and supply-chain red flags. `architect-critic` preloads
+  it, checks every agent's rule-of-two profile and the `agent/<layer>` lines (rule `R-ARCH-AGENT`); the orchestrator
+  loads it at stage 2 when the system has an AI agent or LLM calls.
 - Metrics on demand: agent `metrics-writer` (status `metrics`) adds OpenTelemetry metrics through one connector
   module per service and `/health` + `/ready`; skill `metrics` (Python, Go, Rust templates, semconv names,
   cardinality). Agent `observability-engineer` writes Prometheus, alert and recording rules, Alertmanager and
