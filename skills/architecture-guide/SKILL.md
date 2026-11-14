@@ -80,7 +80,7 @@ search: not needed — catalog of 800 items, Postgres full text covers it
 | Coordination and flags | `layers/coordination.md` | k8s DNS/Lease/ConfigMap and Postgres advisory locks first; flags in config until segments appear |
 | Observability | `layers/observability.md` | OpenTelemetry; RED metrics, JSON logs with `trace_id`, error tracker, external uptime; alert on user symptoms |
 | Realtime and comms | `layers/realtime.md` | SSE from the backend first; email through a delivery service; own media/TURN only with people to run UDP |
-| AI infrastructure | `layers/ai.md` | provider API before own GPUs; all LLM calls through one gateway with tracing and evals; pin AI deps by hash |
+| AI infrastructure | `layers/ai.md` | provider API before own GPUs; all LLM calls through one gateway with tracing and evals; pin AI deps by hash. The harness around the model (agent loop, knowledge, memory, tools, gateway, protection, handoff, evals) is skill `agent-architecture`, which is newer and wins where both speak |
 | Platform and delivery | `layers/platform.md` | k8s only with many services, several teams and an owner; Compose + Kamal / NixOS for 1–3 servers; IaC and tested backups from day one |
 
 Each file has: concepts, Rule 0, classes with every option's licence, status, internals, good-for and bad-for, clouds, and the *Task → default → when to switch* table.
