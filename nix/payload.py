@@ -367,7 +367,9 @@ def main() -> int:
                     if len(parts) != 2 or parts[0] != hook_exe or not (br / "hooks" / f"{parts[1]}.py").is_file():
                         fail(f"hooks.json: bad command {h['command']!r}")
 
-    for d, want in [("skills/architecture-guide/references/layers", 11), ("skills/security-review/references", 5)]:
+    for d, want in [("skills/architecture-guide/references/layers", 11),
+                    ("skills/agent-architecture/references/layers", 8),
+                    ("skills/security-review/references", 5)]:
         count = len(list((claude / d).glob("*.md")))
         if count != want:
             fail(f"{d}: {count} files, expected {want}")
