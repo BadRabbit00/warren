@@ -17,9 +17,9 @@ style and in the subagent contract.
 │   ├── CLAUDE.md                # always-on core for the MAIN session → ~/.claude/CLAUDE.md
 │   └── subagent-contract.md     # injected into EVERY agent right after its frontmatter at build time
 ├── output-styles/orchestrator.md  # the orchestrator; main session only, subagents never see it
-├── agents/                      # 40 subagents → ~/.claude/agents/
-├── rules/                       # 16 path-scoped rules → ~/.claude/rules/br/
-├── skills/                      # 64 skills → ~/.claude/skills/
+├── agents/                      # 32 subagents → ~/.claude/agents/
+├── rules/                       # 17 path-scoped rules → ~/.claude/rules/br/
+├── skills/                      # 69 skills → ~/.claude/skills/
 ├── commands/                    # 23 slash commands → ~/.claude/commands/
 ├── workflows/                   # 9 saved workflows (br-wave, br-review, br-research, br-diagnose, br-debug, br-ci, br-deploy, br-e2e, br-janitor) → ~/.claude/workflows/
 ├── templates/                   # PLAN.md, POLICY.defaults.md, slides.html → ~/.claude/br/templates/
@@ -53,7 +53,7 @@ lives in that agent, not in a rule.
 | `architect-critic` | attacks a proposed architecture, including the AI-agent harness | nothing |
 | `presenter` | Russian HTML slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | tests from acceptance criteria | test files of its task |
-| `coder`, `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | makes the tests pass (`/br-wave` picks the language coder by file extension, `coder` otherwise) | the task's exclusive write set |
+| `coder` | makes the tests pass in any language: the language core arrives as a path rule (`rules/<lang>.md` plus `rules/code.md`), `/br-wave` names the skills for the role and file extension in the brief | the task's exclusive write set |
 | `log-writer` | adds logging after green by skill `logging` (levels, file/function/class, UTC time, masking); behaviour and tests unchanged | the task's exclusive write set (status `log`) |
 | `metrics-writer` | on demand: metrics through one connector module per service (OpenTelemetry), `/health` and `/ready`; behaviour and tests unchanged | the task's exclusive write set (status `metrics`) |
 | `observability-engineer` | Prometheus, alert and recording rules, Alertmanager, Grafana provisioning as files, checked with promtool/amtool; never deploys (hand-off to `/br-deploy`) | the task's exclusive write set (status `green`) |
@@ -61,7 +61,7 @@ lives in that agent, not in a rule.
 | `refactorer` | cleans up with tests green | the task's exclusive write set |
 | `test-runner` | runs the affected tests or the full suite, reports numbers | nothing |
 | `build-fixer` | minimal fix for a broken build or type check | code, never tests |
-| `code-reviewer`, `python-reviewer`, `go-reviewer`, `rust-reviewer`, `ts-react-reviewer`, `flutter-dart-reviewer` | review of a task diff | nothing |
+| `code-reviewer`, `language-reviewer` | review of a task diff: design, scope and over-engineering (`code-reviewer`); the language side for Python, Go, Rust, TypeScript/React and Dart/Flutter by skill `language-review` (`language-reviewer`) | nothing |
 | `db-reviewer`, `security-reviewer`, `optimizer` | data access, security, performance review (`optimizer` measures with skill `profiling`: py-spy, pprof, flamegraph) | nothing (`optimizer`: temp files only) |
 | `ui-verifier` | screenshots at 375/768/1024/1440, both themes | temp folder only |
 | `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
@@ -96,7 +96,7 @@ Own: `architecture-guide`, `agent-architecture` (AI-agent harness: base + 8 laye
 `registry-dockerhub-ghcr`, `cloud-cloudflare`, `cloud-railway`, `cloud-gcp`, `cloud-digitalocean`, `cloud-yandex`;
 CLIs (login check first, every command marked read / effect / mutating): `cli-gh`, `cli-docker`, `cli-cloudflare`,
 `cli-railway`, `cli-doctl`, `cli-gcloud`, `cli-yc`. `cloud-cloudflare/references/official/` vendors the official
-Cloudflare skills (Apache-2.0, license file next to them). The 22 reference skills from ECC are listed below.
+Cloudflare skills (Apache-2.0, license file next to them). The 21 reference skills from ECC are listed below.
 
 ## Rules about code have examples
 
@@ -173,8 +173,8 @@ use them or to dispatch agents by hand, and records the answer in `.plan/PLAN.md
 | `/br-debug` | a reported bug with an unknown cause: reproduction package, N runs, root cause and the failing test to write | none; returns a report, then test-writer and red → green |
 | `/br-janitor` | `survey` lists garbage; `delete` removes only the approved entries, then surveys again | always: the user's «да» on the exact list |
 
-`/br-wave` and `/br-review` first read `.plan/PLAN.md` through `researcher`. A run uses at most 15 agents,
-runners included; a larger wave is split. Every agent runs by `agentType`, so the agent's model pin, the
+`/br-wave` and `/br-review` first read `.plan/PLAN.md` through `researcher`. A `/br-wave` run uses at most 20 agents
+(2 per item + 1 per task + 1), the other workflows 15; a larger wave is split. Every agent runs by `agentType`, so the agent's model pin, the
 subagent contract, `omitClaudeMd` and the br hooks apply inside the workflow too (checked live: a workflow
 `test-writer` writing outside tests is denied by `br-hook`). Workflows never commit, push, deploy or apply, and
 never edit the plan: the orchestrator sets Status before a run, then commits and records the evidence.
@@ -218,14 +218,14 @@ in {
 
 warren (short internal code: `br`, for BadRabbit) started as a rewrite inside a fork of **ECC — Everything Claude Code** by Affaan Mustafa
 ([github.com/affaan-m/ecc](https://github.com/affaan-m/ecc), MIT). Since 0.1.0 this is a standalone
-repository and shares no code with ECC, except these 22 reference skills, copied unchanged under the MIT
+repository and shares no code with ECC, except these 21 reference skills, copied unchanged under the MIT
 licence (see `LICENSE`):
 
 `api-design`, `cost-aware-llm-pipeline`, `dart-flutter-patterns`, `database-migrations`, `docker-patterns`,
 `documentation-lookup`, `e2e-testing`, `golang-patterns`, `homelab-network-readiness`, `homelab-network-setup`,
 `homelab-pihole-dns`, `homelab-vlan-segmentation`, `homelab-wireguard-vpn`, `mcp-server-patterns`,
 `network-config-validation`, `postgres-patterns`, `prompt-caching-strategy`, `react-patterns`,
-`recsys-pipeline-architect`, `redis-patterns`, `rust-patterns`, `vite-patterns`.
+`recsys-pipeline-architect`, `redis-patterns`, `vite-patterns`.
 
 ## Acknowledgement
 

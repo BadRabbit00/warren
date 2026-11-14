@@ -8,7 +8,9 @@ paths:
 
 ## Scope
 
-Go services (Gin, GORM, slog). Layers, DB, and tests have their own rules; this is the language part. `go-reviewer` checks it in depth.
+Go services (Gin, GORM, slog). Layers, DB, and tests have their own rules; this is the language part. `language-reviewer` checks it in depth.
+
+Checks: `go test -race` (touched packages); `go vet ./...`; `golangci-lint run`.
 
 ## Rules
 

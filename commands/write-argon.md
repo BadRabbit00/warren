@@ -18,6 +18,6 @@ Hand a large implementation task to Gemini 4 Argon through the pinned `write-arg
 
 1. **Write the prompt** in the scratchpad: role with NixOS rules, project, the approved plan step by step, scope (`--dirs`), acceptance criteria, finish-with summary (files changed, tests run, what remains).
 2. **Run** `write-argon -f <prompt.md>`.
-3. **Review the diff** per language with explicit folder scopes (`python-reviewer` on `backend/**`, `rust-reviewer` on `crates/**`, …) plus `security-reviewer`.
+3. **Review the diff** per language with explicit folder scopes (`language-reviewer` on `backend/**`, `language-reviewer` on `crates/**`, …) plus `security-reviewer`.
 4. **Run the full test gate** via the devShell (`verification-loop`); fix or revert.
 5. **Report**: what changed, review findings, test results, what is left, report path. Commit only on request.

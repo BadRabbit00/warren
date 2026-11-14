@@ -71,19 +71,19 @@ Subagents see nothing of this conversation, this style, or the core rules. Each 
 | `architect-critic` | attacks a proposed architecture: load, data, failure, cost; the AI-agent harness (rule of two, rights, data, evals) | nothing |
 | `presenter` | slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | failing tests from acceptance criteria | `Tests (test-writer)` of tasks in `red` |
-| `coder` | makes the tests pass | `Writes (exclusive)` of tasks in `green` |
+| `coder` | makes the tests pass; the only code executor for every language | `Writes (exclusive)` of tasks in `green` |
 | `log-writer` | adds logging after green by skill `logging` | `Writes (exclusive)` of tasks in `log` |
 | `refactorer` | cleans up with tests green, behaviour unchanged | `Writes (exclusive)` of tasks in `refactor` |
 | `test-runner` | runs the tests affected by the diff, or the full suite | nothing |
 | `build-fixer` | minimal fix for a broken build or type check; Nix → `nix-build-resolver` | code, never tests |
-| `code-reviewer` + `python-reviewer` / `go-reviewer` / `rust-reviewer` / `ts-react-reviewer` / `flutter-dart-reviewer` / `nix-reviewer` | review of the task diff | nothing |
+| `code-reviewer` + `language-reviewer` (language side of the diff for Python, Go, Rust, TypeScript/React, Dart/Flutter; reads skill `language-review`) + `nix-reviewer` | review of the task diff | nothing |
 | `db-reviewer` | models, queries, migrations, by data criticality and load | nothing |
 | `security-reviewer` | auth, input, secrets, files, network, supply chain | nothing |
 | `optimizer` | cache, objects, async, external calls on the wave diff; measures with skill `profiling` | nothing |
 | `metrics-writer` | metrics through one connector module + /health, /ready; on demand | `Writes (exclusive)` of tasks in `metrics` |
 | `observability-engineer` | Prometheus/alert/Grafana config, checked, never deploys | `Writes (exclusive)` of tasks in `green` |
 | `bug-reproducer`, `repro-runner`, `root-cause-analyst` | reproduce a bug, run it N times, find the root cause; via `/br-debug` | temp only |
-| `ui-verifier` | screenshots at 375/768/1024/1440, both themes | nothing |
+| `ui-verifier` | product UI only: screenshots at 375/768/1024/1440, both themes. Slide decks by `presenter` (`.plan/PLAN.html`, `docs/slides/**`) are never sent to it or screenshotted; the user reports a broken slide and `presenter` fixes it | nothing |
 | `nix-architect`, `nix-engineer`, `nix-reviewer`, `nix-build-resolver`, `nix-test-runner` | Nix work | per brief |
 
 If an agent you need is not installed (`~/.claude/agents/`), tell the user which step is affected and propose a fallback. Writing the code yourself is never the fallback.
@@ -127,9 +127,9 @@ Nine saved workflows, each a slash command.
 | `/br-debug` | a reported bug whose cause is unknown: reproduce, run N times, root cause | none; returns a report; next: test-writer writes the failing test, then red → green |
 | `/br-janitor` | after a stand or task: `survey` lists garbage and outdated docs; `delete` removes only the approved entries, then a confirming survey | always: the user's «да» on the exact list |
 
-- **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; log/fix-log → `log-writer`; green/fix-code → coder by file extension: .py `python-coder`, .go `go-coder`, .ts/.tsx/.js/.jsx `ts-coder`, .rs `rust-coder`, else `coder`; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first).
+- **Manifest.** Write it into the plan under `## Manifest <wave-id>` as a json block, then run `/br-wave` with `args = { wave: "<wave-id>" }`. Items: `id`, `task`, `step`, `agent` (optional: red/fix-tests → `test-writer`; log/fix-log → `log-writer`; green/fix-code → `coder` for every extension; refactor → `refactorer`; check → `test-runner`), `files` (the part's write set), `brief`, `after` (ids that finish first). Optional `expect_green` (new tests that must pass) and `needs_login` (CLIs whose login is checked first). `/br-wave` adds `rules/code.md`, the language rule and the skills of the (role, extension) table to each brief; the task `Skills` go to green, fix-code, refactor and the language review.
 - **Parts (two-level split).** The plan groups overlapping or dependent subtasks into a task; disjoint tasks run in parallel. At dispatch, re-split each ready task into parts by disjoint files, each sized to one agent: more than ~5 test files or one huge file → several test-writers; weakly coupled groups → one coder each; a shared file is owned by exactly one part; the base-building part goes first (`after`). Write the parts into the task's `Parts` field.
-- **Size.** One run per wave, at most 15 agents counting the runners; more → split the wave.
+- **Size.** One `/br-wave` run per wave, at most 20 agents counting the runners (2 per item + 1 per task + 1); split a wave only above that, never into several runs to fit a lower number.
 - **Ad hoc runs** (stand, e2e, research) may be written for the case, but the script is saved in `workflows/` and passes the validator.
 - **Checkpoint review.** At G4 place `## Checkpoint <id>` in the plan after risky steps and important tasks (security, contracts, data, money): tasks covered, risky paths, db flag, migration paths. Run `/br-review` with `args = { checkpoint: "<id>" }` in the background; coding continues. Its `fix_items` become fix items (`fix-code`, `fix-tests`) of the next manifest.
 - **Metrics and observability** are on demand, not a `/br-wave` default step: set the task to `metrics`, dispatch `metrics-writer`, `test-runner` green with the hash unchanged, commit `feat(Tn): metrics`. After `observability-engineer`, deploy goes through `/br-deploy`.
@@ -201,7 +201,7 @@ Loop for one task (tests first):
 2. **Green.** Status `green` → `coder`. `test-runner` on the affected tests → all pass, none skipped. Hash unchanged, or reject the step. Commit the write set: `feat(T3): …`.
 3. **Log.** Status `log` → `log-writer`. `test-runner` → green; hash unchanged. Commit: `feat(T3): logging`.
 4. **Refactor.** Status `refactor` → `refactorer`. `test-runner` → green; hash unchanged. Commit: `refactor(T3): …`.
-5. **Review.** Status `review` → in parallel: `code-reviewer`; the language reviewer(s) for the touched files; `db-reviewer` if models, queries, or migrations changed; `security-reviewer` if auth, input handling, secrets, files, or network calls changed; `ui-verifier` for visual changes. `must fix` → status `green` (logging findings: `log`, back to `log-writer`), back to `coder` with the findings. Two failed rounds → stop and ask the user. `suboptimal` → `Follow-ups`.
+5. **Review.** Status `review` → in parallel: `code-reviewer`; `language-reviewer`; `db-reviewer` if models, queries, or migrations changed; `security-reviewer` if auth, input handling, secrets, files, or network calls changed; `ui-verifier` for visual changes of product UI only. `must fix` → status `green` (logging findings: `log`, back to `log-writer`), back to `coder` with the findings. Two failed rounds → stop and ask the user. `suboptimal` → `Follow-ups`.
 5. **Docs.** Apply the doc updates the review named; remove 🆕 / 🗑️ for what is now real.
 6. **Done.** Status `done`, evidence filled.
 

@@ -338,19 +338,14 @@ if (!run) {
   return { stopped: true, problems: ['final test-runner returned nothing'], report_dir: dir, flows_path: flowsPath }
 }
 
-// fix_items in the /br-wave manifest-item shape; the agent follows the file extension, the task is filled by the orchestrator.
-const byExt = { '.py': 'python-coder', '.go': 'go-coder', '.ts': 'ts-coder', '.tsx': 'ts-coder', '.js': 'ts-coder', '.jsx': 'ts-coder', '.rs': 'rust-coder' }
-function extOf(f) {
-  const base = f.split('/').pop()
-  const i = base.lastIndexOf('.')
-  return i < 0 ? '' : base.slice(i)
-}
+// fix_items in the /br-wave manifest-item shape; the agent is coder, the task is filled by the orchestrator.
+// /br-wave adds the rule files and skills from item.files when it runs them.
 const appFails = run.per_test.filter((t) => (t.outcome === 'fail' || t.outcome === 'error') && t.classification === 'app')
 const fixItems = appFails.map((t, k) => ({
   id: `e2e-fix-${k + 1}`,
   task: '',
   step: 'fix-code',
-  agent: byExt[extOf(t.file)] || 'coder',
+  agent: 'coder',
   files: t.file === '' ? [] : [t.file],
   after: [],
   brief: `e2e ${t.phase} test ${t.name} fails because of the application: ${t.message}`,

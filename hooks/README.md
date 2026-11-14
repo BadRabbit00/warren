@@ -24,7 +24,6 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | main thread (orchestrator) | anything | `docs/**`, `.plan/**`, `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `.claude/rules/**` |
 | `test-writer` | only test paths | only `Tests (test-writer)` of tasks with status `red` (the union when several tasks are `red`) |
 | `coder` | anything except test paths | only `Writes (exclusive)` of tasks with status `green` |
-| `python-coder`, `go-coder`, `ts-coder`, `rust-coder` | same as `coder` | same as `coder` (step `green`) |
 | `deploy-engineer` | anything except test paths | only `Writes (exclusive)` of tasks with status `green`, like `coder` |
 | `ci-engineer` | anything except test paths; may edit linter/formatter/type-check configs | only `Writes (exclusive)` of tasks with status `green`; configs only if inside that write set |
 | `refactorer` | anything except test paths | only `Writes (exclusive)` of tasks with status `refactor` |
@@ -34,7 +33,7 @@ Code: `brhooks/common.py` (event, decisions, PLAN.md parser), `bash_checks.py`, 
 | `build-fixer` | anything except test paths | same, not limited by the plan |
 | `presenter` | `docs/slides/**`, `.plan/PLAN.html` | same |
 | `bug-reproducer`, `repro-runner`, `root-cause-analyst`, `optimizer` | only temp files (`/tmp`, scratchpad) | same |
-| `deploy-error-reader`, `log-collector`, `web-researcher`, `stand-operator`, `janitor` | nothing (no Write/Edit) | nothing |
+| `deploy-error-reader`, `log-collector`, `web-researcher`, `stand-operator`, `janitor`, `language-reviewer` | nothing (no Write/Edit) | nothing |
 | any other subagent | nothing outside the project (temp dirs are fine) | same |
 
 Status in a task card is read tolerantly: backticks and trailing words are ignored (`` `red` ``, `red (round 2)` both mean `red`).

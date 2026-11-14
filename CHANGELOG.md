@@ -9,6 +9,22 @@
   clouds, task table), the rule of two, Kazakhstan data rules and supply-chain red flags. `architect-critic` preloads
   it, checks every agent's rule-of-two profile and the `agent/<layer>` lines (rule `R-ARCH-AGENT`); the orchestrator
   loads it at stage 2 when the system has an AI agent or LLM calls.
+- One agent per role, languages as rules and skills: the four language coders and five language reviewers are
+  removed; `coder` writes every language, the new read-only `language-reviewer` (skill `language-review`, one
+  reference per language) reviews the language side. The language core is the path rule `rules/<lang>.md` with a
+  `Checks:` line; `rules/code.md` adds 14 language-neutral shape rules. `/br-wave` names the rule files and the
+  skills for the role and file extension in every brief and runs up to 20 agents; `/br-review` runs
+  `language-reviewer` with the skills of the tasks that own the reviewed paths.
+- Rust: `rules/rust.md` rewritten (47 rules: panic policy, errors, ownership, unsafe, numbers) and nine skills —
+  `rust-async`, `rust-design`, `rust-idioms`, `rust-serde`, `rust-macros`, `rust-testing`, `rust-perf`,
+  `rust-docs`, `rust-project` — proof-read from leonardomso/rust-skills and Microsoft Pragmatic Rust Guidelines
+  (both MIT, see `LICENSE` and each skill's `NOTICE.md`); `rust-patterns` is removed; the Rust logging reference
+  gains three rules.
+- `code-reviewer` blocks over-engineering (HIGH) and gets four more rules derived from Google Engineering
+  Practices (CC BY 3.0); `architecture-guide` §3.2 describes how services in different languages connect (gRPC,
+  HTTP + OpenAPI, broker, FFI).
+- Hooks: `language-reviewer` is read-only; read-only agents are refused Bash writes to unresolved targets
+  (`$VAR`, command substitution). The orchestrator style never sends slide decks to `ui-verifier`.
 - Metrics on demand: agent `metrics-writer` (status `metrics`) adds OpenTelemetry metrics through one connector
   module per service and `/health` + `/ready`; skill `metrics` (Python, Go, Rust templates, semconv names,
   cardinality). Agent `observability-engineer` writes Prometheus, alert and recording rules, Alertmanager and

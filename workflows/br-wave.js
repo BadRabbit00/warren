@@ -7,9 +7,20 @@ export const meta = {
 }
 
 const STEPS = ['red', 'green', 'log', 'refactor', 'fix-tests', 'fix-code', 'fix-log', 'check']
-const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder', 'python-coder', 'go-coder', 'ts-coder', 'rust-coder',
+const ALLOWED = ['test-writer', 'test-runner', 'refactorer', 'coder',
   'log-writer', 'build-fixer', 'nix-engineer', 'nix-test-runner', 'optimizer', 'ui-verifier']
-const MAX_AGENTS = 15
+const MAX_AGENTS = 20
+// (role, extension) -> skills; this is the only copy of the table (br-review.js and br-e2e.js take skills from the plan). Role is the agent name; `code` is the
+// table for code steps (green, fix-code, refactor).
+const WEB = ['react-patterns', 'vite-patterns', 'frontend-data-layer']
+const SKILLS_BY_ROLE = {
+  'test-writer': { '.rs': ['rust-testing'] },
+  refactorer: { '.rs': ['rust-docs'] },
+  optimizer: { '.rs': ['rust-perf'] },
+  code: { '.dart': ['dart-flutter-patterns'], '.py': ['python-service'], '.go': ['golang-patterns'], '.ts': WEB, '.tsx': WEB, '.js': WEB, '.jsx': WEB },
+}
+const RULES_BY_EXT = { '.py': '~/.claude/rules/br/python.md', '.go': '~/.claude/rules/br/go.md', '.rs': '~/.claude/rules/br/rust.md', '.ts': '~/.claude/rules/br/ts-react.md', '.tsx': '~/.claude/rules/br/ts-react.md', '.js': '~/.claude/rules/br/ts-react.md', '.jsx': '~/.claude/rules/br/ts-react.md', '.dart': '~/.claude/rules/br/dart.md' }
+const CODE_STEPS = ['green', 'fix-code', 'refactor']
 const strArr = { type: 'array', items: { type: 'string' } }
 
 const WORK_SCHEMA = {
@@ -151,19 +162,13 @@ function extOf(f) {
   return i < 0 ? '' : base.slice(i)
 }
 
-function coderFor(files) {
-  const byExt = { '.py': 'python-coder', '.go': 'go-coder', '.ts': 'ts-coder', '.tsx': 'ts-coder', '.js': 'ts-coder', '.jsx': 'ts-coder', '.rs': 'rust-coder' }
-  const names = [...new Set(files.map((f) => byExt[extOf(f)] || 'coder'))]
-  return names.length === 1 ? names[0] : 'coder'
-}
-
 function agentFor(item) {
   if (item.agent) return item.agent
   if (item.step === 'red' || item.step === 'fix-tests') return 'test-writer'
   if (item.step === 'refactor') return 'refactorer'
   if (item.step === 'log' || item.step === 'fix-log') return 'log-writer'
   if (item.step === 'check') return 'test-runner'
-  return coderFor(item.files)
+  return 'coder'
 }
 
 function neededStatus(step) {
@@ -283,8 +288,19 @@ async function snapshot(items) {
   return null
 }
 
+function skillsFor(task, item) {
+  const exts = [...new Set(item.files.map(extOf))]
+  const tables = [SKILLS_BY_ROLE[agentFor(item)] || {}]
+  const code = CODE_STEPS.includes(item.step)
+  if (code) tables.push(SKILLS_BY_ROLE.code)
+  const own = exts.flatMap((e) => tables.flatMap((t) => t[e] || []))
+  return [...new Set([...(code ? task.skills : []), ...own])]
+}
+
 function workBrief(task, item) {
-  const skills = task.skills.map((s) => `~/.claude/skills/${s}/SKILL.md`).join(', ')
+  const skills = skillsFor(task, item).map((s) => `~/.claude/skills/${s}/SKILL.md`).join(', ')
+  const langRules = [...new Set(item.files.map((f) => RULES_BY_EXT[extOf(f)]).filter(Boolean))]
+  const rules = langRules.length > 0 ? ['~/.claude/rules/br/code.md', ...langRules] : []
   const logging = item.step === 'log' || item.step === 'fix-log'
   return [
     `Task: ${task.id} — ${task.name}; part ${item.id} (${item.step})`,
@@ -293,6 +309,7 @@ function workBrief(task, item) {
     `Read first: .plan/PLAN.md#${task.id.toLowerCase()}, ${task.reads.join(', ')}; skills (read them before starting): ${skills || 'none'}${logging ? ', ~/.claude/skills/logging/SKILL.md' : ''}`,
     'Acceptance criteria:',
     ...task.acceptance.map((a) => `- ${a}`),
+    ...(rules.length > 0 ? [`Rule files (read them before starting): ${rules.join(', ')}`] : []),
     `Part brief: ${item.brief}`,
     'Rules: do not commit, do not edit .plan/PLAN.md; the orchestrator does both. The write hook scopes by the plan Status of the task, which the orchestrator already set.',
     item.step === 'red' || item.step === 'fix-tests'

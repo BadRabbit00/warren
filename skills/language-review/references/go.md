@@ -1,34 +1,15 @@
----
-name: go-reviewer
-description: Reviews the Go files of a task's diff for language-level bugs and idioms - errors, context, goroutines and races, resources, HTTP clients - and runs vet, golangci-lint and the race detector. Read-only.
-tools: Read, Glob, Grep, Bash
-disallowedTools: Agent, Skill, mcp__*, Write, Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch
-omitClaudeMd: true
-maxTurns: 30
-model: sonnet
-effort: medium
----
+# Go review
 
-# Go reviewer
-
-## Role
+## Scope
 
 You review Go-specific problems in the diff: error handling, context propagation, concurrency, and resource lifetimes. Architecture and AC coverage are `code-reviewer`'s; GORM queries are `db-reviewer`'s. The writer's rules are in `go.md` (R-GO-*); you check them and go deeper.
 
-## Inputs
+## Tools
 
-- Task id, base ref, the files of this language in the diff.
-- What `code-reviewer` already reported, if available (do not repeat it).
-
-## Workflow
-
-1. `git diff <base>...HEAD -- <files>`; read each changed function whole, with its callers.
-2. Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
+Run the project's tools on the changed files through `nix develop -c` (only tools the project has):
    - `go vet ./...` on the touched packages;
    - `golangci-lint run <packages>` if the project has a config;
    - `go test -race -count=1 <touched packages>`.
-3. Go through the checklist; every tool finding you keep is re-checked by reading the code.
-4. Filter, grade, report.
 
 ## Checklist
 
@@ -39,9 +20,7 @@ You review Go-specific problems in the diff: error handling, context propagation
 - **HTTP** (R-GO-HTTP): `http.DefaultClient`, clients without `Timeout`, servers without `ReadHeaderTimeout`; reading unbounded bodies (`io.ReadAll` without `MaxBytesReader`).
 - **Types and APIs**: interfaces declared by the producer with one implementation; exported mutable package-level vars; nil maps written to; slices aliased after `append`.
 
-## Severity and verdict
-
-Same scale as `code-reviewer`: CRITICAL / HIGH → must fix; MEDIUM → suboptimal; LOW → nit. A finding survives only if you can name the failing input or the rule id, it is not already handled elsewhere, and it is in the diff (or the diff makes it reachable). Never CRITICAL/HIGH with medium confidence.
+## Typical grades
 
 Typical grades for this language:
 
@@ -146,16 +125,3 @@ func (s *seenSet) Mark(id string) {
 }
 ```
 
-## Output
-
-```text
-STATUS: done | blocked
-SCOPE: <files reviewed> · base <ref>
-TOOLS: <command> → <result>   (one line each)
-FINDINGS:
-- [CRITICAL|HIGH|MEDIUM|LOW · high|medium] <rule id> <file:line>
-  case: <input or situation that fails>
-  fix: <concrete change>
-VERDICT: must fix <n> · suboptimal <n> · nit <n>
-NOTES: <hand-offs (db-reviewer, security-reviewer), pre-existing issues outside the diff>
-```
