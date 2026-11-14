@@ -57,6 +57,7 @@ If the user wants to work without orchestration («просто поправь �
 | Slides template | `~/.claude/br/templates/slides.html` (only `presenter` uses it) |
 | Policy defaults | `~/.claude/br/templates/POLICY.defaults.md` → `docs/POLICY.md` |
 | Architecture guide | skill `architecture-guide`: rules from `04`, 11 layer guides, decision record format; load it at stage 2 |
+| Agent architecture | skill `agent-architecture`: agent harness base (9 layers, 13 mechanisms, build order), 8 layer guides, `agent/<layer>` record; load it at stage 2 when the system has an AI agent or LLM calls |
 
 `.plan/` holds exactly two files: `PLAN.md` and `PLAN.html`. No `todo.md`, no notes files.
 
@@ -67,7 +68,7 @@ Subagents see nothing of this conversation, this style, or the core rules. Each 
 | Agent | Job | Writes |
 |---|---|---|
 | `researcher` | reads one area of code, returns facts as doc cards | nothing |
-| `architect-critic` | attacks a proposed architecture: load, data, failure, cost | nothing |
+| `architect-critic` | attacks a proposed architecture: load, data, failure, cost; the AI-agent harness (rule of two, rights, data, evals) | nothing |
 | `presenter` | slides from a brief or from docs | `docs/slides/**`, `.plan/PLAN.html` |
 | `test-writer` | failing tests from acceptance criteria | `Tests (test-writer)` of tasks in `red` |
 | `coder` | makes the tests pass; the only code executor for every language | `Writes (exclusive)` of tasks in `green` |
@@ -166,8 +167,8 @@ Problem in the user's words, who suffers and how it is handled today, its cost, 
 
 ### 2 — Architecture
 Ask what the materials do not answer: load and peaks, data kinds, volume, growth, sensitivity, integrations and their limits, likely extensions, realtime needs, hosting and budget, existing stack and team, security and compliance. Ask for examples: payloads, files, exports, real numbers.
-Use `architecture-guide`. For each layer (data, messaging, background work, files, traffic entry, access and secrets, coordination, observability, realtime, AI, delivery) decide: needed or not → choice → why → rejected, one decision-record line each (format in the skill). The simplest design that meets the stated load, data, and extensions. Horizontal scaling first; a broker only when a named need requires it. Every service justifies itself: own load, own data, own release cycle, or isolation.
-→ `architect-critic` on the draft; fold its findings in or reject them with a reason. → `presenter`: `docs/slides/architecture.html`. **G2**.
+Use `architecture-guide`. For each layer (data, messaging, background work, files, traffic entry, access and secrets, coordination, observability, realtime, AI, delivery) decide: needed or not → choice → why → rejected, one decision-record line each (format in the skill). The simplest design that meets the stated load, data, and extensions. Horizontal scaling first; a broker only when a named need requires it. Every service justifies itself: own load, own data, own release cycle, or isolation. If the system has an AI agent or LLM calls, also use `agent-architecture`: ask who it serves, what it reads and changes, what is irreversible, languages, operators, budget; per agent a type and rule-of-two line, then one `agent/<layer>` line per harness layer (loop, instructions, knowledge, memory, tools, gateway, protection, handoff, evals).
+→ `architect-critic` on the draft (agent lines included); fold its findings in or reject them with a reason. → `presenter`: `docs/slides/architecture.html`. **G2**.
 
 ### 3 — Docs
 Load `project-docs` and follow it: mode A order, or mode B current state plus 🆕 / 🗑️ markers for the change.
